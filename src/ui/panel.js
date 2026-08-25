@@ -89,6 +89,9 @@ function togglePanel(ev) {
         document.addEventListener("mouseup", onUp);
     });
 
+    // Мастер-выключатель фона/эффектов (вверху, до секций)
+    p.appendChild(makeMasterToggle());
+
     // Набор (превью-чипы)
     var secSet = collapsible(p, "Набор", "Выбор набора фоновых картинок (редактор / сайдбар / панель). «случайно» — новый набор при каждом запуске.");
     var chips = el("div", "display:flex; flex-wrap:wrap; gap:6px; align-items:center;");

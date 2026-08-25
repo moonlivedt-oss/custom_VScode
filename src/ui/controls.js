@@ -1,24 +1,7 @@
-// ===== Базовый конструктор элемента =====
-function el(tag, css, text) {
-    var e = document.createElement(tag);
-    if (css) e.style.cssText = css;
-    if (text != null) e.textContent = text;
-    return e;
-}
-function section(t) {
-    return el("div", "margin:12px 2px 6px; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.7px; color:#7f849c;", t);
-}
-// Делает div-«кнопку» доступной с клавиатуры: фокусируется и активируется Enter/Space
-// (клик-логика переиспользуется через node.click()). role/aria — для скринридеров.
-function keyActivate(node, label) {
-    node.setAttribute("role", "button");
-    node.setAttribute("tabindex", "0");
-    if (label) node.setAttribute("aria-label", label);
-    node.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") { e.preventDefault(); node.click(); }
-    });
-    return node;
-}
+// ===== Построители контролов панели =====
+// Каждая функция make* возвращает готовый DOM-контрол (слайдер / чекбокс / селект / чип),
+// привязанный к соответствующему полю cfg. Изменения применяются через apply / applyThrottled
+// (мгновенно/троттлингом) или applyFade (со сменой набора). Тексты подсказок берутся из INFO.
 
 // health-check: помечаем чип, если картинка набора не грузится
 function probeSet(idx, chip) {
@@ -35,7 +18,7 @@ function probeSet(idx, chip) {
     });
 }
 
-// чип набора с превью-миниатюрой
+// чип набора с превью-миниатюрой (мини-триптих зон)
 function makeChip(mode, label) {
     var active = cfg.mode === mode, isSet = mode !== "random";
     var css = isSet
@@ -272,6 +255,25 @@ function makeSlideToggle() {
     return row;
 }
 
+// ==== Мастер-выключатель фона и эффектов (cfg.enabled) ====
+// Заметный тумблер вверху панели: выкл — «ванильный» VS Code, настройки сохранены.
+function makeMasterToggle() {
+    var row = el("label",
+        "display:flex; align-items:center; gap:8px; padding:8px 10px; margin:2px 2px 4px; border-radius:8px; cursor:pointer;" +
+        "background:rgba(var(--mlbg-accent-rgb),0.12); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);");
+    var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer; transform:scale(1.15);");
+    cb.type = "checkbox"; cb.checked = cfg.enabled !== false;
+    var txt = el("span", "flex:1 1 auto; font-weight:700; letter-spacing:0.2px;", cfg.enabled !== false ? "Фон и эффекты включены" : "Фон и эффекты выключены");
+    cb.addEventListener("change", function () {
+        cfg.enabled = cb.checked;
+        txt.textContent = cb.checked ? "Фон и эффекты включены" : "Фон и эффекты выключены";
+        apply();
+    });
+    row.appendChild(cb); row.appendChild(txt);
+    var d = infoDot(INFO.enabled); if (d) row.appendChild(d);
+    return row;
+}
+
 // ==== Авто-набор по времени суток (cfg.autoTime) ====
 // Тумблер «включить» + два выпадающих списка: набор для дня и для ночи.
 // Днём (8:00–20:00) активируется дневной набор, ночью — ночной (см. timeTick).
@@ -310,92 +312,6 @@ function makeSetPicker(which, label) {
     return wrap;
 }
 
-// ===== Тексты подсказок («?») =====
-var INFO = {
-    accent: "Акцентный цвет интерфейса (курсор, скроллбар, вкладки, рамки…). Свой для каждого набора: правка применяется к активному набору, у остальных — их цвета.",
-    autoDim: "Автоматически занижает яркость фоновой картинки редактора, если она светлая, чтобы код оставался читаемым. Не меняет саму настройку яркости.",
-    img_fit: "Как вписывать фоновую картинку в зону: «Заполнить» (cover) — обрезая по краям; «Целиком» (contain) — вся картинка, могут быть поля. Для портретных/«тушь на белом» удобнее contain.",
-    img_zone: "Для какой зоны настраиваются фильтры ниже. У каждой зоны свои значения. «Панель/терминал» — фон нижней панели за терминалом.",
-    img_brightness: "Яркость самой фоновой картинки (не интерфейса).",
-    img_saturate: "Насыщенность цветов фоновой картинки (0 — ч/б, 2 — сочно).",
-    img_blur: "Размытие самой фоновой картинки, px.",
-    slide_on: "Автоматически менять набор по кругу через заданный интервал.",
-    slide_min: "Через сколько минут переключать набор в режиме слайдшоу.",
-    autotime_on: "Автоматически переключать набор по времени суток: днём (8:00–20:00) — дневной набор, ночью — ночной. Не работает в режиме «случайно»; при включении отменяет слайдшоу.",
-    op_editor: "Насколько ярко проступает фоновая картинка за кодом редактора.",
-    op_side: "Прозрачность фоновой картинки сайдбара (проводник и пр.).",
-    op_panel: "Прозрачность фоновой картинки нижней панели (терминал/проблемы/вывод).",
-    fxp_blur: "Сила размытия «матового стекла» (вкладки, панели, статусбар).",
-    fxp_kbScale: "Максимальный масштаб анимации Ken Burns (медленный зум фона).",
-    fxp_kbSpeed: "Длительность одного цикла Ken Burns, секунды.",
-    fxp_vignette: "Сила затемнения по краям редактора (виньетка).",
-    fxp_partCount: "Сколько летящих частиц рисовать (если эффект «Частицы» включён).",
-    fxp_pomoMin: "Длительность одного помидора (таймера), минуты.",
-    fx_kenburns: "Медленный плавный зум фоновой картинки редактора.",
-    fx_glassTabs: "Полупрозрачный матовый фон полосы вкладок.",
-    fx_vignette: "Затемнение по краям области редактора.",
-    fx_glassSide: "Матовое стекло для сайдбара и панели.",
-    fx_scrim: "Лёгкая тень под текстом кода для читаемости поверх фона.",
-    fx_glassStatus: "Матовое стекло для нижнего статусбара.",
-    fx_activeLine: "Подсветка текущей строки акцентным цветом.",
-    fx_groupRing: "Внутренний контур активной группы редакторов.",
-    fx_groupBorder: "Анимированная «живая» рамка активной группы.",
-    fx_scrollbar: "Акцентный цвет ползунка скроллбара.",
-    fx_activityBg: "Фоновая картинка за вертикальным актив-баром.",
-    fx_tabAccent: "Акцентная полоска под активной вкладкой.",
-    fx_rounded: "Скруглённые углы у меню, подсказок и тостов.",
-    fx_cursorGlow: "Свечение вокруг курсора в редакторе.",
-    fx_selection: "Градиентная заливка выделенного текста.",
-    fx_titlebar: "Градиентная подсветка заголовка окна.",
-    fx_splash: "Картинка-заставка в пустой группе редактора.",
-    fx_clock: "Часы с датой в статусбаре.",
-    fx_particles: "Летящие частицы поверх интерфейса.",
-    fx_pomodoro: "Таймер-помидор в статусбаре (клик — старт/пауза, Alt+клик — сброс).",
-    term_font: "Шрифт терминала. В списке — совместимые по ширине Nerd-шрифты, чтобы не разъезжались колонки и сохранялись иконки oh-my-posh.",
-    term_ligatures: "Слитное начертание пар символов (->, =>, != и т.п.).",
-    term_cursorGlow: "Ореол-свечение вокруг курсора терминала.",
-    term_glow: "Сила тени под текстом терминала для читаемости поверх фоновой картинки.",
-    term_weight: "Толщина шрифта терминала. Жирный текст остаётся заметно жирнее базового.",
-    term_cursorColor: "Цвет курсора терминала.",
-    term_selColor: "Цвет выделения текста в терминале.",
-    term_cursorSize: "Ширина курсора терминала: 0 — скрыть курсор, 1 — обычная, больше — шире. Заметнее всего на курсоре-линии (cursorStyle: line).",
-    term_cursorHeight: "Высота курсора терминала: 1 — обычная, меньше — короче, больше — выше ячейки."
-};
-
-// ===== Всплывающая подсказка «?» =====
-var _infoPop = null, _infoAnchor = null;
-function hideInfo() {
-    if (_infoPop) { _infoPop.remove(); _infoPop = null; _infoAnchor = null; document.removeEventListener("mousedown", _infoOutside, true); }
-}
-function _infoOutside(e) { if (_infoPop && e.target !== _infoAnchor && !_infoPop.contains(e.target)) hideInfo(); }
-function showInfo(anchor, text) {
-    if (_infoAnchor === anchor) { hideInfo(); return; } // повторный клик — закрыть
-    hideInfo();
-    var pop = el("div",
-        "position:fixed; z-index:100003; max-width:250px; padding:8px 11px; border-radius:9px;" +
-        "background:rgba(17,17,27,0.99); color:#cdd6f4; font-size:11px; line-height:1.45;" +
-        "border:1px solid rgba(var(--mlbg-accent-rgb),0.45); box-shadow:0 10px 30px rgba(0,0,0,0.6);", text);
-    document.body.appendChild(pop);
-    var r = anchor.getBoundingClientRect(), pr = pop.getBoundingClientRect();
-    var left = Math.min(r.left, window.innerWidth - pr.width - 8);
-    var top = r.bottom + 6;
-    if (top + pr.height > window.innerHeight - 8) top = r.top - pr.height - 6;
-    pop.style.left = Math.max(8, left) + "px";
-    pop.style.top = Math.max(8, top) + "px";
-    _infoPop = pop; _infoAnchor = anchor;
-    setTimeout(function () { document.addEventListener("mousedown", _infoOutside, true); }, 0);
-}
-function infoDot(text) {
-    if (!text) return null;
-    var d = el("span",
-        "flex:0 0 auto; width:15px; height:15px; line-height:15px; text-align:center; border-radius:50%;" +
-        "font-size:10px; font-weight:700; cursor:help; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.16);" +
-        "border:1px solid rgba(var(--mlbg-accent-rgb),0.4); user-select:none;", "?");
-    d.addEventListener("click", function (e) { e.stopPropagation(); e.preventDefault(); showInfo(d, text); });
-    keyActivate(d, "Пояснение");
-    return d;
-}
-
 // ===== Сворачиваемая секция =====
 function collapsible(parent, title, info) {
     var collapsed = !!(cfg.ui.collapsed && cfg.ui.collapsed[title]);
@@ -423,67 +339,4 @@ function collapsible(parent, title, info) {
     wrap.appendChild(head); wrap.appendChild(body);
     parent.appendChild(wrap);
     return body;
-}
-
-// ===== Экспорт / импорт настроек =====
-function toast(msg, ok) {
-    var t = el("div",
-        "position:fixed; bottom:44px; right:16px; z-index:100004; padding:9px 13px; border-radius:9px;" +
-        "font-weight:600; font-family:var(--vscode-font-family,sans-serif); box-shadow:0 8px 24px rgba(0,0,0,0.5);", msg);
-    t.style.background = ok === false ? "rgba(243,139,168,0.96)" : "rgba(166,227,161,0.96)";
-    t.style.color = "#181825";
-    document.body.appendChild(t);
-    setTimeout(function () { t.remove(); }, 3200);
-}
-function copyText(s) {
-    try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(s); return true; } } catch (e) {}
-    try {
-        var ta = document.createElement("textarea"); ta.value = s; ta.style.position = "fixed"; ta.style.opacity = "0";
-        document.body.appendChild(ta); ta.select(); var ok = document.execCommand("copy"); ta.remove(); return ok;
-    } catch (e) { return false; }
-}
-function exportCfg() {
-    var json = JSON.stringify(cfg, null, 2);
-    var saved = false;
-    try {
-        var blob = new Blob([json], { type: "application/json" });
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement("a"); a.href = url; a.download = "moonlight-bg-config.json";
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
-        saved = true;
-    } catch (e) {}
-    var copied = copyText(json);
-    toast(saved && copied ? "Экспорт: файл сохранён + в буфере обмена"
-        : saved ? "Экспорт: файл сохранён" : copied ? "Экспорт: скопировано в буфер" : "Не удалось выгрузить", (saved || copied));
-}
-function importCfg() {
-    var inp = document.createElement("input");
-    inp.type = "file"; inp.accept = "application/json,.json"; inp.style.display = "none";
-    inp.addEventListener("change", function () {
-        var f = inp.files && inp.files[0]; if (!f) { inp.remove(); return; }
-        // Конфиг весит килобайты — отсекаем заведомо чужие/огромные файлы до чтения в память.
-        if (f.size > 256 * 1024) { toast("Файл слишком большой (>256 КБ)", false); inp.remove(); return; }
-        var rd = new FileReader();
-        rd.onload = function () {
-            try {
-                var parsed = safeParse(String(rd.result));
-                cfg = mergeCfg(parsed); // mergeCfg санитизирует всё содержимое
-                sessionRandomIndex = null; // сбросить выбор random из прошлой сессии — переберётся под новый конфиг
-                apply(); refreshPanel();
-                toast("Настройки импортированы");
-            } catch (e) { toast("Ошибка: файл не читается как JSON", false); }
-            inp.remove();
-        };
-        rd.onerror = function () { toast("Не удалось прочитать файл", false); inp.remove(); };
-        rd.readAsText(f);
-    });
-    document.body.appendChild(inp); inp.click();
-}
-function makeIoBtn(text) {
-    var b = el("div", "flex:1 1 0; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", text);
-    b.addEventListener("mouseenter", function () { b.style.background = "rgba(137,180,250,0.26)"; });
-    b.addEventListener("mouseleave", function () { b.style.background = "rgba(137,180,250,0.14)"; });
-    keyActivate(b, text);
-    return b;
 }

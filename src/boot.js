@@ -62,6 +62,12 @@ function onHotkey(e) {
         if (e.code === "Period") { e.preventDefault(); cycleSet(1); }
         else if (e.code === "Comma") { e.preventDefault(); cycleSet(-1); }
         else if (e.code === "KeyB") { e.preventDefault(); togglePanel({ stopPropagation: function () {} }); }
+        else if (e.code === "Digit0" || e.code === "Numpad0") { // мастер-выключатель фона
+            e.preventDefault();
+            cfg.enabled = !cfg.enabled; apply();
+            try { toast(cfg.enabled ? "Фон включён" : "Фон выключен"); } catch (er) {}
+            if (document.getElementById(PANEL_ID)) refreshPanel();
+        }
     } catch (err) {}
 }
 document.addEventListener("keydown", onHotkey, true);
@@ -88,4 +94,4 @@ try {
 } catch (e) {}
 heal();
 
-console.log("[MoonLight custom-bg] v13 installed (theme vars + hotkeys + hardened config), sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
+console.log("[MoonLight custom-bg] v14 installed (master on/off + hotkeys), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());

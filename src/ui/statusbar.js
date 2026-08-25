@@ -4,6 +4,14 @@ function updateLabel() {
     var item = document.getElementById(SB_ID); if (!item) return;
     var a = item.querySelector("a"); if (!a) return;
     var idx = activeIndex(), nm = setName(idx);
+    // Мастер-выключатель: когда фон выключен — короткая подпись «BG выкл», без индикаторов.
+    if (!cfg.enabled) {
+        a.textContent = "BG выкл";
+        var od = item.querySelector(".mlbg-mode-dot"); if (od) od.remove();
+        var t0 = "Фон и дизайн — настройки (фон выключен, Ctrl+Alt+0 — включить)";
+        item.title = t0; item.setAttribute("aria-label", t0);
+        return;
+    }
     a.textContent = "BG " + idx + (nm ? " · " + nm : "") + (cfg.mode === "random" ? " ~" : "");
 
     // Индикатор активного авто-режима: маленькая точка перед подписью.

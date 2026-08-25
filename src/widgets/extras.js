@@ -1,4 +1,6 @@
-// ===== Виджеты статусбара: часы, помидор, частицы =====
+// ===== Рантайм-виджеты и авто-переключатели =====
+// Виджеты статусбара (часы, помидор, летящие частицы) + авто-смена набора:
+// слайдшоу по таймеру (slideTick) и авто-набор по времени суток (timeTick).
 function statusRight() { return document.querySelector(".statusbar .right-items") || document.querySelector(".right-items"); }
 function pad2(n) { return (n < 10 ? "0" : "") + n; }
 
@@ -111,7 +113,7 @@ function ensureParticles() {
     // Частиц нет, если эффект выключен, включён режим «уменьшить движение» ИЛИ
     // счётчик = 0. В последнем случае раньше висел пустой canvas с работающим rAF
     // (loopParticles каждый кадр чистил пустой холст) — теперь холст убирается.
-    if (cfg.fx.particles && !reduceMotion() && partCount() > 0) {
+    if (cfg.enabled && cfg.fx.particles && !reduceMotion() && partCount() > 0) {
         if (!part.canvas || !document.body.contains(part.canvas)) {
             var cv = document.createElement("canvas"); cv.id = "mlbg-particles";
             cv.style.cssText = "position:fixed; inset:0; pointer-events:none; z-index:5; opacity:0.5;";

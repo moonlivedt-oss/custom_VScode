@@ -22,17 +22,9 @@ var path = require("path");
 var vm = require("vm");
 
 var ROOT = path.join(__dirname, "..");
-// Тот же порядок, что и в build.js (данные -> состояние -> CSS -> UI -> виджеты -> старт).
-var FILES = [
-    "src/core/config.js",
-    "src/core/state.js",
-    "src/fx/css.js",
-    "src/ui/statusbar.js",
-    "src/ui/widgets.js",
-    "src/ui/panel.js",
-    "src/widgets/extras.js",
-    "src/boot.js"
-];
+// Список модулей и порядок склейки берём прямо из build.js (единый источник правды —
+// иначе тест мог бы проходить на устаревшем списке, пока реальная сборка ломается).
+var FILES = require(path.join(ROOT, "build.js")).FILES;
 
 // ---- мини-счётчик проверок ----
 var passed = 0, failed = 0;
@@ -201,6 +193,16 @@ sandbox.timeTick();
 var expect = sandbox.isDaytime() ? "1" : "5";
 ok(sandbox.cfg.mode === expect, "timeTick переключил набор по времени суток -> " + expect +
     " (сейчас " + (sandbox.isDaytime() ? "день" : "ночь") + ")");
+
+// ---- 6b. Мастер-выключатель: enabled=false даёт минимальный CSS ----
+sandbox.cfg.mode = "0";
+sandbox.cfg.enabled = false;
+var cssOff = build();
+ok(cssOff.indexOf("url('") < 0, "enabled=false: нет фоновых картинок (url) в CSS");
+contains(cssOff, "#moonlight-bg-switcher", "enabled=false: стили кнопки BG остаются");
+contains(cssOff, "--mlbg-accent:", "enabled=false: переменная акцента остаётся");
+sandbox.cfg.enabled = true;
+contains(build(), "url('", "enabled=true: фоновые картинки вернулись");
 
 // ---- 7a. Безопасность: mergeCfg отбрасывает out-of-range индексы setOp/setAccent ----
 var dirty = sandbox.mergeCfg({

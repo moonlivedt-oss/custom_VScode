@@ -21,9 +21,12 @@ const FILES = [
     "src/core/config.js",
     "src/core/state.js",
     "src/fx/css.js",
-    "src/ui/statusbar.js",
-    "src/ui/widgets.js",
-    "src/ui/panel.js",
+    "src/ui/dom.js",       // базовые DOM-хелперы (el, section, keyActivate)
+    "src/ui/info.js",      // тексты подсказок INFO + попап «?»
+    "src/ui/controls.js",  // построители контролов панели (чипы, слайдеры, тумблеры, секции)
+    "src/ui/io.js",        // экспорт/импорт настроек + тосты
+    "src/ui/statusbar.js", // кнопка «BG N» в статусбаре
+    "src/ui/panel.js",     // сборка панели «Фон и дизайн»
     "src/widgets/extras.js",
     "src/boot.js"
 ];
@@ -49,14 +52,21 @@ function readModule(rel) {
     return "    // ===================== " + rel + " =====================\n" + indent(code) + "\n";
 }
 
-const missing = FILES.filter(function (f) { return !fs.existsSync(path.join(ROOT, f)); });
-if (missing.length) {
-    console.error("Не найдены модули:\n  " + missing.join("\n  "));
-    process.exit(1);
+function build() {
+    const missing = FILES.filter(function (f) { return !fs.existsSync(path.join(ROOT, f)); });
+    if (missing.length) {
+        console.error("Не найдены модули:\n  " + missing.join("\n  "));
+        process.exit(1);
+    }
+    const body = FILES.map(readModule).join("\n");
+    const out = BANNER + "(function () {\n    \"use strict\";\n\n" + body + "\n})();\n";
+    fs.writeFileSync(OUT, out, "utf8");
+    console.log("OK: custom-bg.js собран из " + FILES.length + " модулей (" + out.length + " байт).");
+    return out;
 }
 
-const body = FILES.map(readModule).join("\n");
-const out = BANNER + "(function () {\n    \"use strict\";\n\n" + body + "\n})();\n";
-
-fs.writeFileSync(OUT, out, "utf8");
-console.log("OK: custom-bg.js собран из " + FILES.length + " модулей (" + out.length + " байт).");
+// Список модулей нужен и смоук-тесту (test/smoke.js), чтобы собирать их в том же порядке.
+// Экспортируем FILES/build; собираем только при прямом запуске `node build.js`,
+// а не при require из теста (иначе тест перезаписывал бы custom-bg.js как побочный эффект).
+module.exports = { FILES: FILES, build: build };
+if (require.main === module) build();

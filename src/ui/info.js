@@ -1,0 +1,90 @@
+// ===== Подсказки «?»: тексты + всплывающий попап =====
+// INFO — тексты пояснений по ключам (op_*, fx_*, fxp_*, term_*, img_* и отдельные).
+// infoDot(text) строит кружок «?», клик по которому показывает попап рядом с ним.
+
+var INFO = {
+    accent: "Акцентный цвет интерфейса (курсор, скроллбар, вкладки, рамки…). Свой для каждого набора: правка применяется к активному набору, у остальных — их цвета.",
+    autoDim: "Автоматически занижает яркость фоновой картинки редактора, если она светлая, чтобы код оставался читаемым. Не меняет саму настройку яркости.",
+    img_fit: "Как вписывать фоновую картинку в зону: «Заполнить» (cover) — обрезая по краям; «Целиком» (contain) — вся картинка, могут быть поля. Для портретных/«тушь на белом» удобнее contain.",
+    img_zone: "Для какой зоны настраиваются фильтры ниже. У каждой зоны свои значения. «Панель/терминал» — фон нижней панели за терминалом.",
+    img_brightness: "Яркость самой фоновой картинки (не интерфейса).",
+    img_saturate: "Насыщенность цветов фоновой картинки (0 — ч/б, 2 — сочно).",
+    img_blur: "Размытие самой фоновой картинки, px.",
+    slide_on: "Автоматически менять набор по кругу через заданный интервал.",
+    slide_min: "Через сколько минут переключать набор в режиме слайдшоу.",
+    autotime_on: "Автоматически переключать набор по времени суток: днём (8:00–20:00) — дневной набор, ночью — ночной. Не работает в режиме «случайно»; при включении отменяет слайдшоу.",
+    enabled: "Главный выключатель: снимает весь фон и эффекты (получается обычный VS Code), но все настройки сохраняются и вернутся при повторном включении. Горячая клавиша Ctrl+Alt+0.",
+    op_editor: "Насколько ярко проступает фоновая картинка за кодом редактора.",
+    op_side: "Прозрачность фоновой картинки сайдбара (проводник и пр.).",
+    op_panel: "Прозрачность фоновой картинки нижней панели (терминал/проблемы/вывод).",
+    fxp_blur: "Сила размытия «матового стекла» (вкладки, панели, статусбар).",
+    fxp_kbScale: "Максимальный масштаб анимации Ken Burns (медленный зум фона).",
+    fxp_kbSpeed: "Длительность одного цикла Ken Burns, секунды.",
+    fxp_vignette: "Сила затемнения по краям редактора (виньетка).",
+    fxp_partCount: "Сколько летящих частиц рисовать (если эффект «Частицы» включён).",
+    fxp_pomoMin: "Длительность одного помидора (таймера), минуты.",
+    fx_kenburns: "Медленный плавный зум фоновой картинки редактора.",
+    fx_glassTabs: "Полупрозрачный матовый фон полосы вкладок.",
+    fx_vignette: "Затемнение по краям области редактора.",
+    fx_glassSide: "Матовое стекло для сайдбара и панели.",
+    fx_scrim: "Лёгкая тень под текстом кода для читаемости поверх фона.",
+    fx_glassStatus: "Матовое стекло для нижнего статусбара.",
+    fx_activeLine: "Подсветка текущей строки акцентным цветом.",
+    fx_groupRing: "Внутренний контур активной группы редакторов.",
+    fx_groupBorder: "Анимированная «живая» рамка активной группы.",
+    fx_scrollbar: "Акцентный цвет ползунка скроллбара.",
+    fx_activityBg: "Фоновая картинка за вертикальным актив-баром.",
+    fx_tabAccent: "Акцентная полоска под активной вкладкой.",
+    fx_rounded: "Скруглённые углы у меню, подсказок и тостов.",
+    fx_cursorGlow: "Свечение вокруг курсора в редакторе.",
+    fx_selection: "Градиентная заливка выделенного текста.",
+    fx_titlebar: "Градиентная подсветка заголовка окна.",
+    fx_splash: "Картинка-заставка в пустой группе редактора.",
+    fx_clock: "Часы с датой в статусбаре.",
+    fx_particles: "Летящие частицы поверх интерфейса.",
+    fx_pomodoro: "Таймер-помидор в статусбаре (клик — старт/пауза, Alt+клик — сброс).",
+    term_font: "Шрифт терминала. В списке — совместимые по ширине Nerd-шрифты, чтобы не разъезжались колонки и сохранялись иконки oh-my-posh.",
+    term_ligatures: "Слитное начертание пар символов (->, =>, != и т.п.).",
+    term_cursorGlow: "Ореол-свечение вокруг курсора терминала.",
+    term_glow: "Сила тени под текстом терминала для читаемости поверх фоновой картинки.",
+    term_weight: "Толщина шрифта терминала. Жирный текст остаётся заметно жирнее базового.",
+    term_cursorColor: "Цвет курсора терминала.",
+    term_selColor: "Цвет выделения текста в терминале.",
+    term_cursorSize: "Ширина курсора терминала: 0 — скрыть курсор, 1 — обычная, больше — шире. Заметнее всего на курсоре-линии (cursorStyle: line).",
+    term_cursorHeight: "Высота курсора терминала: 1 — обычная, меньше — короче, больше — выше ячейки."
+};
+
+// ===== Всплывающая подсказка «?» =====
+var _infoPop = null, _infoAnchor = null;
+function hideInfo() {
+    if (_infoPop) { _infoPop.remove(); _infoPop = null; _infoAnchor = null; document.removeEventListener("mousedown", _infoOutside, true); }
+}
+function _infoOutside(e) { if (_infoPop && e.target !== _infoAnchor && !_infoPop.contains(e.target)) hideInfo(); }
+function showInfo(anchor, text) {
+    if (_infoAnchor === anchor) { hideInfo(); return; } // повторный клик — закрыть
+    hideInfo();
+    var pop = el("div",
+        "position:fixed; z-index:100003; max-width:250px; padding:8px 11px; border-radius:9px;" +
+        "background:rgba(17,17,27,0.99); color:#cdd6f4; font-size:11px; line-height:1.45;" +
+        "border:1px solid rgba(var(--mlbg-accent-rgb),0.45); box-shadow:0 10px 30px rgba(0,0,0,0.6);", text);
+    document.body.appendChild(pop);
+    var r = anchor.getBoundingClientRect(), pr = pop.getBoundingClientRect();
+    var left = Math.min(r.left, window.innerWidth - pr.width - 8);
+    var top = r.bottom + 6;
+    if (top + pr.height > window.innerHeight - 8) top = r.top - pr.height - 6;
+    pop.style.left = Math.max(8, left) + "px";
+    pop.style.top = Math.max(8, top) + "px";
+    _infoPop = pop; _infoAnchor = anchor;
+    setTimeout(function () { document.addEventListener("mousedown", _infoOutside, true); }, 0);
+}
+// Кружок «?» рядом с настройкой. null, если текста нет (тогда просто ничего не добавляем).
+function infoDot(text) {
+    if (!text) return null;
+    var d = el("span",
+        "flex:0 0 auto; width:15px; height:15px; line-height:15px; text-align:center; border-radius:50%;" +
+        "font-size:10px; font-weight:700; cursor:help; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.16);" +
+        "border:1px solid rgba(var(--mlbg-accent-rgb),0.4); user-select:none;", "?");
+    d.addEventListener("click", function (e) { e.stopPropagation(); e.preventDefault(); showInfo(d, text); });
+    keyActivate(d, "Пояснение");
+    return d;
+}

@@ -35,6 +35,7 @@ function setName(idx) { var s = SETS[idx]; return (s && s.name) ? s.name : ""; }
 var CFG_VERSION = 1;
 var DEFAULTS = {
     version: CFG_VERSION,
+    enabled: true,                                      // мастер-выключатель: false — фон и эффекты выключены, настройки сохранены
     mode: "0",
     baseOp: { editor: 0.06, side: 0.30, panel: 0.11 },
     setOp: {},
@@ -168,6 +169,8 @@ function mergeCfg(p) {
     p = migrateCfg(p);
     if (p && typeof p === "object") {
         c.version = CFG_VERSION; // после слияния конфиг всегда текущей версии
+        // мастер-выключатель фона/эффектов: только булево
+        if (typeof p.enabled === "boolean") c.enabled = p.enabled;
         // mode: "random" или строковый индекс набора в допустимом диапазоне
         if (p.mode === "random") c.mode = "random";
         else if (typeof p.mode === "string" && /^\d+$/.test(p.mode)) {

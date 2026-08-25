@@ -44,6 +44,7 @@
     var CFG_VERSION = 1;
     var DEFAULTS = {
         version: CFG_VERSION,
+        enabled: true,                                      // мастер-выключатель: false — фон и эффекты выключены, настройки сохранены
         mode: "0",
         baseOp: { editor: 0.06, side: 0.30, panel: 0.11 },
         setOp: {},
@@ -177,6 +178,8 @@
         p = migrateCfg(p);
         if (p && typeof p === "object") {
             c.version = CFG_VERSION; // после слияния конфиг всегда текущей версии
+            // мастер-выключатель фона/эффектов: только булево
+            if (typeof p.enabled === "boolean") c.enabled = p.enabled;
             // mode: "random" или строковый индекс набора в допустимом диапазоне
             if (p.mode === "random") c.mode = "random";
             else if (typeof p.mode === "string" && /^\d+$/.test(p.mode)) {
@@ -396,8 +399,30 @@
     }
     function isLightTheme() { return themeKind() === "light"; }
 
+    // Стили самой кнопки «BG» и видимого фокуса — нужны всегда (в т.ч. когда фон выключен),
+    // иначе панель/кнопка теряют hover и обводку фокуса. Вынесены отдельно для мастер-выключателя.
+    function switcherCSS() {
+        return [
+            "#moonlight-bg-switcher { cursor: pointer; }",
+            "#moonlight-bg-switcher:hover { background: rgba(var(--mlbg-accent-rgb),0.18); }",
+            // видимый фокус для клавиатуры (кнопка BG и все div-«кнопки» панели)
+            "#moonlight-bg-switcher:focus-visible, #moonlight-bg-panel [role=button]:focus-visible {",
+            "  outline: 2px solid var(--mlbg-accent); outline-offset: 1px;",
+            "}"
+        ].join("\n");
+    }
+
     // ===== Сборка CSS =====
     function buildCSS() {
+        // Акцент нужен и в выключенном режиме (для стилей кнопки/фокуса), считаем первым.
+        var ac = safeColor(getAccent(), DEFAULTS.accent);
+        var acRGB = accentRGB();
+        var rootVar = ":root { --mlbg-accent: " + ac + "; --mlbg-accent-rgb: " + acRGB + "; }";
+        // Мастер-выключатель: фон и эффекты выключены — отдаём только переменную акцента и
+        // стили кнопки/фокуса. Никаких фоновых картинок, стекла, фильтров — «ванильный» VS Code,
+        // но кнопка BG и панель остаются рабочими, чтобы включить обратно.
+        if (!cfg.enabled) return rootVar + "\n" + switcherCSS();
+
         var s = SETS[activeIndex()], fx = cfg.fx, fxp = cfg.fxp, op = getOp();
         // Палитра поверхностей под тему. surfRGB — база «матового стекла»/статусбара/титлбара;
         // titleSolid — непрозрачная подложка титлбара; scrimRGB — цвет тени-скрима под кодом
@@ -436,11 +461,9 @@
         }
         function blurLines(px) { return "  backdrop-filter: blur(" + px + "px); -webkit-backdrop-filter: blur(" + px + "px);"; }
 
-        // Акцентный цвет — санитизируем повторно и раскладываем на компоненты для var().
-        // Все эффекты ниже используют var(--mlbg-accent) / rgba(var(--mlbg-accent-rgb), a).
-        var ac = safeColor(getAccent(), DEFAULTS.accent);
-        var acRGB = accentRGB();
-        add(":root { --mlbg-accent: " + ac + "; --mlbg-accent-rgb: " + acRGB + "; }");
+        // Акцентный цвет (ac/acRGB уже посчитаны выше) — все эффекты ниже используют
+        // var(--mlbg-accent) / rgba(var(--mlbg-accent-rgb), a).
+        add(rootVar);
 
         // Фильтры самой фоновой картинки (яркость/насыщенность/размытие) — своя строка на зону.
         // Числа зажаты в mergeCfg, здесь клампим повторно (defense-in-depth). Пустая строка,
@@ -614,14 +637,7 @@
             "}"
         );
 
-        add(
-            "#moonlight-bg-switcher { cursor: pointer; }",
-            "#moonlight-bg-switcher:hover { background: rgba(var(--mlbg-accent-rgb),0.18); }",
-            // видимый фокус для клавиатуры (кнопка BG и все div-«кнопки» панели)
-            "#moonlight-bg-switcher:focus-visible, #moonlight-bg-panel [role=button]:focus-visible {",
-            "  outline: 2px solid var(--mlbg-accent); outline-offset: 1px;",
-            "}"
-        );
+        add(switcherCSS());
 
         // Доступность/батарея: при системной «уменьшить движение» гасим CSS-анимации
         // (Ken Burns, живая рамка). Частицы (canvas/JS) выключаются отдельно в ensureParticles.
@@ -667,70 +683,23 @@
         requestAnimationFrame(function () { switchMul = 1; bumpStyle(); ensureStyle(); });
     }
 
-    // ===================== src/ui/statusbar.js =====================
-    // ===== Кнопка статусбара =====
-    var SB_ID = "moonlight-bg-switcher", PANEL_ID = "moonlight-bg-panel";
-    function updateLabel() {
-        var item = document.getElementById(SB_ID); if (!item) return;
-        var a = item.querySelector("a"); if (!a) return;
-        var idx = activeIndex(), nm = setName(idx);
-        a.textContent = "BG " + idx + (nm ? " · " + nm : "") + (cfg.mode === "random" ? " ~" : "");
+    // ===================== src/ui/dom.js =====================
+    // ===== Базовые DOM-хелперы =====
+    // Общие для всех UI-модулей: создание элемента, заголовок секции, доступность div-кнопок.
 
-        // Индикатор активного авто-режима: маленькая точка перед подписью.
-        // авто-по-времени — кольцо (акцентная рамка), слайдшоу — залитая точка.
-        // Приоритет у авто-по-времени (оно перебивает слайдшоу, см. slideTick).
-        var auto = !!(cfg.autoTime && cfg.autoTime.on);
-        var slide = !auto && !!(cfg.slideshow && cfg.slideshow.on);
-        var dot = item.querySelector(".mlbg-mode-dot");
-        var mode = auto ? "auto" : (slide ? "slide" : "");
-        if (mode) {
-            if (!dot) {
-                dot = document.createElement("span"); dot.className = "mlbg-mode-dot";
-                dot.style.cssText = "display:inline-block; width:6px; height:6px; border-radius:50%; margin:0 5px 0 1px; vertical-align:middle; box-sizing:border-box;";
-                a.insertBefore(dot, a.firstChild);
-            }
-            if (mode === "auto") { dot.style.background = "transparent"; dot.style.border = "2px solid var(--mlbg-accent)"; }
-            else { dot.style.background = "var(--mlbg-accent)"; dot.style.border = "none"; }
-        } else if (dot) { dot.remove(); }
-
-        var modeTxt = auto ? " · авто-набор по времени суток" : (slide ? " · слайдшоу вкл" : "");
-        var t = "Фон и дизайн — настройки" + (nm ? " (набор: " + nm + ")" : "") + modeTxt;
-        item.title = t; item.setAttribute("aria-label", t);
-    }
-    function ensureStatusBar() {
-        try {
-            var right = document.querySelector(".statusbar .right-items") || document.querySelector(".right-items");
-            if (!right) return;
-            var item = document.getElementById(SB_ID);
-            if (!item) {
-                item = document.createElement("div");
-                item.id = SB_ID; item.className = "statusbar-item right"; item.title = "Фон и дизайн — настройки";
-                item.setAttribute("role", "button");
-                item.setAttribute("tabindex", "0");
-                item.setAttribute("aria-label", "Фон и дизайн — настройки");
-                var a = document.createElement("a"); a.className = "statusbar-item-label"; a.style.padding = "0 6px";
-                item.appendChild(a);
-                item.addEventListener("click", togglePanel);
-                item.addEventListener("keydown", function (e) {
-                    if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") { e.preventDefault(); togglePanel(e); }
-                });
-                right.insertBefore(item, right.firstChild);
-            }
-            updateLabel();
-        } catch (e) {}
-    }
-
-    // ===================== src/ui/widgets.js =====================
-    // ===== Базовый конструктор элемента =====
+    // el(tag, css, text) — создать элемент с инлайновым стилем и текстом (оба необязательны).
     function el(tag, css, text) {
         var e = document.createElement(tag);
         if (css) e.style.cssText = css;
         if (text != null) e.textContent = text;
         return e;
     }
+
+    // Заголовок секции (мелкий, uppercase, приглушённый).
     function section(t) {
         return el("div", "margin:12px 2px 6px; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.7px; color:#7f849c;", t);
     }
+
     // Делает div-«кнопку» доступной с клавиатуры: фокусируется и активируется Enter/Space
     // (клик-логика переиспользуется через node.click()). role/aria — для скринридеров.
     function keyActivate(node, label) {
@@ -742,6 +711,104 @@
         });
         return node;
     }
+
+    // ===================== src/ui/info.js =====================
+    // ===== Подсказки «?»: тексты + всплывающий попап =====
+    // INFO — тексты пояснений по ключам (op_*, fx_*, fxp_*, term_*, img_* и отдельные).
+    // infoDot(text) строит кружок «?», клик по которому показывает попап рядом с ним.
+
+    var INFO = {
+        accent: "Акцентный цвет интерфейса (курсор, скроллбар, вкладки, рамки…). Свой для каждого набора: правка применяется к активному набору, у остальных — их цвета.",
+        autoDim: "Автоматически занижает яркость фоновой картинки редактора, если она светлая, чтобы код оставался читаемым. Не меняет саму настройку яркости.",
+        img_fit: "Как вписывать фоновую картинку в зону: «Заполнить» (cover) — обрезая по краям; «Целиком» (contain) — вся картинка, могут быть поля. Для портретных/«тушь на белом» удобнее contain.",
+        img_zone: "Для какой зоны настраиваются фильтры ниже. У каждой зоны свои значения. «Панель/терминал» — фон нижней панели за терминалом.",
+        img_brightness: "Яркость самой фоновой картинки (не интерфейса).",
+        img_saturate: "Насыщенность цветов фоновой картинки (0 — ч/б, 2 — сочно).",
+        img_blur: "Размытие самой фоновой картинки, px.",
+        slide_on: "Автоматически менять набор по кругу через заданный интервал.",
+        slide_min: "Через сколько минут переключать набор в режиме слайдшоу.",
+        autotime_on: "Автоматически переключать набор по времени суток: днём (8:00–20:00) — дневной набор, ночью — ночной. Не работает в режиме «случайно»; при включении отменяет слайдшоу.",
+        enabled: "Главный выключатель: снимает весь фон и эффекты (получается обычный VS Code), но все настройки сохраняются и вернутся при повторном включении. Горячая клавиша Ctrl+Alt+0.",
+        op_editor: "Насколько ярко проступает фоновая картинка за кодом редактора.",
+        op_side: "Прозрачность фоновой картинки сайдбара (проводник и пр.).",
+        op_panel: "Прозрачность фоновой картинки нижней панели (терминал/проблемы/вывод).",
+        fxp_blur: "Сила размытия «матового стекла» (вкладки, панели, статусбар).",
+        fxp_kbScale: "Максимальный масштаб анимации Ken Burns (медленный зум фона).",
+        fxp_kbSpeed: "Длительность одного цикла Ken Burns, секунды.",
+        fxp_vignette: "Сила затемнения по краям редактора (виньетка).",
+        fxp_partCount: "Сколько летящих частиц рисовать (если эффект «Частицы» включён).",
+        fxp_pomoMin: "Длительность одного помидора (таймера), минуты.",
+        fx_kenburns: "Медленный плавный зум фоновой картинки редактора.",
+        fx_glassTabs: "Полупрозрачный матовый фон полосы вкладок.",
+        fx_vignette: "Затемнение по краям области редактора.",
+        fx_glassSide: "Матовое стекло для сайдбара и панели.",
+        fx_scrim: "Лёгкая тень под текстом кода для читаемости поверх фона.",
+        fx_glassStatus: "Матовое стекло для нижнего статусбара.",
+        fx_activeLine: "Подсветка текущей строки акцентным цветом.",
+        fx_groupRing: "Внутренний контур активной группы редакторов.",
+        fx_groupBorder: "Анимированная «живая» рамка активной группы.",
+        fx_scrollbar: "Акцентный цвет ползунка скроллбара.",
+        fx_activityBg: "Фоновая картинка за вертикальным актив-баром.",
+        fx_tabAccent: "Акцентная полоска под активной вкладкой.",
+        fx_rounded: "Скруглённые углы у меню, подсказок и тостов.",
+        fx_cursorGlow: "Свечение вокруг курсора в редакторе.",
+        fx_selection: "Градиентная заливка выделенного текста.",
+        fx_titlebar: "Градиентная подсветка заголовка окна.",
+        fx_splash: "Картинка-заставка в пустой группе редактора.",
+        fx_clock: "Часы с датой в статусбаре.",
+        fx_particles: "Летящие частицы поверх интерфейса.",
+        fx_pomodoro: "Таймер-помидор в статусбаре (клик — старт/пауза, Alt+клик — сброс).",
+        term_font: "Шрифт терминала. В списке — совместимые по ширине Nerd-шрифты, чтобы не разъезжались колонки и сохранялись иконки oh-my-posh.",
+        term_ligatures: "Слитное начертание пар символов (->, =>, != и т.п.).",
+        term_cursorGlow: "Ореол-свечение вокруг курсора терминала.",
+        term_glow: "Сила тени под текстом терминала для читаемости поверх фоновой картинки.",
+        term_weight: "Толщина шрифта терминала. Жирный текст остаётся заметно жирнее базового.",
+        term_cursorColor: "Цвет курсора терминала.",
+        term_selColor: "Цвет выделения текста в терминале.",
+        term_cursorSize: "Ширина курсора терминала: 0 — скрыть курсор, 1 — обычная, больше — шире. Заметнее всего на курсоре-линии (cursorStyle: line).",
+        term_cursorHeight: "Высота курсора терминала: 1 — обычная, меньше — короче, больше — выше ячейки."
+    };
+
+    // ===== Всплывающая подсказка «?» =====
+    var _infoPop = null, _infoAnchor = null;
+    function hideInfo() {
+        if (_infoPop) { _infoPop.remove(); _infoPop = null; _infoAnchor = null; document.removeEventListener("mousedown", _infoOutside, true); }
+    }
+    function _infoOutside(e) { if (_infoPop && e.target !== _infoAnchor && !_infoPop.contains(e.target)) hideInfo(); }
+    function showInfo(anchor, text) {
+        if (_infoAnchor === anchor) { hideInfo(); return; } // повторный клик — закрыть
+        hideInfo();
+        var pop = el("div",
+            "position:fixed; z-index:100003; max-width:250px; padding:8px 11px; border-radius:9px;" +
+            "background:rgba(17,17,27,0.99); color:#cdd6f4; font-size:11px; line-height:1.45;" +
+            "border:1px solid rgba(var(--mlbg-accent-rgb),0.45); box-shadow:0 10px 30px rgba(0,0,0,0.6);", text);
+        document.body.appendChild(pop);
+        var r = anchor.getBoundingClientRect(), pr = pop.getBoundingClientRect();
+        var left = Math.min(r.left, window.innerWidth - pr.width - 8);
+        var top = r.bottom + 6;
+        if (top + pr.height > window.innerHeight - 8) top = r.top - pr.height - 6;
+        pop.style.left = Math.max(8, left) + "px";
+        pop.style.top = Math.max(8, top) + "px";
+        _infoPop = pop; _infoAnchor = anchor;
+        setTimeout(function () { document.addEventListener("mousedown", _infoOutside, true); }, 0);
+    }
+    // Кружок «?» рядом с настройкой. null, если текста нет (тогда просто ничего не добавляем).
+    function infoDot(text) {
+        if (!text) return null;
+        var d = el("span",
+            "flex:0 0 auto; width:15px; height:15px; line-height:15px; text-align:center; border-radius:50%;" +
+            "font-size:10px; font-weight:700; cursor:help; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.16);" +
+            "border:1px solid rgba(var(--mlbg-accent-rgb),0.4); user-select:none;", "?");
+        d.addEventListener("click", function (e) { e.stopPropagation(); e.preventDefault(); showInfo(d, text); });
+        keyActivate(d, "Пояснение");
+        return d;
+    }
+
+    // ===================== src/ui/controls.js =====================
+    // ===== Построители контролов панели =====
+    // Каждая функция make* возвращает готовый DOM-контрол (слайдер / чекбокс / селект / чип),
+    // привязанный к соответствующему полю cfg. Изменения применяются через apply / applyThrottled
+    // (мгновенно/троттлингом) или applyFade (со сменой набора). Тексты подсказок берутся из INFO.
 
     // health-check: помечаем чип, если картинка набора не грузится
     function probeSet(idx, chip) {
@@ -758,7 +825,7 @@
         });
     }
 
-    // чип набора с превью-миниатюрой
+    // чип набора с превью-миниатюрой (мини-триптих зон)
     function makeChip(mode, label) {
         var active = cfg.mode === mode, isSet = mode !== "random";
         var css = isSet
@@ -995,6 +1062,25 @@
         return row;
     }
 
+    // ==== Мастер-выключатель фона и эффектов (cfg.enabled) ====
+    // Заметный тумблер вверху панели: выкл — «ванильный» VS Code, настройки сохранены.
+    function makeMasterToggle() {
+        var row = el("label",
+            "display:flex; align-items:center; gap:8px; padding:8px 10px; margin:2px 2px 4px; border-radius:8px; cursor:pointer;" +
+            "background:rgba(var(--mlbg-accent-rgb),0.12); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);");
+        var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer; transform:scale(1.15);");
+        cb.type = "checkbox"; cb.checked = cfg.enabled !== false;
+        var txt = el("span", "flex:1 1 auto; font-weight:700; letter-spacing:0.2px;", cfg.enabled !== false ? "Фон и эффекты включены" : "Фон и эффекты выключены");
+        cb.addEventListener("change", function () {
+            cfg.enabled = cb.checked;
+            txt.textContent = cb.checked ? "Фон и эффекты включены" : "Фон и эффекты выключены";
+            apply();
+        });
+        row.appendChild(cb); row.appendChild(txt);
+        var d = infoDot(INFO.enabled); if (d) row.appendChild(d);
+        return row;
+    }
+
     // ==== Авто-набор по времени суток (cfg.autoTime) ====
     // Тумблер «включить» + два выпадающих списка: набор для дня и для ночи.
     // Днём (8:00–20:00) активируется дневной набор, ночью — ночной (см. timeTick).
@@ -1033,92 +1119,6 @@
         return wrap;
     }
 
-    // ===== Тексты подсказок («?») =====
-    var INFO = {
-        accent: "Акцентный цвет интерфейса (курсор, скроллбар, вкладки, рамки…). Свой для каждого набора: правка применяется к активному набору, у остальных — их цвета.",
-        autoDim: "Автоматически занижает яркость фоновой картинки редактора, если она светлая, чтобы код оставался читаемым. Не меняет саму настройку яркости.",
-        img_fit: "Как вписывать фоновую картинку в зону: «Заполнить» (cover) — обрезая по краям; «Целиком» (contain) — вся картинка, могут быть поля. Для портретных/«тушь на белом» удобнее contain.",
-        img_zone: "Для какой зоны настраиваются фильтры ниже. У каждой зоны свои значения. «Панель/терминал» — фон нижней панели за терминалом.",
-        img_brightness: "Яркость самой фоновой картинки (не интерфейса).",
-        img_saturate: "Насыщенность цветов фоновой картинки (0 — ч/б, 2 — сочно).",
-        img_blur: "Размытие самой фоновой картинки, px.",
-        slide_on: "Автоматически менять набор по кругу через заданный интервал.",
-        slide_min: "Через сколько минут переключать набор в режиме слайдшоу.",
-        autotime_on: "Автоматически переключать набор по времени суток: днём (8:00–20:00) — дневной набор, ночью — ночной. Не работает в режиме «случайно»; при включении отменяет слайдшоу.",
-        op_editor: "Насколько ярко проступает фоновая картинка за кодом редактора.",
-        op_side: "Прозрачность фоновой картинки сайдбара (проводник и пр.).",
-        op_panel: "Прозрачность фоновой картинки нижней панели (терминал/проблемы/вывод).",
-        fxp_blur: "Сила размытия «матового стекла» (вкладки, панели, статусбар).",
-        fxp_kbScale: "Максимальный масштаб анимации Ken Burns (медленный зум фона).",
-        fxp_kbSpeed: "Длительность одного цикла Ken Burns, секунды.",
-        fxp_vignette: "Сила затемнения по краям редактора (виньетка).",
-        fxp_partCount: "Сколько летящих частиц рисовать (если эффект «Частицы» включён).",
-        fxp_pomoMin: "Длительность одного помидора (таймера), минуты.",
-        fx_kenburns: "Медленный плавный зум фоновой картинки редактора.",
-        fx_glassTabs: "Полупрозрачный матовый фон полосы вкладок.",
-        fx_vignette: "Затемнение по краям области редактора.",
-        fx_glassSide: "Матовое стекло для сайдбара и панели.",
-        fx_scrim: "Лёгкая тень под текстом кода для читаемости поверх фона.",
-        fx_glassStatus: "Матовое стекло для нижнего статусбара.",
-        fx_activeLine: "Подсветка текущей строки акцентным цветом.",
-        fx_groupRing: "Внутренний контур активной группы редакторов.",
-        fx_groupBorder: "Анимированная «живая» рамка активной группы.",
-        fx_scrollbar: "Акцентный цвет ползунка скроллбара.",
-        fx_activityBg: "Фоновая картинка за вертикальным актив-баром.",
-        fx_tabAccent: "Акцентная полоска под активной вкладкой.",
-        fx_rounded: "Скруглённые углы у меню, подсказок и тостов.",
-        fx_cursorGlow: "Свечение вокруг курсора в редакторе.",
-        fx_selection: "Градиентная заливка выделенного текста.",
-        fx_titlebar: "Градиентная подсветка заголовка окна.",
-        fx_splash: "Картинка-заставка в пустой группе редактора.",
-        fx_clock: "Часы с датой в статусбаре.",
-        fx_particles: "Летящие частицы поверх интерфейса.",
-        fx_pomodoro: "Таймер-помидор в статусбаре (клик — старт/пауза, Alt+клик — сброс).",
-        term_font: "Шрифт терминала. В списке — совместимые по ширине Nerd-шрифты, чтобы не разъезжались колонки и сохранялись иконки oh-my-posh.",
-        term_ligatures: "Слитное начертание пар символов (->, =>, != и т.п.).",
-        term_cursorGlow: "Ореол-свечение вокруг курсора терминала.",
-        term_glow: "Сила тени под текстом терминала для читаемости поверх фоновой картинки.",
-        term_weight: "Толщина шрифта терминала. Жирный текст остаётся заметно жирнее базового.",
-        term_cursorColor: "Цвет курсора терминала.",
-        term_selColor: "Цвет выделения текста в терминале.",
-        term_cursorSize: "Ширина курсора терминала: 0 — скрыть курсор, 1 — обычная, больше — шире. Заметнее всего на курсоре-линии (cursorStyle: line).",
-        term_cursorHeight: "Высота курсора терминала: 1 — обычная, меньше — короче, больше — выше ячейки."
-    };
-
-    // ===== Всплывающая подсказка «?» =====
-    var _infoPop = null, _infoAnchor = null;
-    function hideInfo() {
-        if (_infoPop) { _infoPop.remove(); _infoPop = null; _infoAnchor = null; document.removeEventListener("mousedown", _infoOutside, true); }
-    }
-    function _infoOutside(e) { if (_infoPop && e.target !== _infoAnchor && !_infoPop.contains(e.target)) hideInfo(); }
-    function showInfo(anchor, text) {
-        if (_infoAnchor === anchor) { hideInfo(); return; } // повторный клик — закрыть
-        hideInfo();
-        var pop = el("div",
-            "position:fixed; z-index:100003; max-width:250px; padding:8px 11px; border-radius:9px;" +
-            "background:rgba(17,17,27,0.99); color:#cdd6f4; font-size:11px; line-height:1.45;" +
-            "border:1px solid rgba(var(--mlbg-accent-rgb),0.45); box-shadow:0 10px 30px rgba(0,0,0,0.6);", text);
-        document.body.appendChild(pop);
-        var r = anchor.getBoundingClientRect(), pr = pop.getBoundingClientRect();
-        var left = Math.min(r.left, window.innerWidth - pr.width - 8);
-        var top = r.bottom + 6;
-        if (top + pr.height > window.innerHeight - 8) top = r.top - pr.height - 6;
-        pop.style.left = Math.max(8, left) + "px";
-        pop.style.top = Math.max(8, top) + "px";
-        _infoPop = pop; _infoAnchor = anchor;
-        setTimeout(function () { document.addEventListener("mousedown", _infoOutside, true); }, 0);
-    }
-    function infoDot(text) {
-        if (!text) return null;
-        var d = el("span",
-            "flex:0 0 auto; width:15px; height:15px; line-height:15px; text-align:center; border-radius:50%;" +
-            "font-size:10px; font-weight:700; cursor:help; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.16);" +
-            "border:1px solid rgba(var(--mlbg-accent-rgb),0.4); user-select:none;", "?");
-        d.addEventListener("click", function (e) { e.stopPropagation(); e.preventDefault(); showInfo(d, text); });
-        keyActivate(d, "Пояснение");
-        return d;
-    }
-
     // ===== Сворачиваемая секция =====
     function collapsible(parent, title, info) {
         var collapsed = !!(cfg.ui.collapsed && cfg.ui.collapsed[title]);
@@ -1148,7 +1148,11 @@
         return body;
     }
 
-    // ===== Экспорт / импорт настроек =====
+    // ===================== src/ui/io.js =====================
+    // ===== Экспорт / импорт настроек + тосты =====
+    // toast — короткое уведомление внизу справа (зелёное/красное). Экспорт выгружает cfg в
+    // JSON-файл и в буфер; импорт читает файл и прогоняет его через mergeCfg (санитизация).
+
     function toast(msg, ok) {
         var t = el("div",
             "position:fixed; bottom:44px; right:16px; z-index:100004; padding:9px 13px; border-radius:9px;" +
@@ -1203,12 +1207,74 @@
         });
         document.body.appendChild(inp); inp.click();
     }
+    // Кнопка экспорта/импорта (одинаковый вид, разный обработчик навешивается снаружи).
     function makeIoBtn(text) {
         var b = el("div", "flex:1 1 0; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", text);
         b.addEventListener("mouseenter", function () { b.style.background = "rgba(137,180,250,0.26)"; });
         b.addEventListener("mouseleave", function () { b.style.background = "rgba(137,180,250,0.14)"; });
         keyActivate(b, text);
         return b;
+    }
+
+    // ===================== src/ui/statusbar.js =====================
+    // ===== Кнопка статусбара =====
+    var SB_ID = "moonlight-bg-switcher", PANEL_ID = "moonlight-bg-panel";
+    function updateLabel() {
+        var item = document.getElementById(SB_ID); if (!item) return;
+        var a = item.querySelector("a"); if (!a) return;
+        var idx = activeIndex(), nm = setName(idx);
+        // Мастер-выключатель: когда фон выключен — короткая подпись «BG выкл», без индикаторов.
+        if (!cfg.enabled) {
+            a.textContent = "BG выкл";
+            var od = item.querySelector(".mlbg-mode-dot"); if (od) od.remove();
+            var t0 = "Фон и дизайн — настройки (фон выключен, Ctrl+Alt+0 — включить)";
+            item.title = t0; item.setAttribute("aria-label", t0);
+            return;
+        }
+        a.textContent = "BG " + idx + (nm ? " · " + nm : "") + (cfg.mode === "random" ? " ~" : "");
+
+        // Индикатор активного авто-режима: маленькая точка перед подписью.
+        // авто-по-времени — кольцо (акцентная рамка), слайдшоу — залитая точка.
+        // Приоритет у авто-по-времени (оно перебивает слайдшоу, см. slideTick).
+        var auto = !!(cfg.autoTime && cfg.autoTime.on);
+        var slide = !auto && !!(cfg.slideshow && cfg.slideshow.on);
+        var dot = item.querySelector(".mlbg-mode-dot");
+        var mode = auto ? "auto" : (slide ? "slide" : "");
+        if (mode) {
+            if (!dot) {
+                dot = document.createElement("span"); dot.className = "mlbg-mode-dot";
+                dot.style.cssText = "display:inline-block; width:6px; height:6px; border-radius:50%; margin:0 5px 0 1px; vertical-align:middle; box-sizing:border-box;";
+                a.insertBefore(dot, a.firstChild);
+            }
+            if (mode === "auto") { dot.style.background = "transparent"; dot.style.border = "2px solid var(--mlbg-accent)"; }
+            else { dot.style.background = "var(--mlbg-accent)"; dot.style.border = "none"; }
+        } else if (dot) { dot.remove(); }
+
+        var modeTxt = auto ? " · авто-набор по времени суток" : (slide ? " · слайдшоу вкл" : "");
+        var t = "Фон и дизайн — настройки" + (nm ? " (набор: " + nm + ")" : "") + modeTxt;
+        item.title = t; item.setAttribute("aria-label", t);
+    }
+    function ensureStatusBar() {
+        try {
+            var right = document.querySelector(".statusbar .right-items") || document.querySelector(".right-items");
+            if (!right) return;
+            var item = document.getElementById(SB_ID);
+            if (!item) {
+                item = document.createElement("div");
+                item.id = SB_ID; item.className = "statusbar-item right"; item.title = "Фон и дизайн — настройки";
+                item.setAttribute("role", "button");
+                item.setAttribute("tabindex", "0");
+                item.setAttribute("aria-label", "Фон и дизайн — настройки");
+                var a = document.createElement("a"); a.className = "statusbar-item-label"; a.style.padding = "0 6px";
+                item.appendChild(a);
+                item.addEventListener("click", togglePanel);
+                item.addEventListener("keydown", function (e) {
+                    if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") { e.preventDefault(); togglePanel(e); }
+                });
+                right.insertBefore(item, right.firstChild);
+            }
+            updateLabel();
+        } catch (e) {}
     }
 
     // ===================== src/ui/panel.js =====================
@@ -1302,6 +1368,9 @@
             document.addEventListener("mousemove", onMove);
             document.addEventListener("mouseup", onUp);
         });
+
+        // Мастер-выключатель фона/эффектов (вверху, до секций)
+        p.appendChild(makeMasterToggle());
 
         // Набор (превью-чипы)
         var secSet = collapsible(p, "Набор", "Выбор набора фоновых картинок (редактор / сайдбар / панель). «случайно» — новый набор при каждом запуске.");
@@ -1424,7 +1493,9 @@
     }
 
     // ===================== src/widgets/extras.js =====================
-    // ===== Виджеты статусбара: часы, помидор, частицы =====
+    // ===== Рантайм-виджеты и авто-переключатели =====
+    // Виджеты статусбара (часы, помидор, летящие частицы) + авто-смена набора:
+    // слайдшоу по таймеру (slideTick) и авто-набор по времени суток (timeTick).
     function statusRight() { return document.querySelector(".statusbar .right-items") || document.querySelector(".right-items"); }
     function pad2(n) { return (n < 10 ? "0" : "") + n; }
 
@@ -1537,7 +1608,7 @@
         // Частиц нет, если эффект выключен, включён режим «уменьшить движение» ИЛИ
         // счётчик = 0. В последнем случае раньше висел пустой canvas с работающим rAF
         // (loopParticles каждый кадр чистил пустой холст) — теперь холст убирается.
-        if (cfg.fx.particles && !reduceMotion() && partCount() > 0) {
+        if (cfg.enabled && cfg.fx.particles && !reduceMotion() && partCount() > 0) {
             if (!part.canvas || !document.body.contains(part.canvas)) {
                 var cv = document.createElement("canvas"); cv.id = "mlbg-particles";
                 cv.style.cssText = "position:fixed; inset:0; pointer-events:none; z-index:5; opacity:0.5;";
@@ -1676,6 +1747,12 @@
             if (e.code === "Period") { e.preventDefault(); cycleSet(1); }
             else if (e.code === "Comma") { e.preventDefault(); cycleSet(-1); }
             else if (e.code === "KeyB") { e.preventDefault(); togglePanel({ stopPropagation: function () {} }); }
+            else if (e.code === "Digit0" || e.code === "Numpad0") { // мастер-выключатель фона
+                e.preventDefault();
+                cfg.enabled = !cfg.enabled; apply();
+                try { toast(cfg.enabled ? "Фон включён" : "Фон выключен"); } catch (er) {}
+                if (document.getElementById(PANEL_ID)) refreshPanel();
+            }
         } catch (err) {}
     }
     document.addEventListener("keydown", onHotkey, true);
@@ -1702,6 +1779,6 @@
     } catch (e) {}
     heal();
 
-    console.log("[MoonLight custom-bg] v13 installed (theme vars + hotkeys + hardened config), sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
+    console.log("[MoonLight custom-bg] v14 installed (master on/off + hotkeys), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
 
 })();

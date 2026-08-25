@@ -53,8 +53,30 @@ function themeKind() {
 }
 function isLightTheme() { return themeKind() === "light"; }
 
+// Стили самой кнопки «BG» и видимого фокуса — нужны всегда (в т.ч. когда фон выключен),
+// иначе панель/кнопка теряют hover и обводку фокуса. Вынесены отдельно для мастер-выключателя.
+function switcherCSS() {
+    return [
+        "#moonlight-bg-switcher { cursor: pointer; }",
+        "#moonlight-bg-switcher:hover { background: rgba(var(--mlbg-accent-rgb),0.18); }",
+        // видимый фокус для клавиатуры (кнопка BG и все div-«кнопки» панели)
+        "#moonlight-bg-switcher:focus-visible, #moonlight-bg-panel [role=button]:focus-visible {",
+        "  outline: 2px solid var(--mlbg-accent); outline-offset: 1px;",
+        "}"
+    ].join("\n");
+}
+
 // ===== Сборка CSS =====
 function buildCSS() {
+    // Акцент нужен и в выключенном режиме (для стилей кнопки/фокуса), считаем первым.
+    var ac = safeColor(getAccent(), DEFAULTS.accent);
+    var acRGB = accentRGB();
+    var rootVar = ":root { --mlbg-accent: " + ac + "; --mlbg-accent-rgb: " + acRGB + "; }";
+    // Мастер-выключатель: фон и эффекты выключены — отдаём только переменную акцента и
+    // стили кнопки/фокуса. Никаких фоновых картинок, стекла, фильтров — «ванильный» VS Code,
+    // но кнопка BG и панель остаются рабочими, чтобы включить обратно.
+    if (!cfg.enabled) return rootVar + "\n" + switcherCSS();
+
     var s = SETS[activeIndex()], fx = cfg.fx, fxp = cfg.fxp, op = getOp();
     // Палитра поверхностей под тему. surfRGB — база «матового стекла»/статусбара/титлбара;
     // titleSolid — непрозрачная подложка титлбара; scrimRGB — цвет тени-скрима под кодом
@@ -93,11 +115,9 @@ function buildCSS() {
     }
     function blurLines(px) { return "  backdrop-filter: blur(" + px + "px); -webkit-backdrop-filter: blur(" + px + "px);"; }
 
-    // Акцентный цвет — санитизируем повторно и раскладываем на компоненты для var().
-    // Все эффекты ниже используют var(--mlbg-accent) / rgba(var(--mlbg-accent-rgb), a).
-    var ac = safeColor(getAccent(), DEFAULTS.accent);
-    var acRGB = accentRGB();
-    add(":root { --mlbg-accent: " + ac + "; --mlbg-accent-rgb: " + acRGB + "; }");
+    // Акцентный цвет (ac/acRGB уже посчитаны выше) — все эффекты ниже используют
+    // var(--mlbg-accent) / rgba(var(--mlbg-accent-rgb), a).
+    add(rootVar);
 
     // Фильтры самой фоновой картинки (яркость/насыщенность/размытие) — своя строка на зону.
     // Числа зажаты в mergeCfg, здесь клампим повторно (defense-in-depth). Пустая строка,
@@ -271,14 +291,7 @@ function buildCSS() {
         "}"
     );
 
-    add(
-        "#moonlight-bg-switcher { cursor: pointer; }",
-        "#moonlight-bg-switcher:hover { background: rgba(var(--mlbg-accent-rgb),0.18); }",
-        // видимый фокус для клавиатуры (кнопка BG и все div-«кнопки» панели)
-        "#moonlight-bg-switcher:focus-visible, #moonlight-bg-panel [role=button]:focus-visible {",
-        "  outline: 2px solid var(--mlbg-accent); outline-offset: 1px;",
-        "}"
-    );
+    add(switcherCSS());
 
     // Доступность/батарея: при системной «уменьшить движение» гасим CSS-анимации
     // (Ken Burns, живая рамка). Частицы (canvas/JS) выключаются отдельно в ensureParticles.
