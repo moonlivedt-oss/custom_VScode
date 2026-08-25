@@ -50,10 +50,22 @@ function makeChip(mode, label) {
     var c = el("div", css, isSet ? null : label);
     if (isSet) {
         var idx = parseInt(mode, 10);
-        c.style.backgroundImage = cssUrl(IMG + SETS[idx].editor);
-        var num = el("span", "position:absolute; right:3px; bottom:1px; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.9);", label);
+        var s = SETS[idx];
+        // Мини-триптих: три вертикальные полоски с превью зон (редактор / сайдбар / панель),
+        // чтобы собирать наборы на глаз. Полоски — фон chip как запасной вариант (editor).
+        c.style.backgroundImage = cssUrl(IMG + s.editor);
+        var zones = [s.editor, s.sidebar, s.panel];
+        for (var zi = 0; zi < 3; zi++) {
+            var strip = el("div",
+                "position:absolute; top:0; bottom:0; width:33.34%; left:" + (zi * 33.33) + "%;" +
+                "background-position:center; background-size:cover;" +
+                (zi ? "box-shadow:inset 1px 0 0 rgba(0,0,0,0.35);" : ""));
+            strip.style.backgroundImage = cssUrl(IMG + zones[zi]);
+            c.appendChild(strip);
+        }
+        var num = el("span", "position:absolute; right:3px; bottom:1px; z-index:2; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.95);", label);
         c.appendChild(num);
-        var nm = setName(idx); if (nm) c.title = idx + " · " + nm;
+        var nm = setName(idx); if (nm) c.title = idx + " · " + nm + " (редактор · сайдбар · панель)";
         probeSet(idx, c);
         if (!active) {
             c.addEventListener("mouseenter", function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; });
