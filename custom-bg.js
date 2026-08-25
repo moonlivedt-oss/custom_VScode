@@ -421,6 +421,17 @@
         var out = [];
         function add() { for (var i = 0; i < arguments.length; i++) out.push(arguments[i]); }
         var TR = "  transition: opacity 0.5s ease;";
+        // Поверхность «матового стекла»: точный цвет темы через var(--vscode-*) с нужной
+        // прозрачностью (color-mix), плюс запасная строка rgba() под старые движки без
+        // color-mix. Порядок важен: сначала fallback, затем color-mix (если поддержан —
+        // побеждает как более поздняя валидная декларация; если нет — остаётся rgba).
+        // rgb — тема-зависимая запасная база "r,g,b"; a — прозрачность 0..1.
+        function addSurface(cssVar, rgb, a) {
+            var pct = Math.round(a * 100);
+            add("  background-color: rgba(" + rgb + "," + a + ") !important;");
+            add("  background-color: color-mix(in srgb, var(" + cssVar + ") " + pct + "%, transparent) !important;");
+        }
+        function blurLines(px) { return "  backdrop-filter: blur(" + px + "px); -webkit-backdrop-filter: blur(" + px + "px);"; }
 
         // Акцентный цвет — санитизируем повторно и раскладываем на компоненты для var().
         // Все эффекты ниже используют var(--mlbg-accent) / rgba(var(--mlbg-accent-rgb), a).
@@ -537,16 +548,20 @@
         if (fx.tabAccent) add(".tabs-container > .tab.active { box-shadow: inset 0 -2px 0 0 var(--mlbg-accent); }");
         if (fx.vignette) add(".part.editor .editor-container { box-shadow: inset 0 0 140px 30px rgba(0,0,0," + fxp.vignette + "); }");
         if (fx.scrim) add(".monaco-editor .view-lines { text-shadow: 0 0 3px rgba(" + scrimRGB + ",0.85); }");
-        if (fx.glassTabs) add(
-            ".part.editor > .content .editor-group-container > .title {",
-            "  background-color: rgba(" + surfRGB + ",0.55) !important; backdrop-filter: blur(" + fxp.blur + "px); -webkit-backdrop-filter: blur(" + fxp.blur + "px);",
-            "}"
-        );
-        if (fx.glassSide) add(
-            ".part.sidebar, .part.panel {",
-            "  background-color: rgba(" + surfRGB + ",0.60) !important; backdrop-filter: blur(" + fxp.blur + "px); -webkit-backdrop-filter: blur(" + fxp.blur + "px);",
-            "}"
-        );
+        if (fx.glassTabs) {
+            add(".part.editor > .content .editor-group-container > .title {");
+            addSurface("--vscode-editorGroupHeader-tabsBackground", surfRGB, 0.55);
+            add(blurLines(fxp.blur), "}");
+        }
+        if (fx.glassSide) {
+            // сайдбар и панель берут СВОИ переменные фона темы (раньше делили одну константу)
+            add(".part.sidebar {");
+            addSurface("--vscode-sideBar-background", surfRGB, 0.60);
+            add(blurLines(fxp.blur), "}");
+            add(".part.panel {");
+            addSurface("--vscode-panel-background", surfRGB, 0.60);
+            add(blurLines(fxp.blur), "}");
+        }
         if (fx.scrollbar) add(
             ".monaco-scrollable-element > .scrollbar > .slider { background: rgba(var(--mlbg-accent-rgb),0.30) !important; border-radius: 8px; }",
             ".monaco-scrollable-element > .scrollbar > .slider:hover { background: rgba(var(--mlbg-accent-rgb),0.55) !important; }"
@@ -557,9 +572,11 @@
             "  background: rgba(var(--mlbg-accent-rgb),0.06) !important; box-shadow: inset 2px 0 0 0 rgba(var(--mlbg-accent-rgb),0.55);",
             "}"
         );
-        if (fx.glassStatus) add(
-            ".part.statusbar { background-color: rgba(" + surfRGB + ",0.55) !important; backdrop-filter: blur(" + Math.min(fxp.blur, 8) + "px); -webkit-backdrop-filter: blur(" + Math.min(fxp.blur, 8) + "px); }"
-        );
+        if (fx.glassStatus) {
+            add(".part.statusbar {");
+            addSurface("--vscode-statusBar-background", surfRGB, 0.55);
+            add(blurLines(Math.min(fxp.blur, 8)), "}");
+        }
         if (fx.cursorGlow) add(
             ".monaco-editor .cursors-layer > .cursor { box-shadow: 0 0 8px 2px rgba(var(--mlbg-accent-rgb),0.85); border-radius: 1px; }"
         );
@@ -580,7 +597,9 @@
         );
         if (fx.titlebar) add(
             ".part.titlebar, .titlebar {",
-            "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.30), rgba(137,180,250,0.16) 45%, rgba(" + surfRGB + ",0) 78%), " + titleSolid + " !important;",
+            // подложка титлбара — цвет темы var(--vscode-titleBar-activeBackground) с запасной
+            // тема-зависимой константой; поверх — акцентный градиент, гаснущий к прозрачному.
+            "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.30), rgba(137,180,250,0.16) 45%, rgba(" + surfRGB + ",0) 78%), var(--vscode-titleBar-activeBackground, " + titleSolid + ") !important;",
             "}"
         );
         if (fx.splash) add(
@@ -653,7 +672,26 @@
         var a = item.querySelector("a"); if (!a) return;
         var idx = activeIndex(), nm = setName(idx);
         a.textContent = "BG " + idx + (nm ? " · " + nm : "") + (cfg.mode === "random" ? " ~" : "");
-        var t = "Фон и дизайн — настройки" + (nm ? " (набор: " + nm + ")" : "");
+
+        // Индикатор активного авто-режима: маленькая точка перед подписью.
+        // авто-по-времени — кольцо (акцентная рамка), слайдшоу — залитая точка.
+        // Приоритет у авто-по-времени (оно перебивает слайдшоу, см. slideTick).
+        var auto = !!(cfg.autoTime && cfg.autoTime.on);
+        var slide = !auto && !!(cfg.slideshow && cfg.slideshow.on);
+        var dot = item.querySelector(".mlbg-mode-dot");
+        var mode = auto ? "auto" : (slide ? "slide" : "");
+        if (mode) {
+            if (!dot) {
+                dot = document.createElement("span"); dot.className = "mlbg-mode-dot";
+                dot.style.cssText = "display:inline-block; width:6px; height:6px; border-radius:50%; margin:0 5px 0 1px; vertical-align:middle; box-sizing:border-box;";
+                a.insertBefore(dot, a.firstChild);
+            }
+            if (mode === "auto") { dot.style.background = "transparent"; dot.style.border = "2px solid var(--mlbg-accent)"; }
+            else { dot.style.background = "var(--mlbg-accent)"; dot.style.border = "none"; }
+        } else if (dot) { dot.remove(); }
+
+        var modeTxt = auto ? " · авто-набор по времени суток" : (slide ? " · слайдшоу вкл" : "");
+        var t = "Фон и дизайн — настройки" + (nm ? " (набор: " + nm + ")" : "") + modeTxt;
         item.title = t; item.setAttribute("aria-label", t);
     }
     function ensureStatusBar() {
@@ -1615,6 +1653,29 @@
         } catch (e) {}
     }, 1000);
     window.addEventListener("resize", function () { try { resizeParticles(); } catch (e) {} });
+
+    // ===== Горячие клавиши =====
+    // Переключение набора без открытия панели и быстрый вызов панели. Коды клавиш (e.code)
+    // не зависят от раскладки (RU/EN) — Ctrl+Alt+. / , / B работают на любой. Срабатываем
+    // только на точное сочетание Ctrl+Alt (без Shift/Meta), чтобы не мешать редактору.
+    function cycleSet(dir) {
+        if (SETS.length < 1) return;
+        var cur = activeIndex();
+        var next = ((cur + dir) % SETS.length + SETS.length) % SETS.length;
+        cfg.mode = String(next); // из «случайно» — переходим на конкретный набор
+        applyFade();
+        if (document.getElementById(PANEL_ID)) refreshPanel();
+        try { toast("Набор " + next + (setName(next) ? " · " + setName(next) : "")); } catch (e) {}
+    }
+    function onHotkey(e) {
+        try {
+            if (!e.ctrlKey || !e.altKey || e.shiftKey || e.metaKey) return;
+            if (e.code === "Period") { e.preventDefault(); cycleSet(1); }
+            else if (e.code === "Comma") { e.preventDefault(); cycleSet(-1); }
+            else if (e.code === "KeyB") { e.preventDefault(); togglePanel({ stopPropagation: function () {} }); }
+        } catch (err) {}
+    }
+    document.addEventListener("keydown", onHotkey, true);
     // Возврат окна из скрытого/свёрнутого состояния — сразу лечим всё (стиль, статусбар,
     // виджеты, частицы) и обновляем время/слайдшоу, не дожидаясь следующего тика.
     document.addEventListener("visibilitychange", function () {
@@ -1638,6 +1699,6 @@
     } catch (e) {}
     heal();
 
-    console.log("[MoonLight custom-bg] v11 installed (light theme + auto-by-time + a11y), sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
+    console.log("[MoonLight custom-bg] v12 installed (theme vars + hotkeys + mode indicator), sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
 
 })();

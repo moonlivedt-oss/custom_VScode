@@ -81,6 +81,17 @@ function buildCSS() {
     var out = [];
     function add() { for (var i = 0; i < arguments.length; i++) out.push(arguments[i]); }
     var TR = "  transition: opacity 0.5s ease;";
+    // Поверхность «матового стекла»: точный цвет темы через var(--vscode-*) с нужной
+    // прозрачностью (color-mix), плюс запасная строка rgba() под старые движки без
+    // color-mix. Порядок важен: сначала fallback, затем color-mix (если поддержан —
+    // побеждает как более поздняя валидная декларация; если нет — остаётся rgba).
+    // rgb — тема-зависимая запасная база "r,g,b"; a — прозрачность 0..1.
+    function addSurface(cssVar, rgb, a) {
+        var pct = Math.round(a * 100);
+        add("  background-color: rgba(" + rgb + "," + a + ") !important;");
+        add("  background-color: color-mix(in srgb, var(" + cssVar + ") " + pct + "%, transparent) !important;");
+    }
+    function blurLines(px) { return "  backdrop-filter: blur(" + px + "px); -webkit-backdrop-filter: blur(" + px + "px);"; }
 
     // Акцентный цвет — санитизируем повторно и раскладываем на компоненты для var().
     // Все эффекты ниже используют var(--mlbg-accent) / rgba(var(--mlbg-accent-rgb), a).
@@ -197,16 +208,20 @@ function buildCSS() {
     if (fx.tabAccent) add(".tabs-container > .tab.active { box-shadow: inset 0 -2px 0 0 var(--mlbg-accent); }");
     if (fx.vignette) add(".part.editor .editor-container { box-shadow: inset 0 0 140px 30px rgba(0,0,0," + fxp.vignette + "); }");
     if (fx.scrim) add(".monaco-editor .view-lines { text-shadow: 0 0 3px rgba(" + scrimRGB + ",0.85); }");
-    if (fx.glassTabs) add(
-        ".part.editor > .content .editor-group-container > .title {",
-        "  background-color: rgba(" + surfRGB + ",0.55) !important; backdrop-filter: blur(" + fxp.blur + "px); -webkit-backdrop-filter: blur(" + fxp.blur + "px);",
-        "}"
-    );
-    if (fx.glassSide) add(
-        ".part.sidebar, .part.panel {",
-        "  background-color: rgba(" + surfRGB + ",0.60) !important; backdrop-filter: blur(" + fxp.blur + "px); -webkit-backdrop-filter: blur(" + fxp.blur + "px);",
-        "}"
-    );
+    if (fx.glassTabs) {
+        add(".part.editor > .content .editor-group-container > .title {");
+        addSurface("--vscode-editorGroupHeader-tabsBackground", surfRGB, 0.55);
+        add(blurLines(fxp.blur), "}");
+    }
+    if (fx.glassSide) {
+        // сайдбар и панель берут СВОИ переменные фона темы (раньше делили одну константу)
+        add(".part.sidebar {");
+        addSurface("--vscode-sideBar-background", surfRGB, 0.60);
+        add(blurLines(fxp.blur), "}");
+        add(".part.panel {");
+        addSurface("--vscode-panel-background", surfRGB, 0.60);
+        add(blurLines(fxp.blur), "}");
+    }
     if (fx.scrollbar) add(
         ".monaco-scrollable-element > .scrollbar > .slider { background: rgba(var(--mlbg-accent-rgb),0.30) !important; border-radius: 8px; }",
         ".monaco-scrollable-element > .scrollbar > .slider:hover { background: rgba(var(--mlbg-accent-rgb),0.55) !important; }"
@@ -217,9 +232,11 @@ function buildCSS() {
         "  background: rgba(var(--mlbg-accent-rgb),0.06) !important; box-shadow: inset 2px 0 0 0 rgba(var(--mlbg-accent-rgb),0.55);",
         "}"
     );
-    if (fx.glassStatus) add(
-        ".part.statusbar { background-color: rgba(" + surfRGB + ",0.55) !important; backdrop-filter: blur(" + Math.min(fxp.blur, 8) + "px); -webkit-backdrop-filter: blur(" + Math.min(fxp.blur, 8) + "px); }"
-    );
+    if (fx.glassStatus) {
+        add(".part.statusbar {");
+        addSurface("--vscode-statusBar-background", surfRGB, 0.55);
+        add(blurLines(Math.min(fxp.blur, 8)), "}");
+    }
     if (fx.cursorGlow) add(
         ".monaco-editor .cursors-layer > .cursor { box-shadow: 0 0 8px 2px rgba(var(--mlbg-accent-rgb),0.85); border-radius: 1px; }"
     );
@@ -240,7 +257,9 @@ function buildCSS() {
     );
     if (fx.titlebar) add(
         ".part.titlebar, .titlebar {",
-        "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.30), rgba(137,180,250,0.16) 45%, rgba(" + surfRGB + ",0) 78%), " + titleSolid + " !important;",
+        // подложка титлбара — цвет темы var(--vscode-titleBar-activeBackground) с запасной
+        // тема-зависимой константой; поверх — акцентный градиент, гаснущий к прозрачному.
+        "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.30), rgba(137,180,250,0.16) 45%, rgba(" + surfRGB + ",0) 78%), var(--vscode-titleBar-activeBackground, " + titleSolid + ") !important;",
         "}"
     );
     if (fx.splash) add(

@@ -42,6 +42,29 @@ setInterval(function () {
     } catch (e) {}
 }, 1000);
 window.addEventListener("resize", function () { try { resizeParticles(); } catch (e) {} });
+
+// ===== Горячие клавиши =====
+// Переключение набора без открытия панели и быстрый вызов панели. Коды клавиш (e.code)
+// не зависят от раскладки (RU/EN) — Ctrl+Alt+. / , / B работают на любой. Срабатываем
+// только на точное сочетание Ctrl+Alt (без Shift/Meta), чтобы не мешать редактору.
+function cycleSet(dir) {
+    if (SETS.length < 1) return;
+    var cur = activeIndex();
+    var next = ((cur + dir) % SETS.length + SETS.length) % SETS.length;
+    cfg.mode = String(next); // из «случайно» — переходим на конкретный набор
+    applyFade();
+    if (document.getElementById(PANEL_ID)) refreshPanel();
+    try { toast("Набор " + next + (setName(next) ? " · " + setName(next) : "")); } catch (e) {}
+}
+function onHotkey(e) {
+    try {
+        if (!e.ctrlKey || !e.altKey || e.shiftKey || e.metaKey) return;
+        if (e.code === "Period") { e.preventDefault(); cycleSet(1); }
+        else if (e.code === "Comma") { e.preventDefault(); cycleSet(-1); }
+        else if (e.code === "KeyB") { e.preventDefault(); togglePanel({ stopPropagation: function () {} }); }
+    } catch (err) {}
+}
+document.addEventListener("keydown", onHotkey, true);
 // Возврат окна из скрытого/свёрнутого состояния — сразу лечим всё (стиль, статусбар,
 // виджеты, частицы) и обновляем время/слайдшоу, не дожидаясь следующего тика.
 document.addEventListener("visibilitychange", function () {
@@ -65,4 +88,4 @@ try {
 } catch (e) {}
 heal();
 
-console.log("[MoonLight custom-bg] v11 installed (light theme + auto-by-time + a11y), sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
+console.log("[MoonLight custom-bg] v12 installed (theme vars + hotkeys + mode indicator), sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());

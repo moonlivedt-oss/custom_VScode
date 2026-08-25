@@ -161,7 +161,9 @@ contains(css, "--mlbg-accent: #f38ba8", "акцент набора 0 (#f38ba8) �
 contains(css, "url('", "фон вставлен через url('...') (cssUrl)");
 contains(css, "/ cover ", "режим вписывания cover присутствует");
 contains(css, "opacity:", "прозрачность зон присутствует");
-contains(css, "30,30,46", "тёмная поверхность (стекло) для тёмной темы");
+contains(css, "30,30,46", "тёмная поверхность (стекло) — запасная rgba для тёмной темы");
+contains(css, "color-mix(in srgb, var(--vscode-", "поверхности берут цвет темы через var(--vscode-*) + color-mix");
+contains(css, "var(--vscode-titleBar-activeBackground", "титлбар берёт подложку из переменной темы");
 
 // ---- 2. 404-фолбэк на акцентную подложку ----
 sandbox._imgState[sandbox.IMG + sandbox.SETS[0].editor] = { ok: false, luma: null };
@@ -199,6 +201,15 @@ sandbox.timeTick();
 var expect = sandbox.isDaytime() ? "1" : "5";
 ok(sandbox.cfg.mode === expect, "timeTick переключил набор по времени суток -> " + expect +
     " (сейчас " + (sandbox.isDaytime() ? "день" : "ночь") + ")");
+
+// ---- 7. Горячая клавиша: cycleSet листает наборы по кругу ----
+sandbox.cfg.autoTime = { on: false, day: 0, night: 4 };
+sandbox.cfg.mode = "0";
+sandbox.cycleSet(1);
+ok(sandbox.cfg.mode === "1", "cycleSet(+1) от набора 0 -> набор 1");
+sandbox.cfg.mode = "0";
+sandbox.cycleSet(-1);
+ok(sandbox.cfg.mode === String(sandbox.SETS.length - 1), "cycleSet(-1) от набора 0 -> последний набор (по кругу)");
 
 // ============================================================
 console.log("\nИтог: " + passed + " ok, " + failed + " fail.");

@@ -5,7 +5,26 @@ function updateLabel() {
     var a = item.querySelector("a"); if (!a) return;
     var idx = activeIndex(), nm = setName(idx);
     a.textContent = "BG " + idx + (nm ? " · " + nm : "") + (cfg.mode === "random" ? " ~" : "");
-    var t = "Фон и дизайн — настройки" + (nm ? " (набор: " + nm + ")" : "");
+
+    // Индикатор активного авто-режима: маленькая точка перед подписью.
+    // авто-по-времени — кольцо (акцентная рамка), слайдшоу — залитая точка.
+    // Приоритет у авто-по-времени (оно перебивает слайдшоу, см. slideTick).
+    var auto = !!(cfg.autoTime && cfg.autoTime.on);
+    var slide = !auto && !!(cfg.slideshow && cfg.slideshow.on);
+    var dot = item.querySelector(".mlbg-mode-dot");
+    var mode = auto ? "auto" : (slide ? "slide" : "");
+    if (mode) {
+        if (!dot) {
+            dot = document.createElement("span"); dot.className = "mlbg-mode-dot";
+            dot.style.cssText = "display:inline-block; width:6px; height:6px; border-radius:50%; margin:0 5px 0 1px; vertical-align:middle; box-sizing:border-box;";
+            a.insertBefore(dot, a.firstChild);
+        }
+        if (mode === "auto") { dot.style.background = "transparent"; dot.style.border = "2px solid var(--mlbg-accent)"; }
+        else { dot.style.background = "var(--mlbg-accent)"; dot.style.border = "none"; }
+    } else if (dot) { dot.remove(); }
+
+    var modeTxt = auto ? " · авто-набор по времени суток" : (slide ? " · слайдшоу вкл" : "");
+    var t = "Фон и дизайн — настройки" + (nm ? " (набор: " + nm + ")" : "") + modeTxt;
     item.title = t; item.setAttribute("aria-label", t);
 }
 function ensureStatusBar() {
