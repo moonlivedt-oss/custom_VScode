@@ -2,9 +2,27 @@
 // Самолечение (интервал + observer) регистрируем ДО виджетов и всё оборачиваем в try,
 // чтобы ошибка любого виджета не убивала возврат кнопки BG после перестройки DOM.
 function heal() {
+    try { if (!_themeWatched) _themeWatched = watchTheme(); } catch (e) {}
     try { ensureStyle(); } catch (e) {}
     try { ensureStatusBar(); } catch (e) {}
     syncWidgets();
+}
+// Смена темы VS Code (класс vs/vs-dark на .monaco-workbench) не меняет ревизию стиля,
+// поэтому сама по себе не пересобрала бы CSS. Наблюдаем за классом воркбенча и при
+// смене светлая/тёмная пересобираем стиль (поверхности стекла/титлбара/скрима зависят
+// от темы). Воркбенча может ещё не быть при старте — тогда heal попробует снова.
+var _themeWatched = false, _lastThemeKind = null;
+function watchTheme() {
+    var wb = document.querySelector(".monaco-workbench");
+    if (!wb) return false;
+    _lastThemeKind = themeKind();
+    try {
+        new MutationObserver(function () {
+            var k = themeKind();
+            if (k !== _lastThemeKind) { _lastThemeKind = k; bumpStyle(); ensureStyle(); }
+        }).observe(wb, { attributes: true, attributeFilter: ["class"] });
+    } catch (e) { return false; }
+    return true;
 }
 // Один секундный тикер: каждую секунду — лёгкие idempotent-проверки и обновления по времени,
 // а полное самолечение (пересборка CSS + виджеты) — раз в 3 секунды. Раньше это были два
@@ -19,7 +37,7 @@ setInterval(function () {
         if (document.hidden) return;
         _tick++;
         ensureStatusBar(); ensureClock(); ensurePomodoro(); // дешёвые проверки наличия
-        tickClock(); tickPomo(); slideTick();               // обновления по времени
+        tickClock(); tickPomo(); timeTick(); slideTick();   // обновления по времени
         if (_tick % 3 === 0) heal();                         // самолечение раз в 3с
     } catch (e) {}
 }, 1000);
@@ -27,7 +45,7 @@ window.addEventListener("resize", function () { try { resizeParticles(); } catch
 // Возврат окна из скрытого/свёрнутого состояния — сразу лечим всё (стиль, статусбар,
 // виджеты, частицы) и обновляем время/слайдшоу, не дожидаясь следующего тика.
 document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) { try { heal(); tickClock(); tickPomo(); slideTick(); } catch (e) {} }
+    if (!document.hidden) { try { heal(); tickClock(); tickPomo(); timeTick(); slideTick(); } catch (e) {} }
 });
 // Смена системной «уменьшить движение» — пересобираем стиль и виджеты (частицы вкл/выкл).
 try {
@@ -47,4 +65,4 @@ try {
 } catch (e) {}
 heal();
 
-console.log("[MoonLight custom-bg] v10 installed (perf + a11y), sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font);
+console.log("[MoonLight custom-bg] v11 installed (light theme + auto-by-time + a11y), sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());

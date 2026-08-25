@@ -1,20 +1,42 @@
 // ===== Панель настроек =====
 // Централизованное закрытие: снимает документные слушатели (Esc/клик-мимо), прячет «?»,
 // удаляет саму панель. panelCleanup хранит отписку слушателей текущей панели.
-var panelCleanup = null;
+var panelCleanup = null, panelPrevFocus = null;
 function closePanel() {
     hideInfo();
     if (panelCleanup) { try { panelCleanup(); } catch (e) {} panelCleanup = null; }
     var ex = document.getElementById(PANEL_ID); if (ex) ex.remove();
+    // Вернуть фокус туда, откуда открыли панель (обычно кнопка BG) — для клавиатуры.
+    try { if (panelPrevFocus && panelPrevFocus.focus && document.contains(panelPrevFocus)) panelPrevFocus.focus(); } catch (e) {}
+    panelPrevFocus = null;
+}
+// Видимые фокусируемые элементы панели (для стартового фокуса и ловушки Tab).
+var FOCUS_SEL = 'a[href], button, input, select, textarea, [tabindex], [role="button"]';
+function panelFocusables(p) {
+    var list = [];
+    try {
+        var all = p.querySelectorAll(FOCUS_SEL);
+        for (var i = 0; i < all.length; i++) {
+            var n = all[i];
+            if (n.getAttribute("tabindex") === "-1") continue;
+            if (n.disabled) continue;
+            if (n.offsetParent === null && n !== p) continue; // скрыт (свёрнутая секция)
+            list.push(n);
+        }
+    } catch (e) {}
+    return list;
 }
 function togglePanel(ev) {
     ev.stopPropagation();
     if (document.getElementById(PANEL_ID)) { closePanel(); return; }
 
+    panelPrevFocus = document.activeElement; // куда вернуть фокус при закрытии
     var p = el("div", null);
     p.id = PANEL_ID;
     p.setAttribute("role", "dialog");
+    p.setAttribute("aria-modal", "true");
     p.setAttribute("aria-label", "Фон и дизайн — настройки");
+    p.tabIndex = -1; // чтобы можно было сфокусировать сам диалог при открытии
     p.style.cssText =
         "position:fixed; z-index:100000; width:380px; max-height:82vh; overflow-y:auto; overflow-x:hidden;" +
         "background:rgba(24,24,37,0.98); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);" +
@@ -79,6 +101,12 @@ function togglePanel(ev) {
     secSlide.appendChild(makeSlideToggle());
     secSlide.appendChild(makeObjSlider(cfg.slideshow, "min", "Интервал, мин", 1, 120, 1, 0, INFO.slide_min));
 
+    // Авто-набор по времени суток
+    var secTime = collapsible(p, "По времени суток", "Днём — дневной набор, ночью — ночной. Имеет приоритет над слайдшоу; не работает в режиме «случайно».");
+    secTime.appendChild(makeAutoTimeToggle());
+    secTime.appendChild(makeSetPicker("day", "Дневной"));
+    secTime.appendChild(makeSetPicker("night", "Ночной"));
+
     // Яркость набора
     var secOp = collapsible(p, "Яркость набора", "Насколько ярко проступают фоновые картинки в каждой зоне.");
     [["editor", "Редактор"], ["side", "Сайдбар"], ["panel", "Панель"]].forEach(function (o) { secOp.appendChild(makeOpSlider(o[0], o[1])); });
@@ -136,7 +164,16 @@ function togglePanel(ev) {
 
     // Esc и клик мимо панели — закрыть. onOutside вешаем через setTimeout,
     // чтобы клик, которым панель открыли, её же не закрыл.
-    function onKey(e) { if (e.key === "Escape") { e.stopPropagation(); closePanel(); } }
+    function onKey(e) {
+        if (e.key === "Escape") { e.stopPropagation(); closePanel(); return; }
+        // Ловушка фокуса: Tab не выпускает фокус за пределы диалога (заворачиваем по кругу).
+        if (e.key === "Tab") {
+            var f = panelFocusables(p); if (!f.length) return;
+            var first = f[0], last = f[f.length - 1], act = document.activeElement;
+            if (e.shiftKey && (act === first || act === p)) { e.preventDefault(); last.focus(); }
+            else if (!e.shiftKey && act === last) { e.preventDefault(); first.focus(); }
+        }
+    }
     function onOutside(e) {
         if (p.contains(e.target)) return;
         var btn = document.getElementById(SB_ID);
@@ -162,6 +199,10 @@ function togglePanel(ev) {
             p.style.right = Math.max(6, window.innerWidth - r.right) + "px";
         } else { p.style.bottom = "26px"; p.style.right = "8px"; }
     }
+
+    // Стартовый фокус: сам диалог (screen reader объявит role="dialog"), дальше Tab ходит
+    // внутри по ловушке. Focus здесь, а не в момент создания, чтобы уже был в DOM.
+    try { p.focus(); } catch (e) {}
 }
 
 function refreshPanel() {

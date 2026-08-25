@@ -16,18 +16,25 @@ var IMG = (function () {
 // У каждого набора свой акцентный цвет (accent) под его палитру — при переключении
 // набора интерфейс перекрашивается автоматически (см. getAccent). Пользователь может
 // переопределить акцент конкретного набора — правка хранится в cfg.setAccent[idx].
+// name — короткое имя набора (в тултипе кнопки BG, на чипах и в статусбаре).
 var SETS = [
-    { editor: "assets/editor/editor_0.jpg", sidebar: "assets/sidebar/sidebar_0.jpg", panel: "assets/panel/panel_0.jpg", accent: "#f38ba8" }, // 0 Маки
-    { editor: "assets/editor/editor_1.jpg", sidebar: "assets/sidebar/sidebar_1.jpg", panel: "assets/panel/panel_1.jpg", accent: "#cba6f7" }, // 1 Пурпур
-    { editor: "assets/editor/editor_2.jpg", sidebar: "assets/sidebar/sidebar_2.jpg", panel: "assets/panel/panel_2.jpg", accent: "#f38ba8" }, // 2 Кровавая луна
-    { editor: "assets/editor/editor_3.jpg", sidebar: "assets/sidebar/sidebar_3.jpg", panel: "assets/panel/panel_3.jpg", accent: "#94e2d5" }, // 3 Лунная тушь
-    { editor: "assets/editor/editor_4.jpg", sidebar: "assets/sidebar/sidebar_4.jpg", panel: "assets/panel/panel_4.jpg", accent: "#89b4fa" }, // 4 Синяя ночь
-    { editor: "assets/editor/editor_5.jpg", sidebar: "assets/sidebar/sidebar_5.jpg", panel: "assets/panel/panel_5.jpg", accent: "#cba6f7" }, // 5 Пурпурный сон
-    { editor: "assets/editor/editor_6.jpg", sidebar: "assets/sidebar/sidebar_6.jpg", panel: "assets/panel/panel_6.jpg", accent: "#f5c2e7" }  // 6 Коты и луна
+    { name: "Маки",          editor: "assets/editor/editor_0.jpg", sidebar: "assets/sidebar/sidebar_0.jpg", panel: "assets/panel/panel_0.jpg", accent: "#f38ba8" }, // 0
+    { name: "Пурпур",        editor: "assets/editor/editor_1.jpg", sidebar: "assets/sidebar/sidebar_1.jpg", panel: "assets/panel/panel_1.jpg", accent: "#cba6f7" }, // 1
+    { name: "Кровавая луна", editor: "assets/editor/editor_2.jpg", sidebar: "assets/sidebar/sidebar_2.jpg", panel: "assets/panel/panel_2.jpg", accent: "#f38ba8" }, // 2
+    { name: "Лунная тушь",   editor: "assets/editor/editor_3.jpg", sidebar: "assets/sidebar/sidebar_3.jpg", panel: "assets/panel/panel_3.jpg", accent: "#94e2d5" }, // 3
+    { name: "Синяя ночь",    editor: "assets/editor/editor_4.jpg", sidebar: "assets/sidebar/sidebar_4.jpg", panel: "assets/panel/panel_4.jpg", accent: "#89b4fa" }, // 4
+    { name: "Пурпурный сон", editor: "assets/editor/editor_5.jpg", sidebar: "assets/sidebar/sidebar_5.jpg", panel: "assets/panel/panel_5.jpg", accent: "#cba6f7" }, // 5
+    { name: "Коты и луна",   editor: "assets/editor/editor_6.jpg", sidebar: "assets/sidebar/sidebar_6.jpg", panel: "assets/panel/panel_6.jpg", accent: "#f5c2e7" }  // 6
 ];
+// Короткое имя набора по индексу (для статусбара/тултипов). Пустая строка, если индекс вне диапазона.
+function setName(idx) { var s = SETS[idx]; return (s && s.name) ? s.name : ""; }
 
 // ===== Дефолты =====
+// CFG_VERSION — версия схемы конфига. Растёт, когда меняется структура DEFAULTS так,
+// что старый сохранённый конфиг нужно осознанно доработать (см. migrateCfg).
+var CFG_VERSION = 1;
 var DEFAULTS = {
+    version: CFG_VERSION,
     mode: "0",
     baseOp: { editor: 0.06, side: 0.30, panel: 0.11 },
     setOp: {},
@@ -42,6 +49,8 @@ var DEFAULTS = {
         panel:  { brightness: 1.0, saturate: 1.0, blur: 0 }
     },
     slideshow: { on: false, min: 15 },                  // авто-смена набора по таймеру
+    // авто-набор по времени суток: днём — свой набор, ночью — свой (день 8:00–20:00)
+    autoTime: { on: false, day: 0, night: 4 },
     fxp: { blur: 8, kbScale: 1.08, kbSpeed: 60, vignette: 0.32, partCount: 40, pomoMin: 25 },
     fx: {
         kenburns: true, glassTabs: true, vignette: true, glassSide: true,
@@ -140,11 +149,25 @@ function safeParse(text) {
     });
 }
 
+// Миграция сырого конфига к текущей схеме. Вызывается ДО mergeCfg — приводит объект,
+// сохранённый старой версией плагина, к форме, которую понимает текущий mergeCfg.
+// Пока версия одна (1), шагов нет; сюда добавляются блоки вида «if (v < 2) { ... }»,
+// чтобы будущие изменения DEFAULTS не конфликтовали со старым localStorage/импортом.
+function migrateCfg(p) {
+    if (!p || typeof p !== "object") return p;
+    var v = (typeof p.version === "number" && isFinite(p.version)) ? p.version : 0;
+    // (будущие миграции здесь, по возрастанию v)
+    p.version = CFG_VERSION;
+    return p;
+}
+
 // Единственная точка входа для ЛЮБОГО внешнего конфига (localStorage и импорт файла).
 // Принимает только значения известного типа/диапазона, остальное отбрасывает.
 function mergeCfg(p) {
     var c = clone(DEFAULTS), k;
+    p = migrateCfg(p);
     if (p && typeof p === "object") {
+        c.version = CFG_VERSION; // после слияния конфиг всегда текущей версии
         // mode: "random" или строковый индекс набора в допустимом диапазоне
         if (p.mode === "random") c.mode = "random";
         else if (typeof p.mode === "string" && /^\d+$/.test(p.mode)) {
@@ -199,6 +222,14 @@ function mergeCfg(p) {
         if (p.slideshow && typeof p.slideshow === "object") {
             if (typeof p.slideshow.on === "boolean") c.slideshow.on = p.slideshow.on;
             if (typeof p.slideshow.min === "number") c.slideshow.min = clampNum(p.slideshow.min, 1, 120, c.slideshow.min);
+        }
+        // авто-набор по времени: флаг + индексы наборов (день/ночь) в допустимом диапазоне
+        if (p.autoTime && typeof p.autoTime === "object") {
+            if (typeof p.autoTime.on === "boolean") c.autoTime.on = p.autoTime.on;
+            ["day", "night"].forEach(function (kk) {
+                var vi = p.autoTime[kk];
+                if (typeof vi === "number" && vi >= 0 && vi < SETS.length) c.autoTime[kk] = Math.floor(vi);
+            });
         }
         // эффекты: только булевы
         if (p.fx) for (k in c.fx) if (typeof p.fx[k] === "boolean") c.fx[k] = p.fx[k];

@@ -53,6 +53,7 @@ function makeChip(mode, label) {
         c.style.backgroundImage = cssUrl(IMG + SETS[idx].editor);
         var num = el("span", "position:absolute; right:3px; bottom:1px; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.9);", label);
         c.appendChild(num);
+        var nm = setName(idx); if (nm) c.title = idx + " · " + nm;
         probeSet(idx, c);
         if (!active) {
             c.addEventListener("mouseenter", function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; });
@@ -66,7 +67,7 @@ function makeChip(mode, label) {
         if (mode === "random") sessionRandomIndex = pickRandom();
         cfg.mode = mode; applyFade(); refreshPanel();
     });
-    keyActivate(c, isSet ? "Набор " + label : "Случайный набор");
+    keyActivate(c, isSet ? ("Набор " + label + (setName(parseInt(mode, 10)) ? " — " + setName(parseInt(mode, 10)) : "")) : "Случайный набор");
     return c;
 }
 
@@ -259,6 +260,44 @@ function makeSlideToggle() {
     return row;
 }
 
+// ==== Авто-набор по времени суток (cfg.autoTime) ====
+// Тумблер «включить» + два выпадающих списка: набор для дня и для ночи.
+// Днём (8:00–20:00) активируется дневной набор, ночью — ночной (см. timeTick).
+function makeAutoTimeToggle() {
+    var row = el("label", "display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:5px; cursor:pointer; overflow:hidden;");
+    row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.12)"; });
+    row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
+    var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer;");
+    cb.type = "checkbox"; cb.checked = !!(cfg.autoTime && cfg.autoTime.on);
+    cb.addEventListener("change", function () {
+        if (!cfg.autoTime) cfg.autoTime = { on: false, day: 0, night: 4 };
+        cfg.autoTime.on = cb.checked; apply();
+        if (cb.checked) { try { timeTick(); } catch (e) {} } // сразу применить нужный набор
+    });
+    row.appendChild(cb);
+    row.appendChild(el("span", "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", "Включить"));
+    var d = infoDot(INFO.autotime_on); if (d) row.appendChild(d);
+    return row;
+}
+// Выпадающий список наборов (для выбора дневного/ночного). which — "day" | "night".
+function makeSetPicker(which, label) {
+    var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
+    wrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8;", label));
+    var sel = el("select", "flex:1 1 auto; min-width:0; background:rgba(30,30,46,0.6); color:#cdd6f4; border:1px solid rgba(205,214,244,0.2); border-radius:6px; padding:3px 4px; cursor:pointer;");
+    for (var i = 0; i < SETS.length; i++) {
+        var o = el("option", null, i + " · " + setName(i)); o.value = String(i);
+        if (cfg.autoTime && cfg.autoTime[which] === i) o.selected = true;
+        sel.appendChild(o);
+    }
+    sel.addEventListener("change", function () {
+        if (!cfg.autoTime) cfg.autoTime = { on: false, day: 0, night: 4 };
+        cfg.autoTime[which] = parseInt(sel.value, 10); apply();
+        if (cfg.autoTime.on) { try { timeTick(); } catch (e) {} }
+    });
+    wrap.appendChild(sel);
+    return wrap;
+}
+
 // ===== Тексты подсказок («?») =====
 var INFO = {
     accent: "Акцентный цвет интерфейса (курсор, скроллбар, вкладки, рамки…). Свой для каждого набора: правка применяется к активному набору, у остальных — их цвета.",
@@ -270,6 +309,7 @@ var INFO = {
     img_blur: "Размытие самой фоновой картинки, px.",
     slide_on: "Автоматически менять набор по кругу через заданный интервал.",
     slide_min: "Через сколько минут переключать набор в режиме слайдшоу.",
+    autotime_on: "Автоматически переключать набор по времени суток: днём (8:00–20:00) — дневной набор, ночью — ночной. Не работает в режиме «случайно»; при включении отменяет слайдшоу.",
     op_editor: "Насколько ярко проступает фоновая картинка за кодом редактора.",
     op_side: "Прозрачность фоновой картинки сайдбара (проводник и пр.).",
     op_panel: "Прозрачность фоновой картинки нижней панели (терминал/проблемы/вывод).",

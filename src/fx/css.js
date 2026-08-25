@@ -36,9 +36,35 @@ function lumaDimFactor(luma) {
     return 1 - 0.6 * t;                          // -> 1.0 .. 0.4
 }
 
+// ===== Тема VS Code: светлая / тёмная =====
+// VS Code вешает класс темы на .monaco-workbench: vs (светлая), vs-dark (тёмная),
+// hc-black / hc-light (контрастные). Поверхности «стекла», титлбара и скрима у нас
+// раньше были зашиты тёмными (rgba(30,30,46,…), #181825) — на светлой теме это ломало
+// вид. Теперь определяем тему и подменяем палитру поверхностей (см. buildCSS).
+function themeKind() {
+    try {
+        var wb = document.querySelector(".monaco-workbench") || document.body;
+        var cl = (wb && wb.className) || "";
+        if (/\bvs-dark\b/.test(cl) || /\bhc-black\b/.test(cl)) return "dark";
+        if (/\bhc-light\b/.test(cl)) return "light";
+        if (/\bvs\b/.test(cl)) return "light";
+    } catch (e) {}
+    return "dark";
+}
+function isLightTheme() { return themeKind() === "light"; }
+
 // ===== Сборка CSS =====
 function buildCSS() {
     var s = SETS[activeIndex()], fx = cfg.fx, fxp = cfg.fxp, op = getOp();
+    // Палитра поверхностей под тему. surfRGB — база «матового стекла»/статусбара/титлбара;
+    // titleSolid — непрозрачная подложка титлбара; scrimRGB — цвет тени-скрима под кодом
+    // (на светлой теме код тёмный, поэтому ореол светлый); shadowRGB — тень текста в
+    // сайдбаре/панели для читаемости поверх картинки.
+    var light = isLightTheme();
+    var surfRGB   = light ? "236,236,244" : "30,30,46";
+    var titleSolid = light ? "#e6e6f0"    : "#181825";
+    var scrimRGB  = light ? "255,255,255" : "30,30,46";
+    var shadowRGB = light ? "255,255,255" : "0,0,0";
     // Фон зоны: 404 -> сплошная акцентная подложка (не пустота); иначе url + вписывание
     // (cover|contain из cfg.fit) на нужной позиции. zone: editor|side|panel.
     function zoneBg(rel, zone, position) {
@@ -97,7 +123,7 @@ function buildCSS() {
         "}",
         ".part.sidebar .monaco-list-row, .part.sidebar .pane-header .title,",
         ".part.panel .monaco-list-row, .part.panel .pane-body, .part.panel .xterm-rows {",
-        "  text-shadow: 0 1px 2px rgba(0,0,0,0.85), 0 0 2px rgba(0,0,0,0.6);",
+        "  text-shadow: 0 1px 2px rgba(" + shadowRGB + ",0.85), 0 0 2px rgba(" + shadowRGB + ",0.6);",
         "}"
     );
 
@@ -170,15 +196,15 @@ function buildCSS() {
     );
     if (fx.tabAccent) add(".tabs-container > .tab.active { box-shadow: inset 0 -2px 0 0 var(--mlbg-accent); }");
     if (fx.vignette) add(".part.editor .editor-container { box-shadow: inset 0 0 140px 30px rgba(0,0,0," + fxp.vignette + "); }");
-    if (fx.scrim) add(".monaco-editor .view-lines { text-shadow: 0 0 3px rgba(30,30,46,0.85); }");
+    if (fx.scrim) add(".monaco-editor .view-lines { text-shadow: 0 0 3px rgba(" + scrimRGB + ",0.85); }");
     if (fx.glassTabs) add(
         ".part.editor > .content .editor-group-container > .title {",
-        "  background-color: rgba(30,30,46,0.55) !important; backdrop-filter: blur(" + fxp.blur + "px); -webkit-backdrop-filter: blur(" + fxp.blur + "px);",
+        "  background-color: rgba(" + surfRGB + ",0.55) !important; backdrop-filter: blur(" + fxp.blur + "px); -webkit-backdrop-filter: blur(" + fxp.blur + "px);",
         "}"
     );
     if (fx.glassSide) add(
         ".part.sidebar, .part.panel {",
-        "  background-color: rgba(30,30,46,0.60) !important; backdrop-filter: blur(" + fxp.blur + "px); -webkit-backdrop-filter: blur(" + fxp.blur + "px);",
+        "  background-color: rgba(" + surfRGB + ",0.60) !important; backdrop-filter: blur(" + fxp.blur + "px); -webkit-backdrop-filter: blur(" + fxp.blur + "px);",
         "}"
     );
     if (fx.scrollbar) add(
@@ -192,7 +218,7 @@ function buildCSS() {
         "}"
     );
     if (fx.glassStatus) add(
-        ".part.statusbar { background-color: rgba(30,30,46,0.55) !important; backdrop-filter: blur(" + Math.min(fxp.blur, 8) + "px); -webkit-backdrop-filter: blur(" + Math.min(fxp.blur, 8) + "px); }"
+        ".part.statusbar { background-color: rgba(" + surfRGB + ",0.55) !important; backdrop-filter: blur(" + Math.min(fxp.blur, 8) + "px); -webkit-backdrop-filter: blur(" + Math.min(fxp.blur, 8) + "px); }"
     );
     if (fx.cursorGlow) add(
         ".monaco-editor .cursors-layer > .cursor { box-shadow: 0 0 8px 2px rgba(var(--mlbg-accent-rgb),0.85); border-radius: 1px; }"
@@ -214,7 +240,7 @@ function buildCSS() {
     );
     if (fx.titlebar) add(
         ".part.titlebar, .titlebar {",
-        "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.30), rgba(137,180,250,0.16) 45%, rgba(30,30,46,0) 78%), #181825 !important;",
+        "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.30), rgba(137,180,250,0.16) 45%, rgba(" + surfRGB + ",0) 78%), " + titleSolid + " !important;",
         "}"
     );
     if (fx.splash) add(

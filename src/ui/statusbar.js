@@ -3,7 +3,10 @@ var SB_ID = "moonlight-bg-switcher", PANEL_ID = "moonlight-bg-panel";
 function updateLabel() {
     var item = document.getElementById(SB_ID); if (!item) return;
     var a = item.querySelector("a"); if (!a) return;
-    a.textContent = "BG " + activeIndex() + (cfg.mode === "random" ? " ~" : "");
+    var idx = activeIndex(), nm = setName(idx);
+    a.textContent = "BG " + idx + (nm ? " · " + nm : "") + (cfg.mode === "random" ? " ~" : "");
+    var t = "Фон и дизайн — настройки" + (nm ? " (набор: " + nm + ")" : "");
+    item.title = t; item.setAttribute("aria-label", t);
 }
 function ensureStatusBar() {
     try {

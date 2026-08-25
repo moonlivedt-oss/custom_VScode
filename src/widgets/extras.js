@@ -146,7 +146,26 @@ function preloadNext() {
         : [SETS[(activeIndex() + 1) % SETS.length]];
     targets.forEach(function (s) { preloadOne(s.editor); preloadOne(s.sidebar); preloadOne(s.panel); });
 }
+// ===== Авто-набор по времени суток =====
+// Днём (8:00–20:00) — cfg.autoTime.day, ночью — cfg.autoTime.night. Переиспользует
+// applyFade (как слайдшоу). Не трогает режим «случайно». Проверяется каждую секунду,
+// но переключает только при реальной смене нужного набора (idempotent).
+function isDaytime() { var h = new Date().getHours(); return h >= 8 && h < 20; }
+function timeTick() {
+    if (!cfg.autoTime || !cfg.autoTime.on || SETS.length < 1) return;
+    if (cfg.mode === "random") return; // ручной «случайно» не перебиваем
+    var want = isDaytime() ? cfg.autoTime.day : cfg.autoTime.night;
+    if (typeof want !== "number" || want < 0 || want >= SETS.length) return;
+    var ws = String(want);
+    if (cfg.mode === ws) return; // уже нужный набор
+    cfg.mode = ws; applyFade();
+    if (document.getElementById(PANEL_ID)) refreshPanel();
+}
+
 function slideTick() {
+    // Авто-набор по времени имеет приоритет над слайдшоу: чтобы они не «дрались»
+    // за cfg.mode, при включённом autoTime слайдшоу простаивает.
+    if (cfg.autoTime && cfg.autoTime.on) { slide.last = Date.now(); return; }
     if (!cfg.slideshow || !cfg.slideshow.on || SETS.length < 2) { slide.last = Date.now(); return; }
     var period = Math.max(1, cfg.slideshow.min) * 60000;
     if (Date.now() - slide.last < period) return;

@@ -25,18 +25,25 @@
     // У каждого набора свой акцентный цвет (accent) под его палитру — при переключении
     // набора интерфейс перекрашивается автоматически (см. getAccent). Пользователь может
     // переопределить акцент конкретного набора — правка хранится в cfg.setAccent[idx].
+    // name — короткое имя набора (в тултипе кнопки BG, на чипах и в статусбаре).
     var SETS = [
-        { editor: "assets/editor/editor_0.jpg", sidebar: "assets/sidebar/sidebar_0.jpg", panel: "assets/panel/panel_0.jpg", accent: "#f38ba8" }, // 0 Маки
-        { editor: "assets/editor/editor_1.jpg", sidebar: "assets/sidebar/sidebar_1.jpg", panel: "assets/panel/panel_1.jpg", accent: "#cba6f7" }, // 1 Пурпур
-        { editor: "assets/editor/editor_2.jpg", sidebar: "assets/sidebar/sidebar_2.jpg", panel: "assets/panel/panel_2.jpg", accent: "#f38ba8" }, // 2 Кровавая луна
-        { editor: "assets/editor/editor_3.jpg", sidebar: "assets/sidebar/sidebar_3.jpg", panel: "assets/panel/panel_3.jpg", accent: "#94e2d5" }, // 3 Лунная тушь
-        { editor: "assets/editor/editor_4.jpg", sidebar: "assets/sidebar/sidebar_4.jpg", panel: "assets/panel/panel_4.jpg", accent: "#89b4fa" }, // 4 Синяя ночь
-        { editor: "assets/editor/editor_5.jpg", sidebar: "assets/sidebar/sidebar_5.jpg", panel: "assets/panel/panel_5.jpg", accent: "#cba6f7" }, // 5 Пурпурный сон
-        { editor: "assets/editor/editor_6.jpg", sidebar: "assets/sidebar/sidebar_6.jpg", panel: "assets/panel/panel_6.jpg", accent: "#f5c2e7" }  // 6 Коты и луна
+        { name: "Маки",          editor: "assets/editor/editor_0.jpg", sidebar: "assets/sidebar/sidebar_0.jpg", panel: "assets/panel/panel_0.jpg", accent: "#f38ba8" }, // 0
+        { name: "Пурпур",        editor: "assets/editor/editor_1.jpg", sidebar: "assets/sidebar/sidebar_1.jpg", panel: "assets/panel/panel_1.jpg", accent: "#cba6f7" }, // 1
+        { name: "Кровавая луна", editor: "assets/editor/editor_2.jpg", sidebar: "assets/sidebar/sidebar_2.jpg", panel: "assets/panel/panel_2.jpg", accent: "#f38ba8" }, // 2
+        { name: "Лунная тушь",   editor: "assets/editor/editor_3.jpg", sidebar: "assets/sidebar/sidebar_3.jpg", panel: "assets/panel/panel_3.jpg", accent: "#94e2d5" }, // 3
+        { name: "Синяя ночь",    editor: "assets/editor/editor_4.jpg", sidebar: "assets/sidebar/sidebar_4.jpg", panel: "assets/panel/panel_4.jpg", accent: "#89b4fa" }, // 4
+        { name: "Пурпурный сон", editor: "assets/editor/editor_5.jpg", sidebar: "assets/sidebar/sidebar_5.jpg", panel: "assets/panel/panel_5.jpg", accent: "#cba6f7" }, // 5
+        { name: "Коты и луна",   editor: "assets/editor/editor_6.jpg", sidebar: "assets/sidebar/sidebar_6.jpg", panel: "assets/panel/panel_6.jpg", accent: "#f5c2e7" }  // 6
     ];
+    // Короткое имя набора по индексу (для статусбара/тултипов). Пустая строка, если индекс вне диапазона.
+    function setName(idx) { var s = SETS[idx]; return (s && s.name) ? s.name : ""; }
 
     // ===== Дефолты =====
+    // CFG_VERSION — версия схемы конфига. Растёт, когда меняется структура DEFAULTS так,
+    // что старый сохранённый конфиг нужно осознанно доработать (см. migrateCfg).
+    var CFG_VERSION = 1;
     var DEFAULTS = {
+        version: CFG_VERSION,
         mode: "0",
         baseOp: { editor: 0.06, side: 0.30, panel: 0.11 },
         setOp: {},
@@ -51,6 +58,8 @@
             panel:  { brightness: 1.0, saturate: 1.0, blur: 0 }
         },
         slideshow: { on: false, min: 15 },                  // авто-смена набора по таймеру
+        // авто-набор по времени суток: днём — свой набор, ночью — свой (день 8:00–20:00)
+        autoTime: { on: false, day: 0, night: 4 },
         fxp: { blur: 8, kbScale: 1.08, kbSpeed: 60, vignette: 0.32, partCount: 40, pomoMin: 25 },
         fx: {
             kenburns: true, glassTabs: true, vignette: true, glassSide: true,
@@ -149,11 +158,25 @@
         });
     }
 
+    // Миграция сырого конфига к текущей схеме. Вызывается ДО mergeCfg — приводит объект,
+    // сохранённый старой версией плагина, к форме, которую понимает текущий mergeCfg.
+    // Пока версия одна (1), шагов нет; сюда добавляются блоки вида «if (v < 2) { ... }»,
+    // чтобы будущие изменения DEFAULTS не конфликтовали со старым localStorage/импортом.
+    function migrateCfg(p) {
+        if (!p || typeof p !== "object") return p;
+        var v = (typeof p.version === "number" && isFinite(p.version)) ? p.version : 0;
+        // (будущие миграции здесь, по возрастанию v)
+        p.version = CFG_VERSION;
+        return p;
+    }
+
     // Единственная точка входа для ЛЮБОГО внешнего конфига (localStorage и импорт файла).
     // Принимает только значения известного типа/диапазона, остальное отбрасывает.
     function mergeCfg(p) {
         var c = clone(DEFAULTS), k;
+        p = migrateCfg(p);
         if (p && typeof p === "object") {
+            c.version = CFG_VERSION; // после слияния конфиг всегда текущей версии
             // mode: "random" или строковый индекс набора в допустимом диапазоне
             if (p.mode === "random") c.mode = "random";
             else if (typeof p.mode === "string" && /^\d+$/.test(p.mode)) {
@@ -208,6 +231,14 @@
             if (p.slideshow && typeof p.slideshow === "object") {
                 if (typeof p.slideshow.on === "boolean") c.slideshow.on = p.slideshow.on;
                 if (typeof p.slideshow.min === "number") c.slideshow.min = clampNum(p.slideshow.min, 1, 120, c.slideshow.min);
+            }
+            // авто-набор по времени: флаг + индексы наборов (день/ночь) в допустимом диапазоне
+            if (p.autoTime && typeof p.autoTime === "object") {
+                if (typeof p.autoTime.on === "boolean") c.autoTime.on = p.autoTime.on;
+                ["day", "night"].forEach(function (kk) {
+                    var vi = p.autoTime[kk];
+                    if (typeof vi === "number" && vi >= 0 && vi < SETS.length) c.autoTime[kk] = Math.floor(vi);
+                });
             }
             // эффекты: только булевы
             if (p.fx) for (k in c.fx) if (typeof p.fx[k] === "boolean") c.fx[k] = p.fx[k];
@@ -345,9 +376,35 @@
         return 1 - 0.6 * t;                          // -> 1.0 .. 0.4
     }
 
+    // ===== Тема VS Code: светлая / тёмная =====
+    // VS Code вешает класс темы на .monaco-workbench: vs (светлая), vs-dark (тёмная),
+    // hc-black / hc-light (контрастные). Поверхности «стекла», титлбара и скрима у нас
+    // раньше были зашиты тёмными (rgba(30,30,46,…), #181825) — на светлой теме это ломало
+    // вид. Теперь определяем тему и подменяем палитру поверхностей (см. buildCSS).
+    function themeKind() {
+        try {
+            var wb = document.querySelector(".monaco-workbench") || document.body;
+            var cl = (wb && wb.className) || "";
+            if (/\bvs-dark\b/.test(cl) || /\bhc-black\b/.test(cl)) return "dark";
+            if (/\bhc-light\b/.test(cl)) return "light";
+            if (/\bvs\b/.test(cl)) return "light";
+        } catch (e) {}
+        return "dark";
+    }
+    function isLightTheme() { return themeKind() === "light"; }
+
     // ===== Сборка CSS =====
     function buildCSS() {
         var s = SETS[activeIndex()], fx = cfg.fx, fxp = cfg.fxp, op = getOp();
+        // Палитра поверхностей под тему. surfRGB — база «матового стекла»/статусбара/титлбара;
+        // titleSolid — непрозрачная подложка титлбара; scrimRGB — цвет тени-скрима под кодом
+        // (на светлой теме код тёмный, поэтому ореол светлый); shadowRGB — тень текста в
+        // сайдбаре/панели для читаемости поверх картинки.
+        var light = isLightTheme();
+        var surfRGB   = light ? "236,236,244" : "30,30,46";
+        var titleSolid = light ? "#e6e6f0"    : "#181825";
+        var scrimRGB  = light ? "255,255,255" : "30,30,46";
+        var shadowRGB = light ? "255,255,255" : "0,0,0";
         // Фон зоны: 404 -> сплошная акцентная подложка (не пустота); иначе url + вписывание
         // (cover|contain из cfg.fit) на нужной позиции. zone: editor|side|panel.
         function zoneBg(rel, zone, position) {
@@ -406,7 +463,7 @@
             "}",
             ".part.sidebar .monaco-list-row, .part.sidebar .pane-header .title,",
             ".part.panel .monaco-list-row, .part.panel .pane-body, .part.panel .xterm-rows {",
-            "  text-shadow: 0 1px 2px rgba(0,0,0,0.85), 0 0 2px rgba(0,0,0,0.6);",
+            "  text-shadow: 0 1px 2px rgba(" + shadowRGB + ",0.85), 0 0 2px rgba(" + shadowRGB + ",0.6);",
             "}"
         );
 
@@ -479,15 +536,15 @@
         );
         if (fx.tabAccent) add(".tabs-container > .tab.active { box-shadow: inset 0 -2px 0 0 var(--mlbg-accent); }");
         if (fx.vignette) add(".part.editor .editor-container { box-shadow: inset 0 0 140px 30px rgba(0,0,0," + fxp.vignette + "); }");
-        if (fx.scrim) add(".monaco-editor .view-lines { text-shadow: 0 0 3px rgba(30,30,46,0.85); }");
+        if (fx.scrim) add(".monaco-editor .view-lines { text-shadow: 0 0 3px rgba(" + scrimRGB + ",0.85); }");
         if (fx.glassTabs) add(
             ".part.editor > .content .editor-group-container > .title {",
-            "  background-color: rgba(30,30,46,0.55) !important; backdrop-filter: blur(" + fxp.blur + "px); -webkit-backdrop-filter: blur(" + fxp.blur + "px);",
+            "  background-color: rgba(" + surfRGB + ",0.55) !important; backdrop-filter: blur(" + fxp.blur + "px); -webkit-backdrop-filter: blur(" + fxp.blur + "px);",
             "}"
         );
         if (fx.glassSide) add(
             ".part.sidebar, .part.panel {",
-            "  background-color: rgba(30,30,46,0.60) !important; backdrop-filter: blur(" + fxp.blur + "px); -webkit-backdrop-filter: blur(" + fxp.blur + "px);",
+            "  background-color: rgba(" + surfRGB + ",0.60) !important; backdrop-filter: blur(" + fxp.blur + "px); -webkit-backdrop-filter: blur(" + fxp.blur + "px);",
             "}"
         );
         if (fx.scrollbar) add(
@@ -501,7 +558,7 @@
             "}"
         );
         if (fx.glassStatus) add(
-            ".part.statusbar { background-color: rgba(30,30,46,0.55) !important; backdrop-filter: blur(" + Math.min(fxp.blur, 8) + "px); -webkit-backdrop-filter: blur(" + Math.min(fxp.blur, 8) + "px); }"
+            ".part.statusbar { background-color: rgba(" + surfRGB + ",0.55) !important; backdrop-filter: blur(" + Math.min(fxp.blur, 8) + "px); -webkit-backdrop-filter: blur(" + Math.min(fxp.blur, 8) + "px); }"
         );
         if (fx.cursorGlow) add(
             ".monaco-editor .cursors-layer > .cursor { box-shadow: 0 0 8px 2px rgba(var(--mlbg-accent-rgb),0.85); border-radius: 1px; }"
@@ -523,7 +580,7 @@
         );
         if (fx.titlebar) add(
             ".part.titlebar, .titlebar {",
-            "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.30), rgba(137,180,250,0.16) 45%, rgba(30,30,46,0) 78%), #181825 !important;",
+            "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.30), rgba(137,180,250,0.16) 45%, rgba(" + surfRGB + ",0) 78%), " + titleSolid + " !important;",
             "}"
         );
         if (fx.splash) add(
@@ -594,7 +651,10 @@
     function updateLabel() {
         var item = document.getElementById(SB_ID); if (!item) return;
         var a = item.querySelector("a"); if (!a) return;
-        a.textContent = "BG " + activeIndex() + (cfg.mode === "random" ? " ~" : "");
+        var idx = activeIndex(), nm = setName(idx);
+        a.textContent = "BG " + idx + (nm ? " · " + nm : "") + (cfg.mode === "random" ? " ~" : "");
+        var t = "Фон и дизайн — настройки" + (nm ? " (набор: " + nm + ")" : "");
+        item.title = t; item.setAttribute("aria-label", t);
     }
     function ensureStatusBar() {
         try {
@@ -675,6 +735,7 @@
             c.style.backgroundImage = cssUrl(IMG + SETS[idx].editor);
             var num = el("span", "position:absolute; right:3px; bottom:1px; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.9);", label);
             c.appendChild(num);
+            var nm = setName(idx); if (nm) c.title = idx + " · " + nm;
             probeSet(idx, c);
             if (!active) {
                 c.addEventListener("mouseenter", function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; });
@@ -688,7 +749,7 @@
             if (mode === "random") sessionRandomIndex = pickRandom();
             cfg.mode = mode; applyFade(); refreshPanel();
         });
-        keyActivate(c, isSet ? "Набор " + label : "Случайный набор");
+        keyActivate(c, isSet ? ("Набор " + label + (setName(parseInt(mode, 10)) ? " — " + setName(parseInt(mode, 10)) : "")) : "Случайный набор");
         return c;
     }
 
@@ -881,6 +942,44 @@
         return row;
     }
 
+    // ==== Авто-набор по времени суток (cfg.autoTime) ====
+    // Тумблер «включить» + два выпадающих списка: набор для дня и для ночи.
+    // Днём (8:00–20:00) активируется дневной набор, ночью — ночной (см. timeTick).
+    function makeAutoTimeToggle() {
+        var row = el("label", "display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:5px; cursor:pointer; overflow:hidden;");
+        row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.12)"; });
+        row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
+        var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer;");
+        cb.type = "checkbox"; cb.checked = !!(cfg.autoTime && cfg.autoTime.on);
+        cb.addEventListener("change", function () {
+            if (!cfg.autoTime) cfg.autoTime = { on: false, day: 0, night: 4 };
+            cfg.autoTime.on = cb.checked; apply();
+            if (cb.checked) { try { timeTick(); } catch (e) {} } // сразу применить нужный набор
+        });
+        row.appendChild(cb);
+        row.appendChild(el("span", "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", "Включить"));
+        var d = infoDot(INFO.autotime_on); if (d) row.appendChild(d);
+        return row;
+    }
+    // Выпадающий список наборов (для выбора дневного/ночного). which — "day" | "night".
+    function makeSetPicker(which, label) {
+        var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
+        wrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8;", label));
+        var sel = el("select", "flex:1 1 auto; min-width:0; background:rgba(30,30,46,0.6); color:#cdd6f4; border:1px solid rgba(205,214,244,0.2); border-radius:6px; padding:3px 4px; cursor:pointer;");
+        for (var i = 0; i < SETS.length; i++) {
+            var o = el("option", null, i + " · " + setName(i)); o.value = String(i);
+            if (cfg.autoTime && cfg.autoTime[which] === i) o.selected = true;
+            sel.appendChild(o);
+        }
+        sel.addEventListener("change", function () {
+            if (!cfg.autoTime) cfg.autoTime = { on: false, day: 0, night: 4 };
+            cfg.autoTime[which] = parseInt(sel.value, 10); apply();
+            if (cfg.autoTime.on) { try { timeTick(); } catch (e) {} }
+        });
+        wrap.appendChild(sel);
+        return wrap;
+    }
+
     // ===== Тексты подсказок («?») =====
     var INFO = {
         accent: "Акцентный цвет интерфейса (курсор, скроллбар, вкладки, рамки…). Свой для каждого набора: правка применяется к активному набору, у остальных — их цвета.",
@@ -892,6 +991,7 @@
         img_blur: "Размытие самой фоновой картинки, px.",
         slide_on: "Автоматически менять набор по кругу через заданный интервал.",
         slide_min: "Через сколько минут переключать набор в режиме слайдшоу.",
+        autotime_on: "Автоматически переключать набор по времени суток: днём (8:00–20:00) — дневной набор, ночью — ночной. Не работает в режиме «случайно»; при включении отменяет слайдшоу.",
         op_editor: "Насколько ярко проступает фоновая картинка за кодом редактора.",
         op_side: "Прозрачность фоновой картинки сайдбара (проводник и пр.).",
         op_panel: "Прозрачность фоновой картинки нижней панели (терминал/проблемы/вывод).",
@@ -1062,20 +1162,42 @@
     // ===== Панель настроек =====
     // Централизованное закрытие: снимает документные слушатели (Esc/клик-мимо), прячет «?»,
     // удаляет саму панель. panelCleanup хранит отписку слушателей текущей панели.
-    var panelCleanup = null;
+    var panelCleanup = null, panelPrevFocus = null;
     function closePanel() {
         hideInfo();
         if (panelCleanup) { try { panelCleanup(); } catch (e) {} panelCleanup = null; }
         var ex = document.getElementById(PANEL_ID); if (ex) ex.remove();
+        // Вернуть фокус туда, откуда открыли панель (обычно кнопка BG) — для клавиатуры.
+        try { if (panelPrevFocus && panelPrevFocus.focus && document.contains(panelPrevFocus)) panelPrevFocus.focus(); } catch (e) {}
+        panelPrevFocus = null;
+    }
+    // Видимые фокусируемые элементы панели (для стартового фокуса и ловушки Tab).
+    var FOCUS_SEL = 'a[href], button, input, select, textarea, [tabindex], [role="button"]';
+    function panelFocusables(p) {
+        var list = [];
+        try {
+            var all = p.querySelectorAll(FOCUS_SEL);
+            for (var i = 0; i < all.length; i++) {
+                var n = all[i];
+                if (n.getAttribute("tabindex") === "-1") continue;
+                if (n.disabled) continue;
+                if (n.offsetParent === null && n !== p) continue; // скрыт (свёрнутая секция)
+                list.push(n);
+            }
+        } catch (e) {}
+        return list;
     }
     function togglePanel(ev) {
         ev.stopPropagation();
         if (document.getElementById(PANEL_ID)) { closePanel(); return; }
 
+        panelPrevFocus = document.activeElement; // куда вернуть фокус при закрытии
         var p = el("div", null);
         p.id = PANEL_ID;
         p.setAttribute("role", "dialog");
+        p.setAttribute("aria-modal", "true");
         p.setAttribute("aria-label", "Фон и дизайн — настройки");
+        p.tabIndex = -1; // чтобы можно было сфокусировать сам диалог при открытии
         p.style.cssText =
             "position:fixed; z-index:100000; width:380px; max-height:82vh; overflow-y:auto; overflow-x:hidden;" +
             "background:rgba(24,24,37,0.98); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);" +
@@ -1140,6 +1262,12 @@
         secSlide.appendChild(makeSlideToggle());
         secSlide.appendChild(makeObjSlider(cfg.slideshow, "min", "Интервал, мин", 1, 120, 1, 0, INFO.slide_min));
 
+        // Авто-набор по времени суток
+        var secTime = collapsible(p, "По времени суток", "Днём — дневной набор, ночью — ночной. Имеет приоритет над слайдшоу; не работает в режиме «случайно».");
+        secTime.appendChild(makeAutoTimeToggle());
+        secTime.appendChild(makeSetPicker("day", "Дневной"));
+        secTime.appendChild(makeSetPicker("night", "Ночной"));
+
         // Яркость набора
         var secOp = collapsible(p, "Яркость набора", "Насколько ярко проступают фоновые картинки в каждой зоне.");
         [["editor", "Редактор"], ["side", "Сайдбар"], ["panel", "Панель"]].forEach(function (o) { secOp.appendChild(makeOpSlider(o[0], o[1])); });
@@ -1197,7 +1325,16 @@
 
         // Esc и клик мимо панели — закрыть. onOutside вешаем через setTimeout,
         // чтобы клик, которым панель открыли, её же не закрыл.
-        function onKey(e) { if (e.key === "Escape") { e.stopPropagation(); closePanel(); } }
+        function onKey(e) {
+            if (e.key === "Escape") { e.stopPropagation(); closePanel(); return; }
+            // Ловушка фокуса: Tab не выпускает фокус за пределы диалога (заворачиваем по кругу).
+            if (e.key === "Tab") {
+                var f = panelFocusables(p); if (!f.length) return;
+                var first = f[0], last = f[f.length - 1], act = document.activeElement;
+                if (e.shiftKey && (act === first || act === p)) { e.preventDefault(); last.focus(); }
+                else if (!e.shiftKey && act === last) { e.preventDefault(); first.focus(); }
+            }
+        }
         function onOutside(e) {
             if (p.contains(e.target)) return;
             var btn = document.getElementById(SB_ID);
@@ -1223,6 +1360,10 @@
                 p.style.right = Math.max(6, window.innerWidth - r.right) + "px";
             } else { p.style.bottom = "26px"; p.style.right = "8px"; }
         }
+
+        // Стартовый фокус: сам диалог (screen reader объявит role="dialog"), дальше Tab ходит
+        // внутри по ловушке. Focus здесь, а не в момент создания, чтобы уже был в DOM.
+        try { p.focus(); } catch (e) {}
     }
 
     function refreshPanel() {
@@ -1378,7 +1519,26 @@
             : [SETS[(activeIndex() + 1) % SETS.length]];
         targets.forEach(function (s) { preloadOne(s.editor); preloadOne(s.sidebar); preloadOne(s.panel); });
     }
+    // ===== Авто-набор по времени суток =====
+    // Днём (8:00–20:00) — cfg.autoTime.day, ночью — cfg.autoTime.night. Переиспользует
+    // applyFade (как слайдшоу). Не трогает режим «случайно». Проверяется каждую секунду,
+    // но переключает только при реальной смене нужного набора (idempotent).
+    function isDaytime() { var h = new Date().getHours(); return h >= 8 && h < 20; }
+    function timeTick() {
+        if (!cfg.autoTime || !cfg.autoTime.on || SETS.length < 1) return;
+        if (cfg.mode === "random") return; // ручной «случайно» не перебиваем
+        var want = isDaytime() ? cfg.autoTime.day : cfg.autoTime.night;
+        if (typeof want !== "number" || want < 0 || want >= SETS.length) return;
+        var ws = String(want);
+        if (cfg.mode === ws) return; // уже нужный набор
+        cfg.mode = ws; applyFade();
+        if (document.getElementById(PANEL_ID)) refreshPanel();
+    }
+
     function slideTick() {
+        // Авто-набор по времени имеет приоритет над слайдшоу: чтобы они не «дрались»
+        // за cfg.mode, при включённом autoTime слайдшоу простаивает.
+        if (cfg.autoTime && cfg.autoTime.on) { slide.last = Date.now(); return; }
         if (!cfg.slideshow || !cfg.slideshow.on || SETS.length < 2) { slide.last = Date.now(); return; }
         var period = Math.max(1, cfg.slideshow.min) * 60000;
         if (Date.now() - slide.last < period) return;
@@ -1403,9 +1563,27 @@
     // Самолечение (интервал + observer) регистрируем ДО виджетов и всё оборачиваем в try,
     // чтобы ошибка любого виджета не убивала возврат кнопки BG после перестройки DOM.
     function heal() {
+        try { if (!_themeWatched) _themeWatched = watchTheme(); } catch (e) {}
         try { ensureStyle(); } catch (e) {}
         try { ensureStatusBar(); } catch (e) {}
         syncWidgets();
+    }
+    // Смена темы VS Code (класс vs/vs-dark на .monaco-workbench) не меняет ревизию стиля,
+    // поэтому сама по себе не пересобрала бы CSS. Наблюдаем за классом воркбенча и при
+    // смене светлая/тёмная пересобираем стиль (поверхности стекла/титлбара/скрима зависят
+    // от темы). Воркбенча может ещё не быть при старте — тогда heal попробует снова.
+    var _themeWatched = false, _lastThemeKind = null;
+    function watchTheme() {
+        var wb = document.querySelector(".monaco-workbench");
+        if (!wb) return false;
+        _lastThemeKind = themeKind();
+        try {
+            new MutationObserver(function () {
+                var k = themeKind();
+                if (k !== _lastThemeKind) { _lastThemeKind = k; bumpStyle(); ensureStyle(); }
+            }).observe(wb, { attributes: true, attributeFilter: ["class"] });
+        } catch (e) { return false; }
+        return true;
     }
     // Один секундный тикер: каждую секунду — лёгкие idempotent-проверки и обновления по времени,
     // а полное самолечение (пересборка CSS + виджеты) — раз в 3 секунды. Раньше это были два
@@ -1420,7 +1598,7 @@
             if (document.hidden) return;
             _tick++;
             ensureStatusBar(); ensureClock(); ensurePomodoro(); // дешёвые проверки наличия
-            tickClock(); tickPomo(); slideTick();               // обновления по времени
+            tickClock(); tickPomo(); timeTick(); slideTick();   // обновления по времени
             if (_tick % 3 === 0) heal();                         // самолечение раз в 3с
         } catch (e) {}
     }, 1000);
@@ -1428,7 +1606,7 @@
     // Возврат окна из скрытого/свёрнутого состояния — сразу лечим всё (стиль, статусбар,
     // виджеты, частицы) и обновляем время/слайдшоу, не дожидаясь следующего тика.
     document.addEventListener("visibilitychange", function () {
-        if (!document.hidden) { try { heal(); tickClock(); tickPomo(); slideTick(); } catch (e) {} }
+        if (!document.hidden) { try { heal(); tickClock(); tickPomo(); timeTick(); slideTick(); } catch (e) {} }
     });
     // Смена системной «уменьшить движение» — пересобираем стиль и виджеты (частицы вкл/выкл).
     try {
@@ -1448,6 +1626,6 @@
     } catch (e) {}
     heal();
 
-    console.log("[MoonLight custom-bg] v10 installed (perf + a11y), sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font);
+    console.log("[MoonLight custom-bg] v11 installed (light theme + auto-by-time + a11y), sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
 
 })();
