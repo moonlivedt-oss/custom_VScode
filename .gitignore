@@ -1,0 +1,14 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+.vscode-test/
+
+# Логи и временное
+*.log
+*.tmp
+
+# Node (на случай, если появятся зависимости)
+node_modules/
