@@ -202,6 +202,16 @@ var expect = sandbox.isDaytime() ? "1" : "5";
 ok(sandbox.cfg.mode === expect, "timeTick переключил набор по времени суток -> " + expect +
     " (сейчас " + (sandbox.isDaytime() ? "день" : "ночь") + ")");
 
+// ---- 7a. Безопасность: mergeCfg отбрасывает out-of-range индексы setOp/setAccent ----
+var dirty = sandbox.mergeCfg({
+    setOp: { "0": { editor: 0.2 }, "999999": { editor: 0.5 }, "abc": { editor: 0.5 } },
+    setAccent: { "1": "#112233", "999999": "#445566" }
+});
+ok(!("999999" in dirty.setOp) && !("abc" in dirty.setOp) && ("0" in dirty.setOp),
+    "mergeCfg: setOp оставляет только валидные индексы наборов");
+ok(!("999999" in dirty.setAccent) && ("1" in dirty.setAccent),
+    "mergeCfg: setAccent оставляет только валидные индексы наборов");
+
 // ---- 7. Горячая клавиша: cycleSet листает наборы по кругу ----
 sandbox.cfg.autoTime = { on: false, day: 0, night: 4 };
 sandbox.cfg.mode = "0";

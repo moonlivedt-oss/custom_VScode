@@ -185,11 +185,14 @@
             }
             // яркость по зонам: числа, зажатые в [0, 0.6]
             if (p.baseOp) for (k in c.baseOp) if (typeof p.baseOp[k] === "number") c.baseOp[k] = clampNum(p.baseOp[k], 0, 0.6, c.baseOp[k]);
-            // setOp: пересобираем чистый объект — только числовые яркости по числовым индексам
+            // setOp: пересобираем чистый объект — только числовые яркости по числовым индексам.
+            // Индекс обязан указывать на СУЩЕСТВУЮЩИЙ набор (< SETS.length): иначе подделанный/
+            // раздутый конфиг мог набить cfg тысячами записей для несуществующих наборов, которые
+            // затем уходили в localStorage (getOp читает только валидные индексы — остальное балласт).
             if (p.setOp && typeof p.setOp === "object") {
                 c.setOp = {};
                 for (var idx in p.setOp) {
-                    if (!/^\d+$/.test(idx)) continue;
+                    if (!/^\d+$/.test(idx) || parseInt(idx, 10) >= SETS.length) continue;
                     var o = p.setOp[idx]; if (!o || typeof o !== "object") continue;
                     var clean = {};
                     ["editor", "side", "panel"].forEach(function (kk) {
@@ -202,11 +205,11 @@
             if (p.fxp) for (k in c.fxp) if (typeof p.fxp[k] === "number" && FXP_RANGE[k]) c.fxp[k] = clampNum(p.fxp[k], FXP_RANGE[k][0], FXP_RANGE[k][1], c.fxp[k]);
             // акцентный цвет: строго #rrggbb
             if (isColor(p.accent)) c.accent = p.accent;
-            // акцент по набору: только #rrggbb по числовым индексам (как setOp)
+            // акцент по набору: только #rrggbb по числовым индексам существующих наборов (как setOp)
             if (p.setAccent && typeof p.setAccent === "object") {
                 c.setAccent = {};
                 for (var ai in p.setAccent) {
-                    if (!/^\d+$/.test(ai)) continue;
+                    if (!/^\d+$/.test(ai) || parseInt(ai, 10) >= SETS.length) continue;
                     if (isColor(p.setAccent[ai])) c.setAccent[ai] = p.setAccent[ai];
                 }
             }
@@ -1699,6 +1702,6 @@
     } catch (e) {}
     heal();
 
-    console.log("[MoonLight custom-bg] v12 installed (theme vars + hotkeys + mode indicator), sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
+    console.log("[MoonLight custom-bg] v13 installed (theme vars + hotkeys + hardened config), sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
 
 })();

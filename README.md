@@ -6,11 +6,13 @@
 
 Наборы фонов → акцент на набор → фильтры по зонам → эффекты → виджеты статусбара
 
-![version](https://img.shields.io/badge/version-v12-blue)
+![version](https://img.shields.io/badge/version-v13-blue)
 ![vscode](https://img.shields.io/badge/VS%20Code-custom--css-007ACC?logo=visualstudiocode&logoColor=white)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![sets](https://img.shields.io/badge/наборов-7-orange)
 ![deps](https://img.shields.io/badge/зависимостей-0-brightgreen)
+
+<img src="docs/screenshots/hero.png" alt="MoonLight custom-bg в работе: код, дерево файлов и фоновая картинка набора «Маки»" width="880">
 
 </div>
 
@@ -79,6 +81,11 @@
 - **Виджеты статусбара** — часы, таймер-помидор, летящие частицы (перекрашиваются под акцент).
 - **Экспорт / импорт** настроек в JSON. Всё запоминается между запусками.
 
+<div align="center">
+<img src="docs/screenshots/effects.png" alt="Секции «Сила эффектов», «Эффекты» и «Терминал» в панели" width="380"><br>
+<sub>Секции эффектов и терминала — у каждой настройки всплывающая подсказка «?»</sub>
+</div>
+
 ---
 
 ## Наборы фонов
@@ -98,6 +105,22 @@
 
 > Палитра акцентов — в духе [Catppuccin](https://github.com/catppuccin/catppuccin). Запас
 > нераспределённых картинок лежит в корне `assets/` — из них можно собирать новые наборы.
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/set-cats.png" alt="Набор «Коты и луна»" width="440"><br>
+      <sub><b>Коты и луна</b> — сиреневый акцент</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/set-bloodmoon.png" alt="Набор «Кровавая луна»" width="440"><br>
+      <sub><b>Кровавая луна</b> — красный акцент</sub>
+    </td>
+  </tr>
+</table>
+
+Каждый набор перекрашивает интерфейс под свою палитру: акцент, скроллбар, курсор, рамки,
+подсветку строки — всё меняется вместе с картинками.
 
 ---
 
@@ -132,7 +155,7 @@
 > (`Enable Custom CSS and JS` + перезапуск) — это ограничение самого механизма, не плагина.
 
 **Проверка версии:** `Help → Toggle Developer Tools` → вкладка Console → строка
-`[MoonLight custom-bg] v12 …`.
+`[MoonLight custom-bg] v13 …`.
 
 ---
 
@@ -140,6 +163,11 @@
 
 После установки в статусбаре (правый нижний угол) появится кнопка **`BG N`**, где `N` — номер
 активного набора. Клик по ней открывает панель **«Фон и дизайн»**:
+
+<div align="center">
+<img src="docs/screenshots/panel.png" alt="Панель «Фон и дизайн»: наборы, слайдшоу, авто-набор по времени, яркость, картинка" width="380">
+</div>
+
 
 - **Наборы** — плитки-чипы с превью; клик выбирает набор, кнопка «случайно» включает случайный
   выбор при старте. Красный «!» на чипе = картинка набора не загрузилась.
@@ -200,6 +228,8 @@ vscode-bg/
     boot.js            ← старт, самолечение (1-секундный тикер + MutationObserver), наблюдатель темы
   test/
     smoke.js           ← смоук-тест: node test/smoke.js
+  docs/
+    screenshots/       ← картинки для README
 ```
 
 ---
@@ -265,7 +295,10 @@ node test/smoke.js   # → смоук-тест (проверяет провод�
 - **шрифт терминала** — только из белого списка `TERM_FONTS` (`safeFont`);
 - **цвета** (курсор / выделение) — строго `#rrggbb` (`isColor`, регэксп);
 - **числа** (яркость, сила эффектов, вес / свечение) — зажимаются в допустимые диапазоны (`clampNum`);
-- **флаги** — только `boolean`; `mode` — `"random"` или индекс набора в диапазоне.
+- **флаги** — только `boolean`; `mode` — `"random"` или индекс набора в диапазоне;
+- **индексы по наборам** (`setOp` / `setAccent` / авто-набор) — только существующие наборы
+  (`< SETS.length`), чтобы раздутый конфиг не набивал хранилище записями для несуществующих
+  наборов; число ключей `ui.collapsed` тоже ограничено.
 
 Дополнительно (defense-in-depth):
 

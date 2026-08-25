@@ -88,4 +88,4 @@ try {
 } catch (e) {}
 heal();
 
-console.log("[MoonLight custom-bg] v12 installed (theme vars + hotkeys + mode indicator), sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
+console.log("[MoonLight custom-bg] v13 installed (theme vars + hotkeys + hardened config), sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
