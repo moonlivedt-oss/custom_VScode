@@ -11,13 +11,17 @@
     // IMG — базовый URL к папке плагина (картинки). Пытаемся вычислить из адреса самого
     // скрипта (document.currentScript) — тогда перенос папки не ломает пути. Если скрипт
     // внедрён инлайном (src пустой), откатываемся к абсолютному пути ниже.
+    // ВАЖНО: у be5invis.vscode-custom-css скрипт часто внедряется инлайном, и тогда
+    // document.currentScript пуст — так что запасной абсолютный путь ниже НЕ «на крайний
+    // случай», а основной рабочий путь. Меняй его под СВОЮ папку плагина при переносе.
+    var IMG_FALLBACK = "vscode-file://vscode-app/d%3A/Desktop/components/vscode-bg/";
     var IMG = (function () {
         try {
             var src = (document.currentScript && document.currentScript.src) || "";
             var i = src.lastIndexOf("/");
             if (i >= 0) return src.slice(0, i + 1); // .../vscode-bg/custom-bg.js -> .../vscode-bg/
         } catch (e) {}
-        return "vscode-file://vscode-app/d%3A/Desktop/components/vscode-bg/"; // запасной путь
+        return IMG_FALLBACK; // адрес скрипта неизвестен (инлайн-внедрение) — берём заданный путь
     })();
 
     // Пути к картинкам набора — относительно IMG. Картинки наборов лежат в
@@ -27,16 +31,27 @@
     // переопределить акцент конкретного набора — правка хранится в cfg.setAccent[idx].
     // name — короткое имя набора (в тултипе кнопки BG, на чипах и в статусбаре).
     var SETS = [
-        { name: "Маки",          editor: "assets/editor/editor_0.jpg", sidebar: "assets/sidebar/sidebar_0.jpg", panel: "assets/panel/panel_0.jpg", accent: "#f38ba8" }, // 0
-        { name: "Пурпур",        editor: "assets/editor/editor_1.jpg", sidebar: "assets/sidebar/sidebar_1.jpg", panel: "assets/panel/panel_1.jpg", accent: "#cba6f7" }, // 1
-        { name: "Кровавая луна", editor: "assets/editor/editor_2.jpg", sidebar: "assets/sidebar/sidebar_2.jpg", panel: "assets/panel/panel_2.jpg", accent: "#f38ba8" }, // 2
-        { name: "Лунная тушь",   editor: "assets/editor/editor_3.jpg", sidebar: "assets/sidebar/sidebar_3.jpg", panel: "assets/panel/panel_3.jpg", accent: "#94e2d5" }, // 3
-        { name: "Синяя ночь",    editor: "assets/editor/editor_4.jpg", sidebar: "assets/sidebar/sidebar_4.jpg", panel: "assets/panel/panel_4.jpg", accent: "#89b4fa" }, // 4
-        { name: "Пурпурный сон", editor: "assets/editor/editor_5.jpg", sidebar: "assets/sidebar/sidebar_5.jpg", panel: "assets/panel/panel_5.jpg", accent: "#cba6f7" }, // 5
-        { name: "Коты и луна",   editor: "assets/editor/editor_6.jpg", sidebar: "assets/sidebar/sidebar_6.jpg", panel: "assets/panel/panel_6.jpg", accent: "#f5c2e7" }  // 6
+        { name: "Алые кроны",           editor: "assets/editor/editor_0.jpg", sidebar: "assets/sidebar/sidebar_0.jpg", panel: "assets/panel/panel_0.jpg", accent: "#f38ba8" }, // 0
+        { name: "Кот и звёзды",         editor: "assets/editor/editor_1.jpg", sidebar: "assets/sidebar/sidebar_1.jpg", panel: "assets/panel/panel_1.jpg", accent: "#cba6f7" }, // 1
+        { name: "Полночные маки",       editor: "assets/editor/editor_2.jpg", sidebar: "assets/sidebar/sidebar_2.jpg", panel: "assets/panel/panel_2.jpg", accent: "#f38ba8" }, // 2
+        { name: "Свиток тумана",        editor: "assets/editor/editor_3.jpg", sidebar: "assets/sidebar/sidebar_3.jpg", panel: "assets/panel/panel_3.jpg", accent: "#94e2d5" }, // 3
+        { name: "Хрустальное озеро",    editor: "assets/editor/editor_4.jpg", sidebar: "assets/sidebar/sidebar_4.jpg", panel: "assets/panel/panel_4.jpg", accent: "#89b4fa" }, // 4
+        { name: "Звёздный причал",      editor: "assets/editor/editor_5.jpg", sidebar: "assets/sidebar/sidebar_5.jpg", panel: "assets/panel/panel_5.jpg", accent: "#cba6f7" }, // 5
+        { name: "Багряный портал",      editor: "assets/editor/editor_6.jpg", sidebar: "assets/sidebar/sidebar_6.jpg", panel: "assets/panel/panel_6.jpg", accent: "#f5c2e7" }, // 6
+        { name: "Ведьмин чертог",       editor: "assets/editor/editor_7.jpg", sidebar: "assets/sidebar/sidebar_7.jpg", panel: "assets/panel/panel_7.jpg", accent: "#f38ba8" }, // 7
+        { name: "Лунная цитадель",      editor: "assets/editor/editor_8.jpg", sidebar: "assets/sidebar/sidebar_8.jpg", panel: "assets/panel/panel_8.jpg", accent: "#89b4fa" }, // 8
+        { name: "Тень мастера",         editor: "assets/editor/editor_9.jpg", sidebar: "assets/sidebar/sidebar_9.jpg", panel: "assets/panel/panel_9.jpg", accent: "#94e2d5" }, // 9
+        { name: "Меч в маках",          editor: "assets/editor/editor_10.jpg",sidebar: "assets/sidebar/sidebar_10.jpg",panel: "assets/panel/panel_10.jpg",accent: "#eba0ac" }, // 10
+        { name: "Ночь падающей звезды", editor: "assets/editor/editor_11.jpg",sidebar: "assets/sidebar/sidebar_11.jpg",panel: "assets/panel/panel_11.jpg",accent: "#74c7ec" }  // 11
     ];
-    // Короткое имя набора по индексу (для статусбара/тултипов). Пустая строка, если индекс вне диапазона.
-    function setName(idx) { var s = SETS[idx]; return (s && s.name) ? s.name : ""; }
+    // Короткое имя набора по индексу (для статусбара/тултипов). Приоритет — имя,
+    // заданное пользователем в панели (cfg.setName[idx]), затем «родное» имя из SETS,
+    // иначе пустая строка. cfg к моменту вызова уже есть (функция зовётся из рантайма UI).
+    function setName(idx) {
+        var o = (typeof cfg !== "undefined" && cfg.setName) ? cfg.setName[idx] : null;
+        if (typeof o === "string" && o) return o;
+        var s = SETS[idx]; return (s && s.name) ? s.name : "";
+    }
 
     // ===== Дефолты =====
     // CFG_VERSION — версия схемы конфига. Растёт, когда меняется структура DEFAULTS так,
@@ -50,6 +65,8 @@
         setOp: {},
         accent: "#cba6f7",                                  // глобальный акцент (запасной, если у набора нет своего)
         setAccent: {},                                      // переопределение акцента конкретного набора: { idx: "#rrggbb" }
+        setName: {},                                        // пользовательское имя набора: { idx: "строка" }
+        setImg: {},                                         // свои картинки набора по зонам: { idx: { editor?, sidebar?, panel? } }
         autoDim: true,                                      // авто-занижение яркости editor под светлые картинки (читаемость кода)
         fit: { editor: "cover", side: "cover", panel: "cover" }, // вписывание фоновой картинки по зонам: cover | contain
         // фильтры самой фоновой картинки — отдельно по зонам (редактор / сайдбар / панель)
@@ -59,15 +76,19 @@
             panel:  { brightness: 1.0, saturate: 1.0, blur: 0 }
         },
         slideshow: { on: false, min: 15 },                  // авто-смена набора по таймеру
-        // авто-набор по времени суток: днём — свой набор, ночью — свой (день 8:00–20:00)
-        autoTime: { on: false, day: 0, night: 4 },
+        // авто-набор по времени суток: днём — свой набор, ночью — свой. Границы дня
+        // настраиваются (from/to, часы 0–23); поддерживается «через полночь» (to < from).
+        autoTime: { on: false, day: 0, night: 4, from: 8, to: 20 },
         fxp: { blur: 8, kbScale: 1.08, kbSpeed: 60, vignette: 0.32, partCount: 40, pomoMin: 25 },
         fx: {
             kenburns: true, glassTabs: true, vignette: true, glassSide: true,
             scrim: true, glassStatus: true, activeLine: true, groupRing: true,
             scrollbar: true, activityBg: true, tabAccent: true, rounded: true,
             cursorGlow: true, selection: true, splash: true,
-            groupBorder: true, titlebar: true, clock: true, particles: true, pomodoro: false
+            groupBorder: true, titlebar: true, clock: true, particles: true, pomodoro: false,
+            dimOnType: false,                               // приглушать фон редактора, пока идёт набор текста
+            dimOnBlur: false,                               // приглушать фон, когда окно VS Code теряет фокус
+            groupBorderMono: false                          // «Живой контур» одним акцентом (false — радужный перелив)
         },
         // Только совместимые по метрикам Nerd-шрифты, чтобы не ломать выравнивание терминала
         term: {
@@ -94,7 +115,9 @@
         ["rounded", "Скругления"], ["cursorGlow", "Свечение курсора"],
         ["selection", "Градиент выделения"], ["titlebar", "Титлбар"],
         ["splash", "Заставка"], ["clock", "Часы"],
-        ["particles", "Частицы"], ["pomodoro", "Помидор"]
+        ["particles", "Частицы"], ["pomodoro", "Помидор"],
+        ["dimOnType", "Тускнеть при печати"], ["dimOnBlur", "Тускнеть без фокуса"],
+        ["groupBorderMono", "Контур: 1 цвет"]
     ];
 
     // ключ, подпись, min, max, step, знаков после запятой
@@ -216,6 +239,32 @@
                     if (isColor(p.setAccent[ai])) c.setAccent[ai] = p.setAccent[ai];
                 }
             }
+            // имя набора: строка (в textContent/title, НЕ в CSS — инъекция не грозит),
+            // только по валидным индексам, длина ограничена. Пустая строка -> не сохраняем
+            // (набор вернётся к «родному» имени из SETS).
+            if (p.setName && typeof p.setName === "object") {
+                c.setName = {};
+                for (var ni in p.setName) {
+                    if (!/^\d+$/.test(ni) || parseInt(ni, 10) >= SETS.length) continue;
+                    var nv = p.setName[ni];
+                    if (typeof nv === "string" && nv.length && nv.length <= 40) c.setName[ni] = nv;
+                }
+            }
+            // свои картинки набора по зонам: строка-путь (в url('...') — cssUrl экранирует
+            // кавычки/слэши/переводы строк, инъекция не грозит), только валидные индексы,
+            // длина ограничена. Пустая строка -> зона возвращается к картинке из SETS.
+            if (p.setImg && typeof p.setImg === "object") {
+                c.setImg = {};
+                for (var ii in p.setImg) {
+                    if (!/^\d+$/.test(ii) || parseInt(ii, 10) >= SETS.length) continue;
+                    var zo = p.setImg[ii]; if (!zo || typeof zo !== "object") continue;
+                    var cleanZ = {};
+                    ["editor", "sidebar", "panel"].forEach(function (zk) {
+                        if (typeof zo[zk] === "string" && zo[zk].length && zo[zk].length <= 1024) cleanZ[zk] = zo[zk];
+                    });
+                    c.setImg[ii] = cleanZ;
+                }
+            }
             // авто-яркость editor: только булево
             if (typeof p.autoDim === "boolean") c.autoDim = p.autoDim;
             // вписывание по зонам: строго из белого списка cover|contain (в CSS — без кавычек)
@@ -238,12 +287,16 @@
                 if (typeof p.slideshow.on === "boolean") c.slideshow.on = p.slideshow.on;
                 if (typeof p.slideshow.min === "number") c.slideshow.min = clampNum(p.slideshow.min, 1, 120, c.slideshow.min);
             }
-            // авто-набор по времени: флаг + индексы наборов (день/ночь) в допустимом диапазоне
+            // авто-набор по времени: флаг + индексы наборов (день/ночь) + границы дня (часы 0–23)
             if (p.autoTime && typeof p.autoTime === "object") {
                 if (typeof p.autoTime.on === "boolean") c.autoTime.on = p.autoTime.on;
                 ["day", "night"].forEach(function (kk) {
                     var vi = p.autoTime[kk];
                     if (typeof vi === "number" && vi >= 0 && vi < SETS.length) c.autoTime[kk] = Math.floor(vi);
+                });
+                ["from", "to"].forEach(function (kk) {
+                    var hv = p.autoTime[kk];
+                    if (typeof hv === "number" && isFinite(hv)) c.autoTime[kk] = Math.min(23, Math.max(0, Math.floor(hv)));
                 });
             }
             // эффекты: только булевы
@@ -343,16 +396,41 @@
         cfg.setAccent[idx] = v;
     }
 
+    // ===== Разрешение путей картинок (с учётом пользовательских переопределений) =====
+    // Абсолютный URL — есть схема (file:, vscode-file:, http:, d: и т.п.) или ведущий слэш;
+    // такой путь берётся как есть. Иначе путь относительный — дописываем базу IMG.
+    function isAbsUrl(u) { return /^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(u); }
+    function imgUrl(rel) { return isAbsUrl(rel) ? rel : IMG + rel; }
+    // Путь картинки зоны набора: пользовательское переопределение (cfg.setImg[idx][zone])
+    // или «родная» картинка из SETS. zone — ключ SETS: "editor" | "sidebar" | "panel".
+    function setImage(idx, zone) {
+        var o = cfg.setImg && cfg.setImg[idx];
+        var ov = o && o[zone];
+        if (typeof ov === "string" && ov) return ov;
+        var s = SETS[idx]; return (s && s[zone]) ? s[zone] : "";
+    }
+    // Готовый абсолютный URL картинки зоны (переопределение -> resolve).
+    function zoneUrl(idx, zone) { return imgUrl(setImage(idx, zone)); }
+
     // ===================== src/fx/css.js =====================
     // ===== Проба картинок: загрузка (404) + средняя яркость (для авто-дима) =====
     // Одна загрузка на URL обслуживает и фолбэк при 404 (ok), и авто-яркость (luma).
     // Картинки лежат на vscode-file://vscode-app/… — тот же origin, что и воркбенч,
     // поэтому canvas не «портится» (getImageData не бросает security-ошибку).
     // Результат кэшируется; по готовности дёргаем пересборку стиля (bumpStyle+ensureStyle).
-    var _imgState = {}; // url -> { ok: bool, luma: 0..1|null }
+    // url -> { ok: bool, luma: 0..1|null, accent: "#rrggbb"|null, resolved: bool }.
+    // Одна загрузка на URL обслуживает 404-фолбэк (ok), авто-яркость (luma), «акцент из
+    // картинки» (accent) и health-check чипов (через onImage) — картинки больше не грузятся дважды.
+    var _imgState = {};
+    var _imgListeners = {}; // url -> [cb], вызываются один раз по готовности (или ошибке)
+    function _fireImg(url, st) {
+        var ls = _imgListeners[url]; if (!ls) return;
+        _imgListeners[url] = null;
+        for (var i = 0; i < ls.length; i++) { try { ls[i](st); } catch (e) {} }
+    }
     function probeImage(url) {
         if (Object.prototype.hasOwnProperty.call(_imgState, url)) return _imgState[url];
-        var st = { ok: true, luma: null }; // до загрузки считаем «ок, яркость неизвестна»
+        var st = { ok: true, luma: null, accent: null, resolved: false }; // до загрузки: «ок, метрики неизвестны»
         _imgState[url] = st;
         try {
             var im = new Image();
@@ -366,13 +444,71 @@
                         sum += (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255; n++; // Rec.601, 0..1
                     }
                     st.luma = n ? sum / n : 1;
-                } catch (e) { st.luma = 1; } // canvas «испорчен»/ошибка — не димим
-                bumpStyle(); ensureStyle();
+                    st.accent = dominantAccent(d); // доминирующий цвет -> готовый акцент
+                } catch (e) { st.luma = 1; st.accent = null; } // canvas «испорчен»/ошибка — не димим
+                st.resolved = true; _fireImg(url, st); bumpStyle(); ensureStyle();
             };
-            im.onerror = function () { st.ok = false; bumpStyle(); ensureStyle(); };
+            im.onerror = function () { st.ok = false; st.resolved = true; _fireImg(url, st); bumpStyle(); ensureStyle(); };
             im.src = url;
         } catch (e) {}
         return st;
+    }
+    // Подписка на готовность пробы URL: если уже загружено/сломано — колбэк сразу, иначе в очередь.
+    // Используется чипами наборов (health-check) вместо собственной второй загрузки картинки.
+    function onImage(url, cb) {
+        var st = probeImage(url);
+        if (st.resolved) { try { cb(st); } catch (e) {} return; }
+        (_imgListeners[url] || (_imgListeners[url] = [])).push(cb);
+    }
+
+    // ===== Цвет из картинки (для «Акцент из картинки») =====
+    function rgbToHsl(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        var mx = Math.max(r, g, b), mn = Math.min(r, g, b), h = 0, s = 0, l = (mx + mn) / 2, d = mx - mn;
+        if (d) {
+            s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+            if (mx === r) h = (g - b) / d + (g < b ? 6 : 0);
+            else if (mx === g) h = (b - r) / d + 2;
+            else h = (r - g) / d + 4;
+            h /= 6;
+        }
+        return [h, s, l];
+    }
+    function _hue2rgb(p, q, t) {
+        if (t < 0) t += 1; if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+    }
+    function hslToHex(h, s, l) {
+        var r, g, b;
+        if (!s) { r = g = b = l; }
+        else {
+            var q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+            r = _hue2rgb(p, q, h + 1 / 3); g = _hue2rgb(p, q, h); b = _hue2rgb(p, q, h - 1 / 3);
+        }
+        function hx(v) { var t = Math.round(v * 255).toString(16); return t.length < 2 ? "0" + t : t; }
+        return "#" + hx(r) + hx(g) + hx(b);
+    }
+    // Доминирующий цвет как готовый акцент: круговое среднее оттенка с весом по насыщенности^2
+    // (серые пиксели почти не влияют на оттенок), затем нормировка S/L в «читаемый акцент».
+    // Почти серая картинка -> берём среднее RGB и поднимаем насыщенность.
+    function dominantAccent(d) {
+        var n = d.length / 4; if (!n) return null;
+        var sx = 0, sy = 0, sw = 0, sS = 0, sL = 0, rr = 0, gg = 0, bb = 0, i, hsl, w, ang;
+        for (i = 0; i < d.length; i += 4) {
+            rr += d[i]; gg += d[i + 1]; bb += d[i + 2];
+            hsl = rgbToHsl(d[i], d[i + 1], d[i + 2]);
+            w = hsl[1] * hsl[1]; ang = hsl[0] * 2 * Math.PI;
+            sx += Math.cos(ang) * w; sy += Math.sin(ang) * w; sS += hsl[1] * w; sL += hsl[2] * w; sw += w;
+        }
+        var H, S, L;
+        if (sw < 1e-4) { var m = rgbToHsl(rr / n, gg / n, bb / n); H = m[0]; S = Math.max(0.5, m[1]); L = m[2]; }
+        else { H = Math.atan2(sy, sx) / (2 * Math.PI); if (H < 0) H += 1; S = sS / sw; L = sL / sw; }
+        S = Math.min(0.85, Math.max(0.55, S));
+        L = Math.min(0.70, Math.max(0.55, L));
+        return hslToHex(H, S, L);
     }
     // Коэффициент занижения яркости editor по средней светлоте картинки: тёмные/средние —
     // как есть (1.0), почти белые — до ~0.4, чтобы код не «слепило». Плавно между.
@@ -408,6 +544,21 @@
             // видимый фокус для клавиатуры (кнопка BG и все div-«кнопки» панели)
             "#moonlight-bg-switcher:focus-visible, #moonlight-bg-panel [role=button]:focus-visible {",
             "  outline: 2px solid var(--mlbg-accent); outline-offset: 1px;",
+            "}",
+            // Скроллбар панели «Фон и дизайн»: по умолчанию Electron рисует широкий светлый
+            // трек с серым ползунком — на тёмной панели он выбивается. Делаем тонкий, трек
+            // прозрачный, ползунок акцентного цвета (border+background-clip дают воздух вокруг).
+            // Firefox-свойства (scrollbar-*) — на случай не-Chromium движка; в VS Code работает
+            // именно ::-webkit-scrollbar. Нужен всегда, даже когда фон выключен, — панель живёт.
+            "#moonlight-bg-panel { scrollbar-width: thin; scrollbar-color: rgba(var(--mlbg-accent-rgb),0.45) transparent; }",
+            "#moonlight-bg-panel::-webkit-scrollbar { width: 10px; }",
+            "#moonlight-bg-panel::-webkit-scrollbar-track { background: transparent; }",
+            "#moonlight-bg-panel::-webkit-scrollbar-thumb {",
+            "  background: rgba(var(--mlbg-accent-rgb),0.35); border-radius: 8px;",
+            "  border: 2px solid transparent; background-clip: padding-box;",
+            "}",
+            "#moonlight-bg-panel::-webkit-scrollbar-thumb:hover {",
+            "  background: rgba(var(--mlbg-accent-rgb),0.6); border: 2px solid transparent; background-clip: padding-box;",
             "}"
         ].join("\n");
     }
@@ -423,7 +574,7 @@
         // но кнопка BG и панель остаются рабочими, чтобы включить обратно.
         if (!cfg.enabled) return rootVar + "\n" + switcherCSS();
 
-        var s = SETS[activeIndex()], fx = cfg.fx, fxp = cfg.fxp, op = getOp();
+        var idx = activeIndex(), s = SETS[idx], fx = cfg.fx, fxp = cfg.fxp, op = getOp();
         // Палитра поверхностей под тему. surfRGB — база «матового стекла»/статусбара/титлбара;
         // titleSolid — непрозрачная подложка титлбара; scrimRGB — цвет тени-скрима под кодом
         // (на светлой теме код тёмный, поэтому ореол светлый); shadowRGB — тень текста в
@@ -435,17 +586,19 @@
         var shadowRGB = light ? "255,255,255" : "0,0,0";
         // Фон зоны: 404 -> сплошная акцентная подложка (не пустота); иначе url + вписывание
         // (cover|contain из cfg.fit) на нужной позиции. zone: editor|side|panel.
-        function zoneBg(rel, zone, position) {
-            var url = IMG + rel;
+        // rel уже разрешён в абсолютный URL (zoneUrl учёл cfg.setImg). zone: editor|side|panel
+        // здесь — ключ cfg.fit (вписывание), поэтому "side", а не "sidebar".
+        function zoneBg(url, fitZone, position) {
             if (!probeImage(url).ok) return "rgba(var(--mlbg-accent-rgb),0.14)";
-            var fit = (cfg.fit && cfg.fit[zone] === "contain") ? "contain" : "cover";
+            var fit = (cfg.fit && cfg.fit[fitZone] === "contain") ? "contain" : "cover";
             return cssUrl(url) + " " + position + " / " + fit + " no-repeat";
         }
-        var BG_ED = zoneBg(s.editor, "editor", "center");
-        var BG_SB = zoneBg(s.sidebar, "side", "center bottom");
-        var BG_PN = zoneBg(s.panel, "panel", "right bottom");
+        var edUrl = zoneUrl(idx, "editor");
+        var BG_ED = zoneBg(edUrl, "editor", "center");
+        var BG_SB = zoneBg(zoneUrl(idx, "sidebar"), "side", "center bottom");
+        var BG_PN = zoneBg(zoneUrl(idx, "panel"), "panel", "right bottom");
         // Авто-дим editor по светлоте картинки (если включён): множитель к прозрачности.
-        var edDim = cfg.autoDim ? lumaDimFactor(probeImage(IMG + s.editor).luma) : 1;
+        var edDim = cfg.autoDim ? lumaDimFactor(probeImage(edUrl).luma) : 1;
         var out = [];
         function add() { for (var i = 0; i < arguments.length; i++) out.push(arguments[i]); }
         var TR = "  transition: opacity 0.5s ease;";
@@ -487,6 +640,22 @@
             "}"
         );
         if (fx.kenburns) add("@keyframes mlbg-kenburns { from { transform: scale(1); } to { transform: scale(" + fxp.kbScale + "); } }");
+        // Приглушение фона при печати: пока на body висит класс mlbg-typing (навешивается
+        // в boot.js на набор текста и снимается после паузы), опускаем прозрачность оверлея
+        // редактора до ~30% от текущей. У оверлея уже есть transition:opacity — переход плавный.
+        if (fx.dimOnType) add(
+            "body.mlbg-typing .monaco-editor .overflow-guard > .monaco-scrollable-element::after {",
+            "  opacity: " + (op.editor * switchMul * edDim * 0.3) + " !important;",
+            "}"
+        );
+        // Приглушение фона при потере фокуса окном: класс body.mlbg-unfocused навешивается в
+        // boot.js на window blur и снимается на focus. Опускаем прозрачность оверлея редактора
+        // до ~35% (у оверлея уже есть transition:opacity — переход плавный).
+        if (fx.dimOnBlur) add(
+            "body.mlbg-unfocused .monaco-editor .overflow-guard > .monaco-scrollable-element::after {",
+            "  opacity: " + (op.editor * switchMul * edDim * 0.35) + " !important;",
+            "}"
+        );
 
         // САЙДБАР / ПАНЕЛЬ
         add(
@@ -608,13 +777,18 @@
         );
         if (fx.selection) add(
             ".monaco-editor .view-overlays .selected-text {",
-            "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.32), rgba(137,180,250,0.32)) !important; border-radius: 2px;",
+            // оба стопа — акцент набора (разная прозрачность даёт глубину градиента),
+            // раньше второй стоп был зашит синим и не следовал за палитрой набора
+            "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.32), rgba(var(--mlbg-accent-rgb),0.16)) !important; border-radius: 2px;",
             "}"
         );
         if (fx.groupBorder) add(
             ".editor-group-container.active::before {",
             "  content:''; position:absolute; inset:0; z-index:6; pointer-events:none; padding:2px; border-radius:4px;",
-            "  background:linear-gradient(120deg,var(--mlbg-accent),#89b4fa,#a6e3a1,var(--mlbg-accent)); background-size:300% 300%;",
+            // По умолчанию — радужный перелив; groupBorderMono даёт «дыхание» одним акцентом.
+            "  background:" + (fx.groupBorderMono
+                ? "linear-gradient(120deg,var(--mlbg-accent),rgba(var(--mlbg-accent-rgb),0.25),var(--mlbg-accent))"
+                : "linear-gradient(120deg,var(--mlbg-accent),#89b4fa,#a6e3a1,var(--mlbg-accent))") + "; background-size:300% 300%;",
             "  animation: mlbg-flow 8s linear infinite;",
             "  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor;",
             "  mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite:exclude;",
@@ -625,7 +799,7 @@
             ".part.titlebar, .titlebar {",
             // подложка титлбара — цвет темы var(--vscode-titleBar-activeBackground) с запасной
             // тема-зависимой константой; поверх — акцентный градиент, гаснущий к прозрачному.
-            "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.30), rgba(137,180,250,0.16) 45%, rgba(" + surfRGB + ",0) 78%), var(--vscode-titleBar-activeBackground, " + titleSolid + ") !important;",
+            "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.30), rgba(var(--mlbg-accent-rgb),0.14) 45%, rgba(" + surfRGB + ",0) 78%), var(--vscode-titleBar-activeBackground, " + titleSolid + ") !important;",
             "}"
         );
         if (fx.splash) add(
@@ -633,7 +807,7 @@
             ".editor-group-container.empty::after {",
             "  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;",
             // заставка = картинка редактора, всегда «contain»; 404 -> акцентная подложка
-            "  background: " + (probeImage(IMG + s.editor).ok ? cssUrl(IMG + s.editor) + " center / contain no-repeat" : "rgba(var(--mlbg-accent-rgb),0.14)") + "; opacity: " + (0.12 * switchMul * edDim) + ";", TR, IMGF_ED,
+            "  background: " + (probeImage(edUrl).ok ? cssUrl(edUrl) + " center / contain no-repeat" : "rgba(var(--mlbg-accent-rgb),0.14)") + "; opacity: " + (0.12 * switchMul * edDim) + ";", TR, IMGF_ED,
             "}"
         );
 
@@ -695,9 +869,25 @@
         return e;
     }
 
-    // Заголовок секции (мелкий, uppercase, приглушённый).
-    function section(t) {
-        return el("div", "margin:12px 2px 6px; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.7px; color:#7f849c;", t);
+    // ===== Общие фрагменты инлайн-стилей контролов =====
+    // Повторяются в controls.js / io.js / panel.js — вынесены сюда, чтобы правка внешнего
+    // вида (отступы, цвета полей) делалась в одном месте, а не в двух десятках строк.
+    var ST = {
+        row: "display:flex; align-items:center; gap:8px; padding:2px 2px;",                                   // строка «метка + контрол»
+        toggleRow: "display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:5px; cursor:pointer; overflow:hidden;", // строка-тумблер (с hover-подсветкой)
+        range: "flex:1 1 auto; min-width:0; accent-color:var(--mlbg-accent); cursor:pointer;",                // ползунок <input type=range>
+        checkbox: "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer;",                          // <input type=checkbox>
+        fill: "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"                   // растягивающаяся подпись (обрезается «…»)
+    };
+    // Приглушённая метка контрола фиксированной ширины (слева от слайдера/поля).
+    // w — ширина в px; ellipsis — обрезать длинный текст «…» (для узких меток широких секций).
+    function mutedLabel(w, ellipsis) {
+        return "flex:0 0 " + w + "px; color:var(--mlp-muted,#a6adc8);" + (ellipsis ? " white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" : "");
+    }
+    // База стиля текстового поля / селекта панели; extra дописывает частности (padding, font-size, cursor).
+    function fieldStyle(extra) {
+        return "flex:1 1 auto; min-width:0; background:var(--mlp-field,rgba(30,30,46,0.6)); color:var(--mlp-fg,#cdd6f4);" +
+            " border:1px solid var(--mlp-border,rgba(205,214,244,0.2)); border-radius:6px;" + (extra || "");
     }
 
     // Делает div-«кнопку» доступной с клавиатуры: фокусируется и активируется Enter/Space
@@ -719,8 +909,13 @@
 
     var INFO = {
         accent: "Акцентный цвет интерфейса (курсор, скроллбар, вкладки, рамки…). Свой для каждого набора: правка применяется к активному набору, у остальных — их цвета.",
+        set_name: "Имя активного набора — показывается на кнопке BG, в тултипах и списках. Пустое поле возвращает исходное имя набора.",
+        presets: "Сохранить весь текущий вид (набор, яркость, эффекты, терминал, акцент) под именем и переключаться между сохранёнными пресетами одним кликом. Хранятся отдельно от экспорта/импорта.",
         autoDim: "Автоматически занижает яркость фоновой картинки редактора, если она светлая, чтобы код оставался читаемым. Не меняет саму настройку яркости.",
         img_fit: "Как вписывать фоновую картинку в зону: «Заполнить» (cover) — обрезая по краям; «Целиком» (contain) — вся картинка, могут быть поля. Для портретных/«тушь на белом» удобнее contain.",
+        img_path: "Своя картинка для выбранной зоны активного набора вместо стандартной. Укажи путь file:///… (на Windows слэши прямые, буква диска в нижнем регистре). Пусто — вернётся картинка набора. В подсказке поля показан текущий путь по умолчанию.",
+        autotime_from: "С какого часа (0–23) считать «день» и включать дневной набор.",
+        autotime_to: "До какого часа (0–23) длится «день». Если «до» меньше «с» — интервал считается через полночь (напр. день 20→6).",
         img_zone: "Для какой зоны настраиваются фильтры ниже. У каждой зоны свои значения. «Панель/терминал» — фон нижней панели за терминалом.",
         img_brightness: "Яркость самой фоновой картинки (не интерфейса).",
         img_saturate: "Насыщенность цветов фоновой картинки (0 — ч/б, 2 — сочно).",
@@ -758,6 +953,9 @@
         fx_clock: "Часы с датой в статусбаре.",
         fx_particles: "Летящие частицы поверх интерфейса.",
         fx_pomodoro: "Таймер-помидор в статусбаре (клик — старт/пауза, Alt+клик — сброс).",
+        fx_dimOnType: "Пока печатаешь, фоновая картинка редактора плавно тускнеет для читаемости и возвращается через паузу после последней клавиши.",
+        fx_dimOnBlur: "Когда окно VS Code теряет фокус (переключился в браузер/мессенджер), фоновая картинка редактора плавно тускнеет, чтобы не отвлекать; при возврате фокуса возвращается.",
+        fx_groupBorderMono: "Живой контур одним акцентным цветом набора вместо радужного перелива. Действует, когда включён «Живой контур».",
         term_font: "Шрифт терминала. В списке — совместимые по ширине Nerd-шрифты, чтобы не разъезжались колонки и сохранялись иконки oh-my-posh.",
         term_ligatures: "Слитное начертание пар символов (->, =>, != и т.п.).",
         term_cursorGlow: "Ореол-свечение вокруг курсора терминала.",
@@ -810,18 +1008,70 @@
     // привязанный к соответствующему полю cfg. Изменения применяются через apply / applyThrottled
     // (мгновенно/троттлингом) или applyFade (со сменой набора). Тексты подсказок берутся из INFO.
 
-    // health-check: помечаем чип, если картинка набора не грузится
+    // ===== Базовые фабрики контролов =====
+    // Тумблеры и слайдеры панели различались только источником cfg и колбэком, а разметка/
+    // стиль/hover/«?» повторялись в каждом. Свели к двум фабрикам: makeToggle и makeSlider.
+
+    // Строка-тумблер: hover-подсветка + чекбокс + подпись + «?».
+    // get() -> текущее булево; onChange(checked) -> применить изменение.
+    function makeToggle(get, onChange, label, info) {
+        var row = el("label", ST.toggleRow);
+        row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.12)"; });
+        row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
+        var cb = el("input", ST.checkbox); cb.type = "checkbox"; cb.checked = !!get();
+        cb.addEventListener("change", function () { onChange(cb.checked); });
+        row.appendChild(cb);
+        row.appendChild(el("span", ST.fill, label));
+        var d = infoDot(info); if (d) row.appendChild(d);
+        return row;
+    }
+
+    // Слайдер: метка + ползунок + значение + «?». opts:
+    //   label, min, max, step, dec (знаков после запятой), get()->число, onInput(v)->записать,
+    //   info, labelW (ширина метки, 92), valW (ширина значения, 34), ellipsis (обрезать метку, true).
+    // Все слайдеры пишут значение и зовут applyThrottled (коалесинг в один apply за кадр).
+    // На возвращённом узле есть _refresh() — пересинхронизировать ползунок/значение с cfg
+    // (нужно, когда один набор слайдеров переключается между зонами, см. makeImgFilters).
+    function makeSlider(opts) {
+        var labelW = opts.labelW || 92, valW = opts.valW || 34, ell = opts.ellipsis !== false;
+        var wrap = el("div", ST.row);
+        wrap.appendChild(el("span", mutedLabel(labelW, ell), opts.label));
+        var sl = el("input", ST.range);
+        sl.type = "range"; sl.min = String(opts.min); sl.max = String(opts.max); sl.step = String(opts.step); sl.value = String(opts.get());
+        var val = el("span", "flex:0 0 " + valW + "px; text-align:right; color:var(--mlp-muted,#a6adc8);", Number(opts.get()).toFixed(opts.dec));
+        sl.addEventListener("input", function () { var v = parseFloat(sl.value); opts.onInput(v); val.textContent = v.toFixed(opts.dec); applyThrottled(); });
+        wrap.appendChild(sl); wrap.appendChild(val);
+        var d = infoDot(opts.info); if (d) wrap.appendChild(d);
+        wrap._refresh = function () { sl.value = String(opts.get()); val.textContent = Number(opts.get()).toFixed(opts.dec); };
+        return wrap;
+    }
+
+    // ===== Предпросмотр набора при наведении =====
+    // Наведение на чип временно применяет его набор к фону (и акценту), НЕ сохраняя cfg,
+    // чтобы «примерить» набор без клика. Уход мышью возвращает прежний. Меняем только CSS
+    // (bumpStyle + ensureStyle), без saveCfg/updateLabel — localStorage и подписи не трогаем.
+    var _previewPrev = null;
+    function previewSet(mode) {
+        if (!cfg.enabled) return;                 // фон выключен — превью не видно, не дёргаем CSS
+        if (_previewPrev === null) _previewPrev = cfg.mode;
+        cfg.mode = mode; bumpStyle(); ensureStyle();
+    }
+    function previewEnd() {
+        if (_previewPrev === null) return;
+        cfg.mode = _previewPrev; _previewPrev = null; bumpStyle(); ensureStyle();
+    }
+
+    // health-check: помечаем чип, если картинка набора не грузится. Не грузим картинки сами —
+    // подписываемся на общую пробу (onImage), которую использует и генерация CSS: один Image на URL.
     function probeSet(idx, chip) {
-        var s = SETS[idx];
-        [s.editor, s.sidebar, s.panel].forEach(function (fn) {
-            var im = new Image();
-            im.onerror = function () {
+        ["editor", "sidebar", "panel"].forEach(function (zone) {
+            onImage(zoneUrl(idx, zone), function (st) {
+                if (st.ok) return;
                 chip.style.border = "1px solid #f38ba8";
                 chip.style.boxShadow = "inset 0 0 0 1px rgba(243,139,168,0.55)";
-                chip.title = "Не грузится: " + fn;
+                chip.title = "Не грузится: " + setImage(idx, zone);
                 var b = chip.querySelector(".mlbg-bad"); if (!b) { b = el("span", "position:absolute; top:1px; left:3px; color:#f38ba8; font-weight:700;", "!"); b.className = "mlbg-bad"; chip.appendChild(b); }
-            };
-            im.src = IMG + fn;
+            });
         });
     }
 
@@ -831,26 +1081,26 @@
         var css = isSet
             ? "position:relative; width:48px; height:32px; border-radius:7px; overflow:hidden; cursor:pointer;" +
               "background-position:center; background-size:cover;" +
-              "border:2px solid " + (active ? "var(--mlbg-accent)" : "rgba(205,214,244,0.16)") + ";" +
+              "border:2px solid " + (active ? "var(--mlbg-accent)" : "var(--mlp-border-soft,rgba(205,214,244,0.16))") + ";" +
               (active ? "box-shadow:0 0 0 2px rgba(var(--mlbg-accent-rgb),0.35);" : "")
             : "min-width:24px; padding:4px 10px; border-radius:7px; cursor:pointer; user-select:none; text-align:center;" +
               "font-weight:" + (active ? "600" : "400") + ";" +
-              "border:1px solid " + (active ? "var(--mlbg-accent)" : "rgba(205,214,244,0.16)") + ";" +
-              "background:" + (active ? "rgba(var(--mlbg-accent-rgb),0.28)" : "transparent") + "; color:" + (active ? "#f2e6ff" : "#cdd6f4") + ";";
+              "border:1px solid " + (active ? "var(--mlbg-accent)" : "var(--mlp-border-soft,rgba(205,214,244,0.16))") + ";" +
+              "background:" + (active ? "rgba(var(--mlbg-accent-rgb),0.28)" : "transparent") + "; color:" + (active ? "#f2e6ff" : "var(--mlp-fg,#cdd6f4)") + ";";
         var c = el("div", css, isSet ? null : label);
         if (isSet) {
             var idx = parseInt(mode, 10);
             var s = SETS[idx];
             // Мини-триптих: три вертикальные полоски с превью зон (редактор / сайдбар / панель),
             // чтобы собирать наборы на глаз. Полоски — фон chip как запасной вариант (editor).
-            c.style.backgroundImage = cssUrl(IMG + s.editor);
-            var zones = [s.editor, s.sidebar, s.panel];
+            c.style.backgroundImage = cssUrl(zoneUrl(idx, "editor"));
+            var zones = [zoneUrl(idx, "editor"), zoneUrl(idx, "sidebar"), zoneUrl(idx, "panel")];
             for (var zi = 0; zi < 3; zi++) {
                 var strip = el("div",
                     "position:absolute; top:0; bottom:0; width:33.34%; left:" + (zi * 33.33) + "%;" +
                     "background-position:center; background-size:cover;" +
                     (zi ? "box-shadow:inset 1px 0 0 rgba(0,0,0,0.35);" : ""));
-                strip.style.backgroundImage = cssUrl(IMG + zones[zi]);
+                strip.style.backgroundImage = cssUrl(zones[zi]);
                 c.appendChild(strip);
             }
             var num = el("span", "position:absolute; right:3px; bottom:1px; z-index:2; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.95);", label);
@@ -858,63 +1108,71 @@
             var nm = setName(idx); if (nm) c.title = idx + " · " + nm + " (редактор · сайдбар · панель)";
             probeSet(idx, c);
             if (!active) {
-                c.addEventListener("mouseenter", function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; });
-                c.addEventListener("mouseleave", function () { c.style.borderColor = "rgba(205,214,244,0.16)"; });
+                c.addEventListener("mouseenter", function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; previewSet(mode); });
+                c.addEventListener("mouseleave", function () { c.style.borderColor = "var(--mlp-border-soft,rgba(205,214,244,0.16))"; previewEnd(); });
             }
         } else if (!active) {
             c.addEventListener("mouseenter", function () { c.style.background = "rgba(var(--mlbg-accent-rgb),0.14)"; });
             c.addEventListener("mouseleave", function () { c.style.background = "transparent"; });
         }
         c.addEventListener("click", function () {
+            _previewPrev = null; // фиксируем выбор: mouseleave после клика не откатит фон обратно
             if (mode === "random") sessionRandomIndex = pickRandom();
             cfg.mode = mode; applyFade(); refreshPanel();
         });
         keyActivate(c, isSet ? ("Набор " + label + (setName(parseInt(mode, 10)) ? " — " + setName(parseInt(mode, 10)) : "")) : "Случайный набор");
+        c.setAttribute("aria-pressed", active ? "true" : "false"); // какой набор выбран — для скринридера
         return c;
     }
 
-    function makeOpSlider(key, label) {
-        var op = getOp();
-        var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-        wrap.appendChild(el("span", "flex:0 0 56px; color:#a6adc8;", label));
-        var sl = el("input", "flex:1 1 auto; min-width:0; accent-color:var(--mlbg-accent); cursor:pointer;");
-        sl.type = "range"; sl.min = "0"; sl.max = "0.6"; sl.step = "0.01"; sl.value = String(op[key]);
-        var val = el("span", "flex:0 0 30px; text-align:right; color:#a6adc8;", op[key].toFixed(2));
-        sl.addEventListener("input", function () { var v = parseFloat(sl.value); setOpValue(key, v); val.textContent = v.toFixed(2); applyThrottled(); });
-        wrap.appendChild(sl); wrap.appendChild(val);
-        var d = infoDot(INFO["op_" + key]); if (d) wrap.appendChild(d);
+    // Переименование АКТИВНОГО набора (cfg.setName[idx]). Имя уходит в textContent/title
+    // (кнопка BG, чипы, списки), поэтому CSS-инъекция не грозит — только ограничение длины.
+    function makeSetNameEdit() {
+        var wrap = el("div", ST.row + " margin-top:6px;");
+        wrap.appendChild(el("span", mutedLabel(56), "Имя"));
+        var ip = el("input", fieldStyle(" padding:3px 6px;"));
+        ip.type = "text"; ip.maxLength = 40;
+        var idx = activeIndex();
+        ip.value = setName(idx);
+        ip.placeholder = "Набор " + idx;
+        function commit() {
+            var v = ip.value.trim().slice(0, 40);
+            var i = activeIndex();
+            if (!cfg.setName) cfg.setName = {};
+            if (v) cfg.setName[i] = v; else delete cfg.setName[i]; // пусто -> вернуть родное имя
+            apply();
+            // Обновляем только зависимые подписи, панель не пересобираем — иначе поле
+            // потеряет фокус на каждом Enter. Чипы обновятся при следующем открытии панели.
+        }
+        ip.addEventListener("change", commit);
+        ip.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commit(); ip.blur(); } });
+        wrap.appendChild(ip);
+        var d = infoDot(INFO.set_name); if (d) wrap.appendChild(d);
         return wrap;
+    }
+
+    function makeOpSlider(key, label) {
+        return makeSlider({
+            label: label, min: 0, max: 0.6, step: 0.01, dec: 2, labelW: 56, valW: 30, ellipsis: false,
+            get: function () { return getOp()[key]; }, onInput: function (v) { setOpValue(key, v); }, info: INFO["op_" + key]
+        });
     }
     function makeParamSlider(def) {
-        var key = def[0], min = def[2], max = def[3], step = def[4], dec = def[5];
-        var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-        wrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", def[1]));
-        var sl = el("input", "flex:1 1 auto; min-width:0; accent-color:var(--mlbg-accent); cursor:pointer;");
-        sl.type = "range"; sl.min = String(min); sl.max = String(max); sl.step = String(step); sl.value = String(cfg.fxp[key]);
-        var val = el("span", "flex:0 0 34px; text-align:right; color:#a6adc8;", cfg.fxp[key].toFixed(dec));
-        sl.addEventListener("input", function () { var v = parseFloat(sl.value); cfg.fxp[key] = v; val.textContent = v.toFixed(dec); applyThrottled(); });
-        wrap.appendChild(sl); wrap.appendChild(val);
-        var d = infoDot(INFO["fxp_" + key]); if (d) wrap.appendChild(d);
-        return wrap;
+        var key = def[0];
+        return makeSlider({
+            label: def[1], min: def[2], max: def[3], step: def[4], dec: def[5],
+            get: function () { return cfg.fxp[key]; }, onInput: function (v) { cfg.fxp[key] = v; }, info: INFO["fxp_" + key]
+        });
     }
     function makeCheck(key, label) {
-        var row = el("label", "display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:5px; cursor:pointer; overflow:hidden;");
-        row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.12)"; });
-        row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
-        var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer;");
-        cb.type = "checkbox"; cb.checked = !!cfg.fx[key];
-        cb.addEventListener("change", function () { cfg.fx[key] = cb.checked; apply(); });
-        row.appendChild(cb);
-        row.appendChild(el("span", "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", label));
-        var d = infoDot(INFO["fx_" + key]); if (d) row.appendChild(d);
-        return row;
+        return makeToggle(function () { return cfg.fx[key]; }, function (v) { cfg.fx[key] = v; apply(); }, label, INFO["fx_" + key]);
     }
 
     // ==== Контролы секции «Терминал» (работают с cfg.term) ====
     function makeTermSelect() {
-        var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-        wrap.appendChild(el("span", "flex:0 0 56px; color:#a6adc8;", "Шрифт"));
-        var sel = el("select", "flex:1 1 auto; min-width:0; background:rgba(30,30,46,0.6); color:#cdd6f4; border:1px solid rgba(205,214,244,0.2); border-radius:6px; padding:3px 4px; cursor:pointer;");
+        var wrap = el("div", ST.row);
+        wrap.appendChild(el("span", mutedLabel(56), "Шрифт"));
+        var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
         TERM_FONTS.forEach(function (f) {
             var o = el("option", null, f); o.value = f; if (f === cfg.term.font) o.selected = true; sel.appendChild(o);
         });
@@ -924,34 +1182,20 @@
         return wrap;
     }
     function makeTermCheck(key, label) {
-        var row = el("label", "display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:5px; cursor:pointer; overflow:hidden;");
-        row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.12)"; });
-        row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
-        var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer;");
-        cb.type = "checkbox"; cb.checked = !!cfg.term[key];
-        cb.addEventListener("change", function () { cfg.term[key] = cb.checked; apply(); });
-        row.appendChild(cb);
-        row.appendChild(el("span", "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", label));
-        var d = infoDot(INFO["term_" + key]); if (d) row.appendChild(d);
-        return row;
+        return makeToggle(function () { return cfg.term[key]; }, function (v) { cfg.term[key] = v; apply(); }, label, INFO["term_" + key]);
     }
     function makeTermSlider(key, label, min, max, step, dec) {
-        var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-        wrap.appendChild(el("span", "flex:0 0 56px; color:#a6adc8;", label));
-        var sl = el("input", "flex:1 1 auto; min-width:0; accent-color:var(--mlbg-accent); cursor:pointer;");
-        sl.type = "range"; sl.min = String(min); sl.max = String(max); sl.step = String(step); sl.value = String(cfg.term[key]);
-        var val = el("span", "flex:0 0 34px; text-align:right; color:#a6adc8;", Number(cfg.term[key]).toFixed(dec));
-        sl.addEventListener("input", function () { var v = parseFloat(sl.value); cfg.term[key] = v; val.textContent = v.toFixed(dec); applyThrottled(); });
-        wrap.appendChild(sl); wrap.appendChild(val);
-        var d = infoDot(INFO["term_" + key]); if (d) wrap.appendChild(d);
-        return wrap;
+        return makeSlider({
+            label: label, min: min, max: max, step: step, dec: dec, labelW: 56, ellipsis: false,
+            get: function () { return cfg.term[key]; }, onInput: function (v) { cfg.term[key] = v; }, info: INFO["term_" + key]
+        });
     }
     function makeTermColor(key, label) {
-        var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-        wrap.appendChild(el("span", "flex:0 0 56px; color:#a6adc8;", label));
-        var ip = el("input", "flex:0 0 auto; width:34px; height:22px; padding:0; border:1px solid rgba(205,214,244,0.2); border-radius:6px; background:transparent; cursor:pointer;");
+        var wrap = el("div", ST.row);
+        wrap.appendChild(el("span", mutedLabel(56), label));
+        var ip = el("input", "flex:0 0 auto; width:34px; height:22px; padding:0; border:1px solid var(--mlp-border,rgba(205,214,244,0.2)); border-radius:6px; background:transparent; cursor:pointer;");
         ip.type = "color"; ip.value = cfg.term[key];
-        var hex = el("span", "flex:1 1 auto; color:#6c7086; font-size:11px;", cfg.term[key]);
+        var hex = el("span", "flex:1 1 auto; color:var(--mlp-faint,#6c7086); font-size:11px;", cfg.term[key]);
         ip.addEventListener("input", function () { cfg.term[key] = ip.value; hex.textContent = ip.value; applyThrottled(); });
         wrap.appendChild(ip); wrap.appendChild(hex);
         var d = infoDot(INFO["term_" + key]); if (d) wrap.appendChild(d);
@@ -961,41 +1205,40 @@
     // ==== Контролы для картинки / слайдшоу (работают с произвольным разделом cfg) ====
     // Универсальный слайдер над obj[key] — используется для cfg.imgfx и cfg.slideshow.
     function makeObjSlider(obj, key, label, min, max, step, dec, info) {
-        var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-        wrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", label));
-        var sl = el("input", "flex:1 1 auto; min-width:0; accent-color:var(--mlbg-accent); cursor:pointer;");
-        sl.type = "range"; sl.min = String(min); sl.max = String(max); sl.step = String(step); sl.value = String(obj[key]);
-        var val = el("span", "flex:0 0 34px; text-align:right; color:#a6adc8;", Number(obj[key]).toFixed(dec));
-        sl.addEventListener("input", function () { var v = parseFloat(sl.value); obj[key] = v; val.textContent = v.toFixed(dec); applyThrottled(); });
-        wrap.appendChild(sl); wrap.appendChild(val);
-        var d = infoDot(info); if (d) wrap.appendChild(d);
-        return wrap;
+        return makeSlider({
+            label: label, min: min, max: max, step: step, dec: dec,
+            get: function () { return obj[key]; }, onInput: function (v) { obj[key] = v; }, info: info
+        });
     }
     function makeAccentColor() {
-        var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-        wrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8;", "Акцент"));
+        var wrap = el("div", ST.row);
+        wrap.appendChild(el("span", mutedLabel(92), "Акцент"));
         var cur = getAccent();
-        var ip = el("input", "flex:0 0 auto; width:34px; height:22px; padding:0; border:1px solid rgba(205,214,244,0.2); border-radius:6px; background:transparent; cursor:pointer;");
+        var ip = el("input", "flex:0 0 auto; width:34px; height:22px; padding:0; border:1px solid var(--mlp-border,rgba(205,214,244,0.2)); border-radius:6px; background:transparent; cursor:pointer;");
         ip.type = "color"; ip.value = cur;
-        var hex = el("span", "flex:1 1 auto; color:#6c7086; font-size:11px;", cur);
+        var hex = el("span", "flex:1 1 auto; color:var(--mlp-faint,#6c7086); font-size:11px;", cur);
         // акцент правится для АКТИВНОГО набора (setAccentValue), у каждого набора свой
         ip.addEventListener("input", function () { setAccentValue(ip.value); hex.textContent = ip.value; applyThrottled(); });
         wrap.appendChild(ip); wrap.appendChild(hex);
+        // «из картинки»: берём доминирующий цвет фоновой картинки редактора набора как акцент
+        var pick = el("div", "flex:0 0 auto; padding:3px 8px; border-radius:6px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", "из картинки");
+        pick.title = "Взять акцент из фоновой картинки набора";
+        pick.addEventListener("click", function () {
+            onImage(zoneUrl(activeIndex(), "editor"), function (st) {
+                if (st.ok && st.accent) {
+                    setAccentValue(st.accent); ip.value = st.accent; hex.textContent = st.accent;
+                    apply(); refreshPanel(); toast("Акцент из картинки: " + st.accent);
+                } else { toast("Не удалось взять цвет из картинки", false); }
+            });
+        });
+        keyActivate(pick, "Акцент из картинки");
+        wrap.appendChild(pick);
         var d = infoDot(INFO.accent); if (d) wrap.appendChild(d);
         return wrap;
     }
     // Чекбокс «Авто-яркость editor» (cfg.autoDim). Отдельно, т.к. не входит в FX_LIST.
     function makeAutoDim() {
-        var row = el("label", "display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:5px; cursor:pointer; overflow:hidden;");
-        row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.12)"; });
-        row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
-        var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer;");
-        cb.type = "checkbox"; cb.checked = !!cfg.autoDim;
-        cb.addEventListener("change", function () { cfg.autoDim = cb.checked; apply(); });
-        row.appendChild(cb);
-        row.appendChild(el("span", "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", "Авто-яркость editor"));
-        var d = infoDot(INFO.autoDim); if (d) row.appendChild(d);
-        return row;
+        return makeToggle(function () { return cfg.autoDim; }, function (v) { cfg.autoDim = v; apply(); }, "Авто-яркость editor", INFO.autoDim);
     }
     // Фильтры картинки с выбором зоны: один селектор + 3 слайдера, которые
     // перенастраиваются на выбранную зону (cfg.imgfx.editor / .side / .panel).
@@ -1010,18 +1253,18 @@
         ];
 
         // селектор зоны
-        var selWrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-        selWrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8;", "Зона"));
-        var sel = el("select", "flex:1 1 auto; min-width:0; background:rgba(30,30,46,0.6); color:#cdd6f4; border:1px solid rgba(205,214,244,0.2); border-radius:6px; padding:3px 4px; cursor:pointer;");
+        var selWrap = el("div", ST.row);
+        selWrap.appendChild(el("span", mutedLabel(92), "Зона"));
+        var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
         ZONES.forEach(function (z) { var o = el("option", null, z[1]); o.value = z[0]; sel.appendChild(o); });
         selWrap.appendChild(sel);
         var zd = infoDot(INFO.img_zone); if (zd) selWrap.appendChild(zd);
         box.appendChild(selWrap);
 
         // вписывание фоновой картинки выбранной зоны: cover (заполнить) | contain (целиком)
-        var fitWrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-        fitWrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8;", "Вписывание"));
-        var fitSel = el("select", "flex:1 1 auto; min-width:0; background:rgba(30,30,46,0.6); color:#cdd6f4; border:1px solid rgba(205,214,244,0.2); border-radius:6px; padding:3px 4px; cursor:pointer;");
+        var fitWrap = el("div", ST.row);
+        fitWrap.appendChild(el("span", mutedLabel(92), "Вписывание"));
+        var fitSel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
         [["cover", "Заполнить (cover)"], ["contain", "Целиком (contain)"]].forEach(function (o) { var op = el("option", null, o[1]); op.value = o[0]; fitSel.appendChild(op); });
         fitSel.addEventListener("change", function () { if (!cfg.fit) cfg.fit = {}; cfg.fit[cur] = fitSel.value; apply(); });
         fitWrap.appendChild(fitSel);
@@ -1029,37 +1272,50 @@
         box.appendChild(fitWrap);
         function refreshFit() { fitSel.value = (cfg.fit && cfg.fit[cur] === "contain") ? "contain" : "cover"; }
 
-        // слайдеры, читающие/пишущие cfg.imgfx[cur]
+        // Свой путь картинки для выбранной зоны активного набора (cfg.setImg[idx][zone]).
+        // Ключи зон здесь — cfg.imgfx ("side"), у SETS/setImg — "sidebar"; маппим через IMGZONE.
+        var IMGZONE = { editor: "editor", side: "sidebar", panel: "panel" };
+        var pathWrap = el("div", ST.row);
+        pathWrap.appendChild(el("span", mutedLabel(92), "Путь картинки"));
+        var pathIp = el("input", fieldStyle(" padding:3px 6px; font-size:11px;"));
+        pathIp.type = "text"; pathIp.maxLength = 1024;
+        function commitPath() {
+            var z = IMGZONE[cur], i = activeIndex(), v = pathIp.value.trim().slice(0, 1024);
+            if (!cfg.setImg) cfg.setImg = {};
+            if (!cfg.setImg[i]) cfg.setImg[i] = {};
+            if (v) cfg.setImg[i][z] = v; else delete cfg.setImg[i][z]; // пусто -> вернуть картинку набора
+            apply();
+        }
+        pathIp.addEventListener("change", commitPath);
+        pathIp.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commitPath(); pathIp.blur(); } });
+        pathWrap.appendChild(pathIp);
+        var pd = infoDot(INFO.img_path); if (pd) pathWrap.appendChild(pd);
+        box.appendChild(pathWrap);
+        function refreshPath() {
+            var z = IMGZONE[cur], i = activeIndex(), o = cfg.setImg && cfg.setImg[i];
+            pathIp.value = (o && o[z]) ? o[z] : "";
+            pathIp.placeholder = setImage(i, z); // дефолтная картинка набора как подсказка
+        }
+
+        // слайдеры, читающие/пишущие cfg.imgfx[cur]; cur меняется селектором зоны, поэтому
+        // get/onInput всегда смотрят на текущую зону, а refresh() дёргает _refresh при смене.
         var rows = DEFS.map(function (d) {
-            var key = d[0], min = d[2], max = d[3], step = d[4], dec = d[5];
-            var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-            wrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", d[1]));
-            var sl = el("input", "flex:1 1 auto; min-width:0; accent-color:var(--mlbg-accent); cursor:pointer;");
-            sl.type = "range"; sl.min = String(min); sl.max = String(max); sl.step = String(step);
-            var val = el("span", "flex:0 0 34px; text-align:right; color:#a6adc8;");
-            sl.addEventListener("input", function () { var v = parseFloat(sl.value); cfg.imgfx[cur][key] = v; val.textContent = v.toFixed(dec); applyThrottled(); });
-            wrap.appendChild(sl); wrap.appendChild(val);
-            var dot = infoDot(d[6]); if (dot) wrap.appendChild(dot);
-            box.appendChild(wrap);
-            return function () { var o = cfg.imgfx[cur]; sl.value = String(o[key]); val.textContent = Number(o[key]).toFixed(dec); };
+            var key = d[0];
+            var w = makeSlider({
+                label: d[1], min: d[2], max: d[3], step: d[4], dec: d[5],
+                get: function () { return cfg.imgfx[cur][key]; }, onInput: function (v) { cfg.imgfx[cur][key] = v; }, info: d[6]
+            });
+            box.appendChild(w);
+            return w._refresh;
         });
 
-        function refresh() { refreshFit(); rows.forEach(function (fn) { fn(); }); }
+        function refresh() { refreshFit(); refreshPath(); rows.forEach(function (fn) { fn(); }); }
         sel.addEventListener("change", function () { cur = sel.value; refresh(); });
         refresh();
         return box;
     }
     function makeSlideToggle() {
-        var row = el("label", "display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:5px; cursor:pointer; overflow:hidden;");
-        row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.12)"; });
-        row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
-        var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer;");
-        cb.type = "checkbox"; cb.checked = !!cfg.slideshow.on;
-        cb.addEventListener("change", function () { cfg.slideshow.on = cb.checked; slideReset(); apply(); });
-        row.appendChild(cb);
-        row.appendChild(el("span", "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", "Включить"));
-        var d = infoDot(INFO.slide_on); if (d) row.appendChild(d);
-        return row;
+        return makeToggle(function () { return cfg.slideshow.on; }, function (v) { cfg.slideshow.on = v; slideReset(); apply(); }, "Включить", INFO.slide_on);
     }
 
     // ==== Мастер-выключатель фона и эффектов (cfg.enabled) ====
@@ -1085,33 +1341,28 @@
     // Тумблер «включить» + два выпадающих списка: набор для дня и для ночи.
     // Днём (8:00–20:00) активируется дневной набор, ночью — ночной (см. timeTick).
     function makeAutoTimeToggle() {
-        var row = el("label", "display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:5px; cursor:pointer; overflow:hidden;");
-        row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.12)"; });
-        row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
-        var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer;");
-        cb.type = "checkbox"; cb.checked = !!(cfg.autoTime && cfg.autoTime.on);
-        cb.addEventListener("change", function () {
-            if (!cfg.autoTime) cfg.autoTime = { on: false, day: 0, night: 4 };
-            cfg.autoTime.on = cb.checked; apply();
-            if (cb.checked) { try { timeTick(); } catch (e) {} } // сразу применить нужный набор
-        });
-        row.appendChild(cb);
-        row.appendChild(el("span", "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", "Включить"));
-        var d = infoDot(INFO.autotime_on); if (d) row.appendChild(d);
-        return row;
+        return makeToggle(
+            function () { return !!(cfg.autoTime && cfg.autoTime.on); },
+            function (v) {
+                if (!cfg.autoTime) cfg.autoTime = { on: false, day: 0, night: 4, from: 8, to: 20 };
+                cfg.autoTime.on = v; apply();
+                if (v) { try { timeTick(); } catch (e) {} } // сразу применить нужный набор
+            },
+            "Включить", INFO.autotime_on
+        );
     }
     // Выпадающий список наборов (для выбора дневного/ночного). which — "day" | "night".
     function makeSetPicker(which, label) {
-        var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-        wrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8;", label));
-        var sel = el("select", "flex:1 1 auto; min-width:0; background:rgba(30,30,46,0.6); color:#cdd6f4; border:1px solid rgba(205,214,244,0.2); border-radius:6px; padding:3px 4px; cursor:pointer;");
+        var wrap = el("div", ST.row);
+        wrap.appendChild(el("span", mutedLabel(92), label));
+        var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
         for (var i = 0; i < SETS.length; i++) {
             var o = el("option", null, i + " · " + setName(i)); o.value = String(i);
             if (cfg.autoTime && cfg.autoTime[which] === i) o.selected = true;
             sel.appendChild(o);
         }
         sel.addEventListener("change", function () {
-            if (!cfg.autoTime) cfg.autoTime = { on: false, day: 0, night: 4 };
+            if (!cfg.autoTime) cfg.autoTime = { on: false, day: 0, night: 4, from: 8, to: 20 };
             cfg.autoTime[which] = parseInt(sel.value, 10); apply();
             if (cfg.autoTime.on) { try { timeTick(); } catch (e) {} }
         });
@@ -1127,7 +1378,7 @@
         var chev = el("span", "flex:0 0 auto; width:10px; text-align:center; color:var(--mlbg-accent); font-size:9px; transition:transform 0.15s;", "▶");
         chev.style.transform = collapsed ? "rotate(0deg)" : "rotate(90deg)";
         head.appendChild(chev);
-        head.appendChild(el("div", "flex:1 1 auto; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.7px; color:#bac2de;", title));
+        head.appendChild(el("div", "flex:1 1 auto; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.7px; color:var(--mlp-head,#bac2de);", title));
         var idot = infoDot(info); if (idot) head.appendChild(idot);
         var body = el("div", "padding:6px 3px 2px;");
         body.style.display = collapsed ? "none" : "block";
@@ -1159,6 +1410,9 @@
             "font-weight:600; font-family:var(--vscode-font-family,sans-serif); box-shadow:0 8px 24px rgba(0,0,0,0.5);", msg);
         t.style.background = ok === false ? "rgba(243,139,168,0.96)" : "rgba(166,227,161,0.96)";
         t.style.color = "#181825";
+        // Скринридер озвучит текст тоста (например «Пресет сохранён»). Ошибки — настойчивее.
+        t.setAttribute("role", "status");
+        t.setAttribute("aria-live", ok === false ? "assertive" : "polite");
         document.body.appendChild(t);
         setTimeout(function () { t.remove(); }, 3200);
     }
@@ -1207,6 +1461,87 @@
         });
         document.body.appendChild(inp); inp.click();
     }
+    // ===== Именованные пресеты =====
+    // Несколько сохранённых образов в отдельном ключе localStorage: имя -> снимок cfg.
+    // Применение снимка идёт через mergeCfg (та же санитизация, что и импорт файла),
+    // поэтому подменённое хранилище не опаснее импортированного JSON.
+    var PRESETS_KEY = "moonlight-bg-presets", PRESETS_MAX = 24;
+    function loadPresets() {
+        try {
+            var raw = localStorage.getItem(PRESETS_KEY);
+            if (raw && raw.length <= 256 * 1024) {
+                var o = safeParse(raw);
+                if (o && typeof o === "object") return o;
+            }
+        } catch (e) {}
+        return {};
+    }
+    function savePresets(obj) { try { localStorage.setItem(PRESETS_KEY, JSON.stringify(obj)); } catch (e) {} }
+
+    function makePresetsUI() {
+        var box = el("div", null);
+
+        // строка сохранения текущего вида под именем
+        var saveRow = el("div", "display:flex; gap:6px; align-items:center; padding:2px 2px;");
+        var ip = el("input", fieldStyle(" padding:4px 6px;"));
+        ip.type = "text"; ip.maxLength = 40; ip.placeholder = "Имя пресета";
+        var saveB = el("div", "flex:0 0 auto; padding:5px 10px; border-radius:7px; cursor:pointer; font-weight:600; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.16); border:1px solid rgba(var(--mlbg-accent-rgb),0.32);", "Сохранить");
+        function doSave() {
+            var name = ip.value.trim().slice(0, 40);
+            if (!name) { toast("Введите имя пресета", false); return; }
+            var cur = loadPresets();
+            if (!(name in cur) && Object.keys(cur).length >= PRESETS_MAX) { toast("Слишком много пресетов (макс. " + PRESETS_MAX + ")", false); return; }
+            var snap = clone(cfg); delete snap.ui; // положение/свёрнутость панели не входят в пресет
+            cur[name] = snap; savePresets(cur);
+            ip.value = "";
+            toast("Пресет «" + name + "» сохранён");
+            refreshPanel();
+        }
+        saveB.addEventListener("click", doSave);
+        keyActivate(saveB, "Сохранить пресет");
+        ip.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); doSave(); } });
+        saveRow.appendChild(ip); saveRow.appendChild(saveB);
+        var sd = infoDot(INFO.presets); if (sd) saveRow.appendChild(sd);
+        box.appendChild(saveRow);
+
+        // список сохранённых пресетов: клик по строке — применить, «×» — удалить
+        var presets = loadPresets(), names = Object.keys(presets);
+        if (!names.length) {
+            box.appendChild(el("div", "padding:6px 3px 2px; color:var(--mlp-faint,#6c7086); font-size:11px;", "Пресетов пока нет — сохрани текущий вид под именем."));
+        } else {
+            var list = el("div", "display:flex; flex-direction:column; gap:4px; margin-top:6px;");
+            names.forEach(function (name) {
+                var row = el("div", "display:flex; align-items:center; gap:6px; padding:5px 7px; border-radius:7px; cursor:pointer; background:rgba(var(--mlbg-accent-rgb),0.08); border:1px solid var(--mlp-border-faint,rgba(205,214,244,0.12));");
+                row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.16)"; });
+                row.addEventListener("mouseleave", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.08)"; });
+                row.appendChild(el("div", "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--mlp-fg,#cdd6f4);", name));
+                var del = el("div", "flex:0 0 auto; width:18px; height:18px; line-height:16px; text-align:center; border-radius:5px; color:var(--mlp-muted,#a6adc8);", "×");
+                del.title = "Удалить пресет";
+                row.appendChild(del);
+                row.addEventListener("click", function (e) {
+                    if (del.contains(e.target)) return; // клик по «×» обрабатывается отдельно
+                    var cur = loadPresets(); if (!(name in cur)) return;
+                    var keepUi = cfg.ui;                // пресет меняет дизайн, не трогая положение панели
+                    cfg = mergeCfg(cur[name]); cfg.ui = keepUi;
+                    sessionRandomIndex = null;          // random переберётся под новый конфиг
+                    apply(); refreshPanel();
+                    toast("Пресет «" + name + "» применён");
+                });
+                keyActivate(row, "Применить пресет " + name);
+                del.addEventListener("click", function (e) {
+                    e.stopPropagation();
+                    var cur = loadPresets(); delete cur[name]; savePresets(cur);
+                    toast("Пресет «" + name + "» удалён");
+                    refreshPanel();
+                });
+                keyActivate(del, "Удалить пресет " + name);
+                list.appendChild(row);
+            });
+            box.appendChild(list);
+        }
+        return box;
+    }
+
     // Кнопка экспорта/импорта (одинаковый вид, разный обработчик навешивается снаружи).
     function makeIoBtn(text) {
         var b = el("div", "flex:1 1 0; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", text);
@@ -1319,10 +1654,36 @@
         p.tabIndex = -1; // чтобы можно было сфокусировать сам диалог при открытии
         p.style.cssText =
             "position:fixed; z-index:100000; width:380px; max-height:82vh; overflow-y:auto; overflow-x:hidden;" +
-            "background:rgba(24,24,37,0.98); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);" +
+            "background:var(--mlp-bg,rgba(24,24,37,0.98)); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);" +
             "border:1px solid rgba(var(--mlbg-accent-rgb),0.35); border-radius:12px; padding:10px 13px 13px;" +
-            "box-shadow:0 14px 40px rgba(0,0,0,0.6); font-size:12px; line-height:1.35; color:#cdd6f4;" +
+            "box-shadow:0 14px 40px rgba(0,0,0,0.6); font-size:12px; line-height:1.35; color:var(--mlp-fg,#cdd6f4);" +
             "font-family:var(--vscode-font-family, sans-serif);";
+        // Палитра панели как CSS-переменные на её корне — контролы (метки, поля, границы)
+        // читают их через var(--mlp-*, <тёмный fallback>). На тёмной теме значения равны
+        // прежним литералам (внешний вид не меняется), на светлой — подменяются на светлые,
+        // иначе панель оставалась тёмной поверх светлого VS Code. Каскадирует на всех потомков.
+        (function () {
+            var V = isLightTheme() ? {
+                fg: "#1e1e2e", muted: "#5c5f77", faint: "#8c8fa1", field: "rgba(255,255,255,0.75)",
+                border: "rgba(30,30,46,0.22)", borderSoft: "rgba(30,30,46,0.16)", borderFaint: "rgba(30,30,46,0.12)",
+                head: "#4c4f69", bg: "rgba(245,245,250,0.98)"
+            } : {
+                fg: "#cdd6f4", muted: "#a6adc8", faint: "#6c7086", field: "rgba(30,30,46,0.6)",
+                border: "rgba(205,214,244,0.2)", borderSoft: "rgba(205,214,244,0.16)", borderFaint: "rgba(205,214,244,0.12)",
+                head: "#bac2de", bg: "rgba(24,24,37,0.98)"
+            };
+            try {
+                p.style.setProperty("--mlp-bg", V.bg);
+                p.style.setProperty("--mlp-fg", V.fg);
+                p.style.setProperty("--mlp-muted", V.muted);
+                p.style.setProperty("--mlp-faint", V.faint);
+                p.style.setProperty("--mlp-field", V.field);
+                p.style.setProperty("--mlp-border", V.border);
+                p.style.setProperty("--mlp-border-soft", V.borderSoft);
+                p.style.setProperty("--mlp-border-faint", V.borderFaint);
+                p.style.setProperty("--mlp-head", V.head);
+            } catch (e) {}
+        })();
         p.addEventListener("click", function (e) { e.stopPropagation(); });
 
         // Заголовок = ручка перетаскивания
@@ -1331,7 +1692,7 @@
         var hr = el("div", "display:flex; align-items:center; gap:5px;");
         var infoAll = infoDot("Перетаскивай окно за заголовок. Секции сворачиваются кликом по названию. У настроек «?» — клик показывает пояснение. Положение и свёрнутость запоминаются.");
         if (infoAll) hr.appendChild(infoAll);
-        var close = el("div", "flex:0 0 auto; width:20px; height:20px; line-height:18px; text-align:center; border-radius:6px; cursor:pointer; color:#a6adc8;", "×");
+        var close = el("div", "flex:0 0 auto; width:20px; height:20px; line-height:18px; text-align:center; border-radius:6px; cursor:pointer; color:var(--mlp-muted,#a6adc8);", "×");
         close.addEventListener("mouseenter", function () { close.style.background = "rgba(var(--mlbg-accent-rgb),0.2)"; });
         close.addEventListener("mouseleave", function () { close.style.background = "transparent"; });
         close.addEventListener("click", function (e) { e.stopPropagation(); closePanel(); });
@@ -1378,6 +1739,7 @@
         for (var i = 0; i < SETS.length; i++) chips.appendChild(makeChip(String(i), String(i)));
         chips.appendChild(makeChip("random", "случайно"));
         secSet.appendChild(chips);
+        secSet.appendChild(makeSetNameEdit()); // переименование активного набора
 
         // Слайдшоу
         var secSlide = collapsible(p, "Слайдшоу", "Автоматическая смена набора по кругу через заданный интервал.");
@@ -1389,6 +1751,8 @@
         secTime.appendChild(makeAutoTimeToggle());
         secTime.appendChild(makeSetPicker("day", "Дневной"));
         secTime.appendChild(makeSetPicker("night", "Ночной"));
+        secTime.appendChild(makeObjSlider(cfg.autoTime, "from", "День с, ч", 0, 23, 1, 0, INFO.autotime_from));
+        secTime.appendChild(makeObjSlider(cfg.autoTime, "to", "День до, ч", 0, 23, 1, 0, INFO.autotime_to));
 
         // Яркость набора
         var secOp = collapsible(p, "Яркость набора", "Насколько ярко проступают фоновые картинки в каждой зоне.");
@@ -1423,6 +1787,10 @@
         secTerm.appendChild(makeTermSlider("cursorHeight", "Кур. выс.", 0, 2.5, 0.1, 1));
         secTerm.appendChild(makeTermColor("cursorColor", "Курсор"));
         secTerm.appendChild(makeTermColor("selColor", "Выделение"));
+
+        // Пресеты (сохранённые образы)
+        var secPreset = collapsible(p, "Пресеты", "Сохранённые образы: весь вид под именем, переключение одним кликом.");
+        secPreset.appendChild(makePresetsUI());
 
         // экспорт / импорт
         var io = el("div", "display:flex; gap:8px; margin-top:12px;");
@@ -1632,22 +2000,29 @@
     // плодить Image() каждый раз. В режиме «случайно» следующий индекс неизвестен заранее,
     // поэтому предгружаем все наборы по одному разу (их немного).
     var _preloaded = {};
-    function preloadOne(rel) {
-        var u = IMG + rel; if (_preloaded[u]) return; _preloaded[u] = true;
-        try { var im = new Image(); im.src = u; } catch (e) {}
+    function preloadOne(url) {
+        if (!url || _preloaded[url]) return; _preloaded[url] = true;
+        try { var im = new Image(); im.src = url; } catch (e) {}
     }
     function preloadNext() {
         if (!cfg.slideshow || !cfg.slideshow.on || SETS.length < 2) return;
-        var targets = cfg.mode === "random"
-            ? SETS
-            : [SETS[(activeIndex() + 1) % SETS.length]];
-        targets.forEach(function (s) { preloadOne(s.editor); preloadOne(s.sidebar); preloadOne(s.panel); });
+        // индексы наборов для предзагрузки (учитывают cfg.setImg через zoneUrl)
+        var idxs = cfg.mode === "random"
+            ? SETS.map(function (_s, i) { return i; })
+            : [(activeIndex() + 1) % SETS.length];
+        idxs.forEach(function (i) { preloadOne(zoneUrl(i, "editor")); preloadOne(zoneUrl(i, "sidebar")); preloadOne(zoneUrl(i, "panel")); });
     }
     // ===== Авто-набор по времени суток =====
     // Днём (8:00–20:00) — cfg.autoTime.day, ночью — cfg.autoTime.night. Переиспользует
     // applyFade (как слайдшоу). Не трогает режим «случайно». Проверяется каждую секунду,
     // но переключает только при реальной смене нужного набора (idempotent).
-    function isDaytime() { var h = new Date().getHours(); return h >= 8 && h < 20; }
+    function isDaytime() {
+        var h = new Date().getHours(), at = cfg.autoTime || {};
+        var f = (typeof at.from === "number") ? at.from : 8;
+        var t = (typeof at.to === "number") ? at.to : 20;
+        if (f === t) return true;                       // границы совпали — считаем всегда день
+        return t > f ? (h >= f && h < t) : (h >= f || h < t); // t < f — интервал «через полночь»
+    }
     function timeTick() {
         if (!cfg.autoTime || !cfg.autoTime.on || SETS.length < 1) return;
         if (cfg.mode === "random") return; // ручной «случайно» не перебиваем
@@ -1756,6 +2131,37 @@
         } catch (err) {}
     }
     document.addEventListener("keydown", onHotkey, true);
+
+    // ===== Приглушение фона при печати (fx.dimOnType) =====
+    // Monaco держит фокус ввода в скрытом <textarea class="inputarea"> и шлёт по нему
+    // нативные input-события на КАЖДЫЙ ввод текста (навигация стрелками их не вызывает —
+    // поэтому не тускнеем от простого перемещения). На ввод вешаем body.mlbg-typing (CSS в
+    // buildCSS опускает прозрачность оверлея редактора) и снимаем класс через паузу простоя.
+    var _typingTimer = 0;
+    function onEditorType(e) {
+        try {
+            if (!cfg.enabled || !cfg.fx.dimOnType) return;
+            var t = e.target;
+            if (!t || !t.classList || !t.classList.contains("inputarea")) return;
+            if (document.body && document.body.classList) document.body.classList.add("mlbg-typing");
+            if (_typingTimer) clearTimeout(_typingTimer);
+            _typingTimer = setTimeout(function () {
+                _typingTimer = 0;
+                try { document.body.classList.remove("mlbg-typing"); } catch (er) {}
+            }, 1400);
+        } catch (err) {}
+    }
+    document.addEventListener("input", onEditorType, true);
+
+    // ===== Приглушение фона при потере фокуса окном (fx.dimOnBlur) =====
+    // Вешаем/снимаем body.mlbg-unfocused на blur/focus окна; CSS-правило (buildCSS) действует,
+    // только когда эффект включён, поэтому класс можно навешивать всегда (нулевой эффект при выкл).
+    function setUnfocused(on) {
+        try { if (document.body && document.body.classList) document.body.classList[on ? "add" : "remove"]("mlbg-unfocused"); } catch (e) {}
+    }
+    window.addEventListener("blur", function () { setUnfocused(true); });
+    window.addEventListener("focus", function () { setUnfocused(false); });
+
     // Возврат окна из скрытого/свёрнутого состояния — сразу лечим всё (стиль, статусбар,
     // виджеты, частицы) и обновляем время/слайдшоу, не дожидаясь следующего тика.
     document.addEventListener("visibilitychange", function () {
@@ -1779,6 +2185,6 @@
     } catch (e) {}
     heal();
 
-    console.log("[MoonLight custom-bg] v14 installed (master on/off + hotkeys), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
+    console.log("[MoonLight custom-bg] v14 installed (presets + dim-on-type + set rename + light panel), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
 
 })();

@@ -223,6 +223,75 @@ sandbox.cfg.mode = "0";
 sandbox.cycleSet(-1);
 ok(sandbox.cfg.mode === String(sandbox.SETS.length - 1), "cycleSet(-1) от набора 0 -> последний набор (по кругу)");
 
+// ---- 8. dimOnType: включённый эффект добавляет правило body.mlbg-typing ----
+sandbox.cfg.autoTime = { on: false, day: 0, night: 4 };
+sandbox.cfg.mode = "0"; sandbox.cfg.enabled = true;
+sandbox.cfg.fx.dimOnType = true;
+contains(build(), "body.mlbg-typing", "dimOnType: CSS содержит правило приглушения при печати");
+sandbox.cfg.fx.dimOnType = false;
+ok(build().indexOf("body.mlbg-typing") < 0, "dimOnType выкл: правила приглушения нет");
+
+// ---- 8a. dimOnBlur: включённый эффект добавляет правило body.mlbg-unfocused ----
+sandbox.cfg.fx.dimOnBlur = true;
+contains(build(), "body.mlbg-unfocused", "dimOnBlur: CSS содержит правило приглушения без фокуса");
+sandbox.cfg.fx.dimOnBlur = false;
+ok(build().indexOf("body.mlbg-unfocused") < 0, "dimOnBlur выкл: правила приглушения нет");
+
+// ---- 8a2. Скроллбар панели стилизован и есть даже при выключенном фоне ----
+contains(build(), "#moonlight-bg-panel::-webkit-scrollbar", "скроллбар панели стилизован (::-webkit-scrollbar)");
+sandbox.cfg.enabled = false;
+contains(build(), "#moonlight-bg-panel::-webkit-scrollbar", "скроллбар панели есть и при выключенном фоне (switcherCSS)");
+sandbox.cfg.enabled = true;
+
+// ---- 8b. Живой контур: радужный по умолчанию, моно-акцент по флагу ----
+sandbox.cfg.fx.groupBorder = true;
+sandbox.cfg.fx.groupBorderMono = false;
+contains(build(), "#a6e3a1", "groupBorder: по умолчанию радужный градиент (есть зелёный стоп)");
+sandbox.cfg.fx.groupBorderMono = true;
+ok(build().indexOf("#a6e3a1") < 0, "groupBorderMono: радужных стопов нет (контур одним акцентом)");
+sandbox.cfg.fx.groupBorderMono = false;
+
+// ---- 8c. Свои картинки набора (setImg) + разрешение путей ----
+ok(sandbox.isAbsUrl("file:///d:/x.jpg") === true && sandbox.isAbsUrl("vscode-file://vscode-app/x") === true &&
+    sandbox.isAbsUrl("assets/editor/editor_0.jpg") === false,
+    "isAbsUrl: схема/слэш -> абсолютный, обычный путь -> относительный");
+ok(sandbox.imgUrl("assets/x.jpg") === sandbox.IMG + "assets/x.jpg" && sandbox.imgUrl("file:///d:/x.jpg") === "file:///d:/x.jpg",
+    "imgUrl: относительный дописывает IMG, абсолютный оставляет как есть");
+sandbox.cfg.mode = "0";
+sandbox.cfg.setImg = { "0": { editor: "file:///d:/custom/my-editor.jpg" } };
+var cssImg = build();
+contains(cssImg, "my-editor.jpg", "setImg: своя картинка редактора попала в CSS");
+ok(cssImg.indexOf("editor_0.jpg") < 0, "setImg: стандартная картинка editor_0 заменена своей");
+sandbox.cfg.setImg = {};
+
+// ---- 8d. Акцент из картинки: dominantAccent красного буфера даёт красноватый hex ----
+var red = new Array(16 * 16 * 4);
+for (var ri = 0; ri < red.length; ri += 4) { red[ri] = 220; red[ri + 1] = 20; red[ri + 2] = 40; red[ri + 3] = 255; }
+var redHex = sandbox.dominantAccent(red);
+var rr = parseInt(redHex.substr(1, 2), 16), rg = parseInt(redHex.substr(3, 2), 16), rb = parseInt(redHex.substr(5, 2), 16);
+ok(/^#[0-9a-f]{6}$/.test(redHex) && rr > rg && rr > rb, "dominantAccent: красная картинка -> красноватый акцент (" + redHex + ")");
+
+// ---- 8e. Часы дня/ночи: from===to -> всегда день; mergeCfg клампит 0..23 ----
+sandbox.cfg.autoTime = { on: false, day: 0, night: 4, from: 12, to: 12 };
+ok(sandbox.isDaytime() === true, "isDaytime: совпавшие границы (from===to) -> всегда день");
+var atc = sandbox.mergeCfg({ autoTime: { from: 99, to: -5 } }).autoTime;
+ok(atc.from === 23 && atc.to === 0, "mergeCfg: часы дня/ночи зажаты в 0..23");
+
+// ---- 9. Имя набора: пользовательское переопределяет родное ----
+sandbox.cfg.setName = { "0": "Мой набор" };
+ok(sandbox.setName(0) === "Мой набор", "setName: пользовательское имя набора переопределяет родное");
+delete sandbox.cfg.setName["0"];
+ok(sandbox.setName(0) === "Алые кроны", "setName: без переопределения возвращается родное имя набора");
+
+// ---- 10. Безопасность: mergeCfg санитизирует setName (индексы, длина, тип) ----
+var longName = new Array(60).join("x"); // 59 символов > лимита 40
+var sn = sandbox.mergeCfg({
+    setName: { "0": "Ок", "999999": "мимо", "abc": "мимо", "1": longName, "2": 123 }
+});
+ok(sn.setName["0"] === "Ок" && !("999999" in sn.setName) && !("abc" in sn.setName) &&
+    !("1" in sn.setName) && !("2" in sn.setName),
+    "mergeCfg: setName оставляет только валидное имя (индекс в диапазоне, строка <= 40)");
+
 // ============================================================
 console.log("\nИтог: " + passed + " ok, " + failed + " fail.");
 process.exit(failed ? 1 : 0);

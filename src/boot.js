@@ -71,6 +71,37 @@ function onHotkey(e) {
     } catch (err) {}
 }
 document.addEventListener("keydown", onHotkey, true);
+
+// ===== Приглушение фона при печати (fx.dimOnType) =====
+// Monaco держит фокус ввода в скрытом <textarea class="inputarea"> и шлёт по нему
+// нативные input-события на КАЖДЫЙ ввод текста (навигация стрелками их не вызывает —
+// поэтому не тускнеем от простого перемещения). На ввод вешаем body.mlbg-typing (CSS в
+// buildCSS опускает прозрачность оверлея редактора) и снимаем класс через паузу простоя.
+var _typingTimer = 0;
+function onEditorType(e) {
+    try {
+        if (!cfg.enabled || !cfg.fx.dimOnType) return;
+        var t = e.target;
+        if (!t || !t.classList || !t.classList.contains("inputarea")) return;
+        if (document.body && document.body.classList) document.body.classList.add("mlbg-typing");
+        if (_typingTimer) clearTimeout(_typingTimer);
+        _typingTimer = setTimeout(function () {
+            _typingTimer = 0;
+            try { document.body.classList.remove("mlbg-typing"); } catch (er) {}
+        }, 1400);
+    } catch (err) {}
+}
+document.addEventListener("input", onEditorType, true);
+
+// ===== Приглушение фона при потере фокуса окном (fx.dimOnBlur) =====
+// Вешаем/снимаем body.mlbg-unfocused на blur/focus окна; CSS-правило (buildCSS) действует,
+// только когда эффект включён, поэтому класс можно навешивать всегда (нулевой эффект при выкл).
+function setUnfocused(on) {
+    try { if (document.body && document.body.classList) document.body.classList[on ? "add" : "remove"]("mlbg-unfocused"); } catch (e) {}
+}
+window.addEventListener("blur", function () { setUnfocused(true); });
+window.addEventListener("focus", function () { setUnfocused(false); });
+
 // Возврат окна из скрытого/свёрнутого состояния — сразу лечим всё (стиль, статусбар,
 // виджеты, частицы) и обновляем время/слайдшоу, не дожидаясь следующего тика.
 document.addEventListener("visibilitychange", function () {
@@ -94,4 +125,4 @@ try {
 } catch (e) {}
 heal();
 
-console.log("[MoonLight custom-bg] v14 installed (master on/off + hotkeys), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
+console.log("[MoonLight custom-bg] v14 installed (presets + dim-on-type + set rename + light panel), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());

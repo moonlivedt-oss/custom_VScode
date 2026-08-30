@@ -3,18 +3,70 @@
 // привязанный к соответствующему полю cfg. Изменения применяются через apply / applyThrottled
 // (мгновенно/троттлингом) или applyFade (со сменой набора). Тексты подсказок берутся из INFO.
 
-// health-check: помечаем чип, если картинка набора не грузится
+// ===== Базовые фабрики контролов =====
+// Тумблеры и слайдеры панели различались только источником cfg и колбэком, а разметка/
+// стиль/hover/«?» повторялись в каждом. Свели к двум фабрикам: makeToggle и makeSlider.
+
+// Строка-тумблер: hover-подсветка + чекбокс + подпись + «?».
+// get() -> текущее булево; onChange(checked) -> применить изменение.
+function makeToggle(get, onChange, label, info) {
+    var row = el("label", ST.toggleRow);
+    row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.12)"; });
+    row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
+    var cb = el("input", ST.checkbox); cb.type = "checkbox"; cb.checked = !!get();
+    cb.addEventListener("change", function () { onChange(cb.checked); });
+    row.appendChild(cb);
+    row.appendChild(el("span", ST.fill, label));
+    var d = infoDot(info); if (d) row.appendChild(d);
+    return row;
+}
+
+// Слайдер: метка + ползунок + значение + «?». opts:
+//   label, min, max, step, dec (знаков после запятой), get()->число, onInput(v)->записать,
+//   info, labelW (ширина метки, 92), valW (ширина значения, 34), ellipsis (обрезать метку, true).
+// Все слайдеры пишут значение и зовут applyThrottled (коалесинг в один apply за кадр).
+// На возвращённом узле есть _refresh() — пересинхронизировать ползунок/значение с cfg
+// (нужно, когда один набор слайдеров переключается между зонами, см. makeImgFilters).
+function makeSlider(opts) {
+    var labelW = opts.labelW || 92, valW = opts.valW || 34, ell = opts.ellipsis !== false;
+    var wrap = el("div", ST.row);
+    wrap.appendChild(el("span", mutedLabel(labelW, ell), opts.label));
+    var sl = el("input", ST.range);
+    sl.type = "range"; sl.min = String(opts.min); sl.max = String(opts.max); sl.step = String(opts.step); sl.value = String(opts.get());
+    var val = el("span", "flex:0 0 " + valW + "px; text-align:right; color:var(--mlp-muted,#a6adc8);", Number(opts.get()).toFixed(opts.dec));
+    sl.addEventListener("input", function () { var v = parseFloat(sl.value); opts.onInput(v); val.textContent = v.toFixed(opts.dec); applyThrottled(); });
+    wrap.appendChild(sl); wrap.appendChild(val);
+    var d = infoDot(opts.info); if (d) wrap.appendChild(d);
+    wrap._refresh = function () { sl.value = String(opts.get()); val.textContent = Number(opts.get()).toFixed(opts.dec); };
+    return wrap;
+}
+
+// ===== Предпросмотр набора при наведении =====
+// Наведение на чип временно применяет его набор к фону (и акценту), НЕ сохраняя cfg,
+// чтобы «примерить» набор без клика. Уход мышью возвращает прежний. Меняем только CSS
+// (bumpStyle + ensureStyle), без saveCfg/updateLabel — localStorage и подписи не трогаем.
+var _previewPrev = null;
+function previewSet(mode) {
+    if (!cfg.enabled) return;                 // фон выключен — превью не видно, не дёргаем CSS
+    if (_previewPrev === null) _previewPrev = cfg.mode;
+    cfg.mode = mode; bumpStyle(); ensureStyle();
+}
+function previewEnd() {
+    if (_previewPrev === null) return;
+    cfg.mode = _previewPrev; _previewPrev = null; bumpStyle(); ensureStyle();
+}
+
+// health-check: помечаем чип, если картинка набора не грузится. Не грузим картинки сами —
+// подписываемся на общую пробу (onImage), которую использует и генерация CSS: один Image на URL.
 function probeSet(idx, chip) {
-    var s = SETS[idx];
-    [s.editor, s.sidebar, s.panel].forEach(function (fn) {
-        var im = new Image();
-        im.onerror = function () {
+    ["editor", "sidebar", "panel"].forEach(function (zone) {
+        onImage(zoneUrl(idx, zone), function (st) {
+            if (st.ok) return;
             chip.style.border = "1px solid #f38ba8";
             chip.style.boxShadow = "inset 0 0 0 1px rgba(243,139,168,0.55)";
-            chip.title = "Не грузится: " + fn;
+            chip.title = "Не грузится: " + setImage(idx, zone);
             var b = chip.querySelector(".mlbg-bad"); if (!b) { b = el("span", "position:absolute; top:1px; left:3px; color:#f38ba8; font-weight:700;", "!"); b.className = "mlbg-bad"; chip.appendChild(b); }
-        };
-        im.src = IMG + fn;
+        });
     });
 }
 
@@ -24,26 +76,26 @@ function makeChip(mode, label) {
     var css = isSet
         ? "position:relative; width:48px; height:32px; border-radius:7px; overflow:hidden; cursor:pointer;" +
           "background-position:center; background-size:cover;" +
-          "border:2px solid " + (active ? "var(--mlbg-accent)" : "rgba(205,214,244,0.16)") + ";" +
+          "border:2px solid " + (active ? "var(--mlbg-accent)" : "var(--mlp-border-soft,rgba(205,214,244,0.16))") + ";" +
           (active ? "box-shadow:0 0 0 2px rgba(var(--mlbg-accent-rgb),0.35);" : "")
         : "min-width:24px; padding:4px 10px; border-radius:7px; cursor:pointer; user-select:none; text-align:center;" +
           "font-weight:" + (active ? "600" : "400") + ";" +
-          "border:1px solid " + (active ? "var(--mlbg-accent)" : "rgba(205,214,244,0.16)") + ";" +
-          "background:" + (active ? "rgba(var(--mlbg-accent-rgb),0.28)" : "transparent") + "; color:" + (active ? "#f2e6ff" : "#cdd6f4") + ";";
+          "border:1px solid " + (active ? "var(--mlbg-accent)" : "var(--mlp-border-soft,rgba(205,214,244,0.16))") + ";" +
+          "background:" + (active ? "rgba(var(--mlbg-accent-rgb),0.28)" : "transparent") + "; color:" + (active ? "#f2e6ff" : "var(--mlp-fg,#cdd6f4)") + ";";
     var c = el("div", css, isSet ? null : label);
     if (isSet) {
         var idx = parseInt(mode, 10);
         var s = SETS[idx];
         // Мини-триптих: три вертикальные полоски с превью зон (редактор / сайдбар / панель),
         // чтобы собирать наборы на глаз. Полоски — фон chip как запасной вариант (editor).
-        c.style.backgroundImage = cssUrl(IMG + s.editor);
-        var zones = [s.editor, s.sidebar, s.panel];
+        c.style.backgroundImage = cssUrl(zoneUrl(idx, "editor"));
+        var zones = [zoneUrl(idx, "editor"), zoneUrl(idx, "sidebar"), zoneUrl(idx, "panel")];
         for (var zi = 0; zi < 3; zi++) {
             var strip = el("div",
                 "position:absolute; top:0; bottom:0; width:33.34%; left:" + (zi * 33.33) + "%;" +
                 "background-position:center; background-size:cover;" +
                 (zi ? "box-shadow:inset 1px 0 0 rgba(0,0,0,0.35);" : ""));
-            strip.style.backgroundImage = cssUrl(IMG + zones[zi]);
+            strip.style.backgroundImage = cssUrl(zones[zi]);
             c.appendChild(strip);
         }
         var num = el("span", "position:absolute; right:3px; bottom:1px; z-index:2; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.95);", label);
@@ -51,63 +103,71 @@ function makeChip(mode, label) {
         var nm = setName(idx); if (nm) c.title = idx + " · " + nm + " (редактор · сайдбар · панель)";
         probeSet(idx, c);
         if (!active) {
-            c.addEventListener("mouseenter", function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; });
-            c.addEventListener("mouseleave", function () { c.style.borderColor = "rgba(205,214,244,0.16)"; });
+            c.addEventListener("mouseenter", function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; previewSet(mode); });
+            c.addEventListener("mouseleave", function () { c.style.borderColor = "var(--mlp-border-soft,rgba(205,214,244,0.16))"; previewEnd(); });
         }
     } else if (!active) {
         c.addEventListener("mouseenter", function () { c.style.background = "rgba(var(--mlbg-accent-rgb),0.14)"; });
         c.addEventListener("mouseleave", function () { c.style.background = "transparent"; });
     }
     c.addEventListener("click", function () {
+        _previewPrev = null; // фиксируем выбор: mouseleave после клика не откатит фон обратно
         if (mode === "random") sessionRandomIndex = pickRandom();
         cfg.mode = mode; applyFade(); refreshPanel();
     });
     keyActivate(c, isSet ? ("Набор " + label + (setName(parseInt(mode, 10)) ? " — " + setName(parseInt(mode, 10)) : "")) : "Случайный набор");
+    c.setAttribute("aria-pressed", active ? "true" : "false"); // какой набор выбран — для скринридера
     return c;
 }
 
-function makeOpSlider(key, label) {
-    var op = getOp();
-    var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-    wrap.appendChild(el("span", "flex:0 0 56px; color:#a6adc8;", label));
-    var sl = el("input", "flex:1 1 auto; min-width:0; accent-color:var(--mlbg-accent); cursor:pointer;");
-    sl.type = "range"; sl.min = "0"; sl.max = "0.6"; sl.step = "0.01"; sl.value = String(op[key]);
-    var val = el("span", "flex:0 0 30px; text-align:right; color:#a6adc8;", op[key].toFixed(2));
-    sl.addEventListener("input", function () { var v = parseFloat(sl.value); setOpValue(key, v); val.textContent = v.toFixed(2); applyThrottled(); });
-    wrap.appendChild(sl); wrap.appendChild(val);
-    var d = infoDot(INFO["op_" + key]); if (d) wrap.appendChild(d);
+// Переименование АКТИВНОГО набора (cfg.setName[idx]). Имя уходит в textContent/title
+// (кнопка BG, чипы, списки), поэтому CSS-инъекция не грозит — только ограничение длины.
+function makeSetNameEdit() {
+    var wrap = el("div", ST.row + " margin-top:6px;");
+    wrap.appendChild(el("span", mutedLabel(56), "Имя"));
+    var ip = el("input", fieldStyle(" padding:3px 6px;"));
+    ip.type = "text"; ip.maxLength = 40;
+    var idx = activeIndex();
+    ip.value = setName(idx);
+    ip.placeholder = "Набор " + idx;
+    function commit() {
+        var v = ip.value.trim().slice(0, 40);
+        var i = activeIndex();
+        if (!cfg.setName) cfg.setName = {};
+        if (v) cfg.setName[i] = v; else delete cfg.setName[i]; // пусто -> вернуть родное имя
+        apply();
+        // Обновляем только зависимые подписи, панель не пересобираем — иначе поле
+        // потеряет фокус на каждом Enter. Чипы обновятся при следующем открытии панели.
+    }
+    ip.addEventListener("change", commit);
+    ip.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commit(); ip.blur(); } });
+    wrap.appendChild(ip);
+    var d = infoDot(INFO.set_name); if (d) wrap.appendChild(d);
     return wrap;
+}
+
+function makeOpSlider(key, label) {
+    return makeSlider({
+        label: label, min: 0, max: 0.6, step: 0.01, dec: 2, labelW: 56, valW: 30, ellipsis: false,
+        get: function () { return getOp()[key]; }, onInput: function (v) { setOpValue(key, v); }, info: INFO["op_" + key]
+    });
 }
 function makeParamSlider(def) {
-    var key = def[0], min = def[2], max = def[3], step = def[4], dec = def[5];
-    var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-    wrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", def[1]));
-    var sl = el("input", "flex:1 1 auto; min-width:0; accent-color:var(--mlbg-accent); cursor:pointer;");
-    sl.type = "range"; sl.min = String(min); sl.max = String(max); sl.step = String(step); sl.value = String(cfg.fxp[key]);
-    var val = el("span", "flex:0 0 34px; text-align:right; color:#a6adc8;", cfg.fxp[key].toFixed(dec));
-    sl.addEventListener("input", function () { var v = parseFloat(sl.value); cfg.fxp[key] = v; val.textContent = v.toFixed(dec); applyThrottled(); });
-    wrap.appendChild(sl); wrap.appendChild(val);
-    var d = infoDot(INFO["fxp_" + key]); if (d) wrap.appendChild(d);
-    return wrap;
+    var key = def[0];
+    return makeSlider({
+        label: def[1], min: def[2], max: def[3], step: def[4], dec: def[5],
+        get: function () { return cfg.fxp[key]; }, onInput: function (v) { cfg.fxp[key] = v; }, info: INFO["fxp_" + key]
+    });
 }
 function makeCheck(key, label) {
-    var row = el("label", "display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:5px; cursor:pointer; overflow:hidden;");
-    row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.12)"; });
-    row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
-    var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer;");
-    cb.type = "checkbox"; cb.checked = !!cfg.fx[key];
-    cb.addEventListener("change", function () { cfg.fx[key] = cb.checked; apply(); });
-    row.appendChild(cb);
-    row.appendChild(el("span", "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", label));
-    var d = infoDot(INFO["fx_" + key]); if (d) row.appendChild(d);
-    return row;
+    return makeToggle(function () { return cfg.fx[key]; }, function (v) { cfg.fx[key] = v; apply(); }, label, INFO["fx_" + key]);
 }
 
 // ==== Контролы секции «Терминал» (работают с cfg.term) ====
 function makeTermSelect() {
-    var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-    wrap.appendChild(el("span", "flex:0 0 56px; color:#a6adc8;", "Шрифт"));
-    var sel = el("select", "flex:1 1 auto; min-width:0; background:rgba(30,30,46,0.6); color:#cdd6f4; border:1px solid rgba(205,214,244,0.2); border-radius:6px; padding:3px 4px; cursor:pointer;");
+    var wrap = el("div", ST.row);
+    wrap.appendChild(el("span", mutedLabel(56), "Шрифт"));
+    var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
     TERM_FONTS.forEach(function (f) {
         var o = el("option", null, f); o.value = f; if (f === cfg.term.font) o.selected = true; sel.appendChild(o);
     });
@@ -117,34 +177,20 @@ function makeTermSelect() {
     return wrap;
 }
 function makeTermCheck(key, label) {
-    var row = el("label", "display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:5px; cursor:pointer; overflow:hidden;");
-    row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.12)"; });
-    row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
-    var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer;");
-    cb.type = "checkbox"; cb.checked = !!cfg.term[key];
-    cb.addEventListener("change", function () { cfg.term[key] = cb.checked; apply(); });
-    row.appendChild(cb);
-    row.appendChild(el("span", "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", label));
-    var d = infoDot(INFO["term_" + key]); if (d) row.appendChild(d);
-    return row;
+    return makeToggle(function () { return cfg.term[key]; }, function (v) { cfg.term[key] = v; apply(); }, label, INFO["term_" + key]);
 }
 function makeTermSlider(key, label, min, max, step, dec) {
-    var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-    wrap.appendChild(el("span", "flex:0 0 56px; color:#a6adc8;", label));
-    var sl = el("input", "flex:1 1 auto; min-width:0; accent-color:var(--mlbg-accent); cursor:pointer;");
-    sl.type = "range"; sl.min = String(min); sl.max = String(max); sl.step = String(step); sl.value = String(cfg.term[key]);
-    var val = el("span", "flex:0 0 34px; text-align:right; color:#a6adc8;", Number(cfg.term[key]).toFixed(dec));
-    sl.addEventListener("input", function () { var v = parseFloat(sl.value); cfg.term[key] = v; val.textContent = v.toFixed(dec); applyThrottled(); });
-    wrap.appendChild(sl); wrap.appendChild(val);
-    var d = infoDot(INFO["term_" + key]); if (d) wrap.appendChild(d);
-    return wrap;
+    return makeSlider({
+        label: label, min: min, max: max, step: step, dec: dec, labelW: 56, ellipsis: false,
+        get: function () { return cfg.term[key]; }, onInput: function (v) { cfg.term[key] = v; }, info: INFO["term_" + key]
+    });
 }
 function makeTermColor(key, label) {
-    var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-    wrap.appendChild(el("span", "flex:0 0 56px; color:#a6adc8;", label));
-    var ip = el("input", "flex:0 0 auto; width:34px; height:22px; padding:0; border:1px solid rgba(205,214,244,0.2); border-radius:6px; background:transparent; cursor:pointer;");
+    var wrap = el("div", ST.row);
+    wrap.appendChild(el("span", mutedLabel(56), label));
+    var ip = el("input", "flex:0 0 auto; width:34px; height:22px; padding:0; border:1px solid var(--mlp-border,rgba(205,214,244,0.2)); border-radius:6px; background:transparent; cursor:pointer;");
     ip.type = "color"; ip.value = cfg.term[key];
-    var hex = el("span", "flex:1 1 auto; color:#6c7086; font-size:11px;", cfg.term[key]);
+    var hex = el("span", "flex:1 1 auto; color:var(--mlp-faint,#6c7086); font-size:11px;", cfg.term[key]);
     ip.addEventListener("input", function () { cfg.term[key] = ip.value; hex.textContent = ip.value; applyThrottled(); });
     wrap.appendChild(ip); wrap.appendChild(hex);
     var d = infoDot(INFO["term_" + key]); if (d) wrap.appendChild(d);
@@ -154,41 +200,40 @@ function makeTermColor(key, label) {
 // ==== Контролы для картинки / слайдшоу (работают с произвольным разделом cfg) ====
 // Универсальный слайдер над obj[key] — используется для cfg.imgfx и cfg.slideshow.
 function makeObjSlider(obj, key, label, min, max, step, dec, info) {
-    var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-    wrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", label));
-    var sl = el("input", "flex:1 1 auto; min-width:0; accent-color:var(--mlbg-accent); cursor:pointer;");
-    sl.type = "range"; sl.min = String(min); sl.max = String(max); sl.step = String(step); sl.value = String(obj[key]);
-    var val = el("span", "flex:0 0 34px; text-align:right; color:#a6adc8;", Number(obj[key]).toFixed(dec));
-    sl.addEventListener("input", function () { var v = parseFloat(sl.value); obj[key] = v; val.textContent = v.toFixed(dec); applyThrottled(); });
-    wrap.appendChild(sl); wrap.appendChild(val);
-    var d = infoDot(info); if (d) wrap.appendChild(d);
-    return wrap;
+    return makeSlider({
+        label: label, min: min, max: max, step: step, dec: dec,
+        get: function () { return obj[key]; }, onInput: function (v) { obj[key] = v; }, info: info
+    });
 }
 function makeAccentColor() {
-    var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-    wrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8;", "Акцент"));
+    var wrap = el("div", ST.row);
+    wrap.appendChild(el("span", mutedLabel(92), "Акцент"));
     var cur = getAccent();
-    var ip = el("input", "flex:0 0 auto; width:34px; height:22px; padding:0; border:1px solid rgba(205,214,244,0.2); border-radius:6px; background:transparent; cursor:pointer;");
+    var ip = el("input", "flex:0 0 auto; width:34px; height:22px; padding:0; border:1px solid var(--mlp-border,rgba(205,214,244,0.2)); border-radius:6px; background:transparent; cursor:pointer;");
     ip.type = "color"; ip.value = cur;
-    var hex = el("span", "flex:1 1 auto; color:#6c7086; font-size:11px;", cur);
+    var hex = el("span", "flex:1 1 auto; color:var(--mlp-faint,#6c7086); font-size:11px;", cur);
     // акцент правится для АКТИВНОГО набора (setAccentValue), у каждого набора свой
     ip.addEventListener("input", function () { setAccentValue(ip.value); hex.textContent = ip.value; applyThrottled(); });
     wrap.appendChild(ip); wrap.appendChild(hex);
+    // «из картинки»: берём доминирующий цвет фоновой картинки редактора набора как акцент
+    var pick = el("div", "flex:0 0 auto; padding:3px 8px; border-radius:6px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", "из картинки");
+    pick.title = "Взять акцент из фоновой картинки набора";
+    pick.addEventListener("click", function () {
+        onImage(zoneUrl(activeIndex(), "editor"), function (st) {
+            if (st.ok && st.accent) {
+                setAccentValue(st.accent); ip.value = st.accent; hex.textContent = st.accent;
+                apply(); refreshPanel(); toast("Акцент из картинки: " + st.accent);
+            } else { toast("Не удалось взять цвет из картинки", false); }
+        });
+    });
+    keyActivate(pick, "Акцент из картинки");
+    wrap.appendChild(pick);
     var d = infoDot(INFO.accent); if (d) wrap.appendChild(d);
     return wrap;
 }
 // Чекбокс «Авто-яркость editor» (cfg.autoDim). Отдельно, т.к. не входит в FX_LIST.
 function makeAutoDim() {
-    var row = el("label", "display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:5px; cursor:pointer; overflow:hidden;");
-    row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.12)"; });
-    row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
-    var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer;");
-    cb.type = "checkbox"; cb.checked = !!cfg.autoDim;
-    cb.addEventListener("change", function () { cfg.autoDim = cb.checked; apply(); });
-    row.appendChild(cb);
-    row.appendChild(el("span", "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", "Авто-яркость editor"));
-    var d = infoDot(INFO.autoDim); if (d) row.appendChild(d);
-    return row;
+    return makeToggle(function () { return cfg.autoDim; }, function (v) { cfg.autoDim = v; apply(); }, "Авто-яркость editor", INFO.autoDim);
 }
 // Фильтры картинки с выбором зоны: один селектор + 3 слайдера, которые
 // перенастраиваются на выбранную зону (cfg.imgfx.editor / .side / .panel).
@@ -203,18 +248,18 @@ function makeImgFilters() {
     ];
 
     // селектор зоны
-    var selWrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-    selWrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8;", "Зона"));
-    var sel = el("select", "flex:1 1 auto; min-width:0; background:rgba(30,30,46,0.6); color:#cdd6f4; border:1px solid rgba(205,214,244,0.2); border-radius:6px; padding:3px 4px; cursor:pointer;");
+    var selWrap = el("div", ST.row);
+    selWrap.appendChild(el("span", mutedLabel(92), "Зона"));
+    var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
     ZONES.forEach(function (z) { var o = el("option", null, z[1]); o.value = z[0]; sel.appendChild(o); });
     selWrap.appendChild(sel);
     var zd = infoDot(INFO.img_zone); if (zd) selWrap.appendChild(zd);
     box.appendChild(selWrap);
 
     // вписывание фоновой картинки выбранной зоны: cover (заполнить) | contain (целиком)
-    var fitWrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-    fitWrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8;", "Вписывание"));
-    var fitSel = el("select", "flex:1 1 auto; min-width:0; background:rgba(30,30,46,0.6); color:#cdd6f4; border:1px solid rgba(205,214,244,0.2); border-radius:6px; padding:3px 4px; cursor:pointer;");
+    var fitWrap = el("div", ST.row);
+    fitWrap.appendChild(el("span", mutedLabel(92), "Вписывание"));
+    var fitSel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
     [["cover", "Заполнить (cover)"], ["contain", "Целиком (contain)"]].forEach(function (o) { var op = el("option", null, o[1]); op.value = o[0]; fitSel.appendChild(op); });
     fitSel.addEventListener("change", function () { if (!cfg.fit) cfg.fit = {}; cfg.fit[cur] = fitSel.value; apply(); });
     fitWrap.appendChild(fitSel);
@@ -222,37 +267,50 @@ function makeImgFilters() {
     box.appendChild(fitWrap);
     function refreshFit() { fitSel.value = (cfg.fit && cfg.fit[cur] === "contain") ? "contain" : "cover"; }
 
-    // слайдеры, читающие/пишущие cfg.imgfx[cur]
+    // Свой путь картинки для выбранной зоны активного набора (cfg.setImg[idx][zone]).
+    // Ключи зон здесь — cfg.imgfx ("side"), у SETS/setImg — "sidebar"; маппим через IMGZONE.
+    var IMGZONE = { editor: "editor", side: "sidebar", panel: "panel" };
+    var pathWrap = el("div", ST.row);
+    pathWrap.appendChild(el("span", mutedLabel(92), "Путь картинки"));
+    var pathIp = el("input", fieldStyle(" padding:3px 6px; font-size:11px;"));
+    pathIp.type = "text"; pathIp.maxLength = 1024;
+    function commitPath() {
+        var z = IMGZONE[cur], i = activeIndex(), v = pathIp.value.trim().slice(0, 1024);
+        if (!cfg.setImg) cfg.setImg = {};
+        if (!cfg.setImg[i]) cfg.setImg[i] = {};
+        if (v) cfg.setImg[i][z] = v; else delete cfg.setImg[i][z]; // пусто -> вернуть картинку набора
+        apply();
+    }
+    pathIp.addEventListener("change", commitPath);
+    pathIp.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commitPath(); pathIp.blur(); } });
+    pathWrap.appendChild(pathIp);
+    var pd = infoDot(INFO.img_path); if (pd) pathWrap.appendChild(pd);
+    box.appendChild(pathWrap);
+    function refreshPath() {
+        var z = IMGZONE[cur], i = activeIndex(), o = cfg.setImg && cfg.setImg[i];
+        pathIp.value = (o && o[z]) ? o[z] : "";
+        pathIp.placeholder = setImage(i, z); // дефолтная картинка набора как подсказка
+    }
+
+    // слайдеры, читающие/пишущие cfg.imgfx[cur]; cur меняется селектором зоны, поэтому
+    // get/onInput всегда смотрят на текущую зону, а refresh() дёргает _refresh при смене.
     var rows = DEFS.map(function (d) {
-        var key = d[0], min = d[2], max = d[3], step = d[4], dec = d[5];
-        var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-        wrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", d[1]));
-        var sl = el("input", "flex:1 1 auto; min-width:0; accent-color:var(--mlbg-accent); cursor:pointer;");
-        sl.type = "range"; sl.min = String(min); sl.max = String(max); sl.step = String(step);
-        var val = el("span", "flex:0 0 34px; text-align:right; color:#a6adc8;");
-        sl.addEventListener("input", function () { var v = parseFloat(sl.value); cfg.imgfx[cur][key] = v; val.textContent = v.toFixed(dec); applyThrottled(); });
-        wrap.appendChild(sl); wrap.appendChild(val);
-        var dot = infoDot(d[6]); if (dot) wrap.appendChild(dot);
-        box.appendChild(wrap);
-        return function () { var o = cfg.imgfx[cur]; sl.value = String(o[key]); val.textContent = Number(o[key]).toFixed(dec); };
+        var key = d[0];
+        var w = makeSlider({
+            label: d[1], min: d[2], max: d[3], step: d[4], dec: d[5],
+            get: function () { return cfg.imgfx[cur][key]; }, onInput: function (v) { cfg.imgfx[cur][key] = v; }, info: d[6]
+        });
+        box.appendChild(w);
+        return w._refresh;
     });
 
-    function refresh() { refreshFit(); rows.forEach(function (fn) { fn(); }); }
+    function refresh() { refreshFit(); refreshPath(); rows.forEach(function (fn) { fn(); }); }
     sel.addEventListener("change", function () { cur = sel.value; refresh(); });
     refresh();
     return box;
 }
 function makeSlideToggle() {
-    var row = el("label", "display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:5px; cursor:pointer; overflow:hidden;");
-    row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.12)"; });
-    row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
-    var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer;");
-    cb.type = "checkbox"; cb.checked = !!cfg.slideshow.on;
-    cb.addEventListener("change", function () { cfg.slideshow.on = cb.checked; slideReset(); apply(); });
-    row.appendChild(cb);
-    row.appendChild(el("span", "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", "Включить"));
-    var d = infoDot(INFO.slide_on); if (d) row.appendChild(d);
-    return row;
+    return makeToggle(function () { return cfg.slideshow.on; }, function (v) { cfg.slideshow.on = v; slideReset(); apply(); }, "Включить", INFO.slide_on);
 }
 
 // ==== Мастер-выключатель фона и эффектов (cfg.enabled) ====
@@ -278,33 +336,28 @@ function makeMasterToggle() {
 // Тумблер «включить» + два выпадающих списка: набор для дня и для ночи.
 // Днём (8:00–20:00) активируется дневной набор, ночью — ночной (см. timeTick).
 function makeAutoTimeToggle() {
-    var row = el("label", "display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:5px; cursor:pointer; overflow:hidden;");
-    row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.12)"; });
-    row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
-    var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer;");
-    cb.type = "checkbox"; cb.checked = !!(cfg.autoTime && cfg.autoTime.on);
-    cb.addEventListener("change", function () {
-        if (!cfg.autoTime) cfg.autoTime = { on: false, day: 0, night: 4 };
-        cfg.autoTime.on = cb.checked; apply();
-        if (cb.checked) { try { timeTick(); } catch (e) {} } // сразу применить нужный набор
-    });
-    row.appendChild(cb);
-    row.appendChild(el("span", "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;", "Включить"));
-    var d = infoDot(INFO.autotime_on); if (d) row.appendChild(d);
-    return row;
+    return makeToggle(
+        function () { return !!(cfg.autoTime && cfg.autoTime.on); },
+        function (v) {
+            if (!cfg.autoTime) cfg.autoTime = { on: false, day: 0, night: 4, from: 8, to: 20 };
+            cfg.autoTime.on = v; apply();
+            if (v) { try { timeTick(); } catch (e) {} } // сразу применить нужный набор
+        },
+        "Включить", INFO.autotime_on
+    );
 }
 // Выпадающий список наборов (для выбора дневного/ночного). which — "day" | "night".
 function makeSetPicker(which, label) {
-    var wrap = el("div", "display:flex; align-items:center; gap:8px; padding:2px 2px;");
-    wrap.appendChild(el("span", "flex:0 0 92px; color:#a6adc8;", label));
-    var sel = el("select", "flex:1 1 auto; min-width:0; background:rgba(30,30,46,0.6); color:#cdd6f4; border:1px solid rgba(205,214,244,0.2); border-radius:6px; padding:3px 4px; cursor:pointer;");
+    var wrap = el("div", ST.row);
+    wrap.appendChild(el("span", mutedLabel(92), label));
+    var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
     for (var i = 0; i < SETS.length; i++) {
         var o = el("option", null, i + " · " + setName(i)); o.value = String(i);
         if (cfg.autoTime && cfg.autoTime[which] === i) o.selected = true;
         sel.appendChild(o);
     }
     sel.addEventListener("change", function () {
-        if (!cfg.autoTime) cfg.autoTime = { on: false, day: 0, night: 4 };
+        if (!cfg.autoTime) cfg.autoTime = { on: false, day: 0, night: 4, from: 8, to: 20 };
         cfg.autoTime[which] = parseInt(sel.value, 10); apply();
         if (cfg.autoTime.on) { try { timeTick(); } catch (e) {} }
     });
@@ -320,7 +373,7 @@ function collapsible(parent, title, info) {
     var chev = el("span", "flex:0 0 auto; width:10px; text-align:center; color:var(--mlbg-accent); font-size:9px; transition:transform 0.15s;", "▶");
     chev.style.transform = collapsed ? "rotate(0deg)" : "rotate(90deg)";
     head.appendChild(chev);
-    head.appendChild(el("div", "flex:1 1 auto; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.7px; color:#bac2de;", title));
+    head.appendChild(el("div", "flex:1 1 auto; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.7px; color:var(--mlp-head,#bac2de);", title));
     var idot = infoDot(info); if (idot) head.appendChild(idot);
     var body = el("div", "padding:6px 3px 2px;");
     body.style.display = collapsed ? "none" : "block";

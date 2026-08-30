@@ -39,10 +39,36 @@ function togglePanel(ev) {
     p.tabIndex = -1; // чтобы можно было сфокусировать сам диалог при открытии
     p.style.cssText =
         "position:fixed; z-index:100000; width:380px; max-height:82vh; overflow-y:auto; overflow-x:hidden;" +
-        "background:rgba(24,24,37,0.98); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);" +
+        "background:var(--mlp-bg,rgba(24,24,37,0.98)); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);" +
         "border:1px solid rgba(var(--mlbg-accent-rgb),0.35); border-radius:12px; padding:10px 13px 13px;" +
-        "box-shadow:0 14px 40px rgba(0,0,0,0.6); font-size:12px; line-height:1.35; color:#cdd6f4;" +
+        "box-shadow:0 14px 40px rgba(0,0,0,0.6); font-size:12px; line-height:1.35; color:var(--mlp-fg,#cdd6f4);" +
         "font-family:var(--vscode-font-family, sans-serif);";
+    // Палитра панели как CSS-переменные на её корне — контролы (метки, поля, границы)
+    // читают их через var(--mlp-*, <тёмный fallback>). На тёмной теме значения равны
+    // прежним литералам (внешний вид не меняется), на светлой — подменяются на светлые,
+    // иначе панель оставалась тёмной поверх светлого VS Code. Каскадирует на всех потомков.
+    (function () {
+        var V = isLightTheme() ? {
+            fg: "#1e1e2e", muted: "#5c5f77", faint: "#8c8fa1", field: "rgba(255,255,255,0.75)",
+            border: "rgba(30,30,46,0.22)", borderSoft: "rgba(30,30,46,0.16)", borderFaint: "rgba(30,30,46,0.12)",
+            head: "#4c4f69", bg: "rgba(245,245,250,0.98)"
+        } : {
+            fg: "#cdd6f4", muted: "#a6adc8", faint: "#6c7086", field: "rgba(30,30,46,0.6)",
+            border: "rgba(205,214,244,0.2)", borderSoft: "rgba(205,214,244,0.16)", borderFaint: "rgba(205,214,244,0.12)",
+            head: "#bac2de", bg: "rgba(24,24,37,0.98)"
+        };
+        try {
+            p.style.setProperty("--mlp-bg", V.bg);
+            p.style.setProperty("--mlp-fg", V.fg);
+            p.style.setProperty("--mlp-muted", V.muted);
+            p.style.setProperty("--mlp-faint", V.faint);
+            p.style.setProperty("--mlp-field", V.field);
+            p.style.setProperty("--mlp-border", V.border);
+            p.style.setProperty("--mlp-border-soft", V.borderSoft);
+            p.style.setProperty("--mlp-border-faint", V.borderFaint);
+            p.style.setProperty("--mlp-head", V.head);
+        } catch (e) {}
+    })();
     p.addEventListener("click", function (e) { e.stopPropagation(); });
 
     // Заголовок = ручка перетаскивания
@@ -51,7 +77,7 @@ function togglePanel(ev) {
     var hr = el("div", "display:flex; align-items:center; gap:5px;");
     var infoAll = infoDot("Перетаскивай окно за заголовок. Секции сворачиваются кликом по названию. У настроек «?» — клик показывает пояснение. Положение и свёрнутость запоминаются.");
     if (infoAll) hr.appendChild(infoAll);
-    var close = el("div", "flex:0 0 auto; width:20px; height:20px; line-height:18px; text-align:center; border-radius:6px; cursor:pointer; color:#a6adc8;", "×");
+    var close = el("div", "flex:0 0 auto; width:20px; height:20px; line-height:18px; text-align:center; border-radius:6px; cursor:pointer; color:var(--mlp-muted,#a6adc8);", "×");
     close.addEventListener("mouseenter", function () { close.style.background = "rgba(var(--mlbg-accent-rgb),0.2)"; });
     close.addEventListener("mouseleave", function () { close.style.background = "transparent"; });
     close.addEventListener("click", function (e) { e.stopPropagation(); closePanel(); });
@@ -98,6 +124,7 @@ function togglePanel(ev) {
     for (var i = 0; i < SETS.length; i++) chips.appendChild(makeChip(String(i), String(i)));
     chips.appendChild(makeChip("random", "случайно"));
     secSet.appendChild(chips);
+    secSet.appendChild(makeSetNameEdit()); // переименование активного набора
 
     // Слайдшоу
     var secSlide = collapsible(p, "Слайдшоу", "Автоматическая смена набора по кругу через заданный интервал.");
@@ -109,6 +136,8 @@ function togglePanel(ev) {
     secTime.appendChild(makeAutoTimeToggle());
     secTime.appendChild(makeSetPicker("day", "Дневной"));
     secTime.appendChild(makeSetPicker("night", "Ночной"));
+    secTime.appendChild(makeObjSlider(cfg.autoTime, "from", "День с, ч", 0, 23, 1, 0, INFO.autotime_from));
+    secTime.appendChild(makeObjSlider(cfg.autoTime, "to", "День до, ч", 0, 23, 1, 0, INFO.autotime_to));
 
     // Яркость набора
     var secOp = collapsible(p, "Яркость набора", "Насколько ярко проступают фоновые картинки в каждой зоне.");
@@ -143,6 +172,10 @@ function togglePanel(ev) {
     secTerm.appendChild(makeTermSlider("cursorHeight", "Кур. выс.", 0, 2.5, 0.1, 1));
     secTerm.appendChild(makeTermColor("cursorColor", "Курсор"));
     secTerm.appendChild(makeTermColor("selColor", "Выделение"));
+
+    // Пресеты (сохранённые образы)
+    var secPreset = collapsible(p, "Пресеты", "Сохранённые образы: весь вид под именем, переключение одним кликом.");
+    secPreset.appendChild(makePresetsUI());
 
     // экспорт / импорт
     var io = el("div", "display:flex; gap:8px; margin-top:12px;");

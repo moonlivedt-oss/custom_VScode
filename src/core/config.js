@@ -2,13 +2,17 @@
 // IMG — базовый URL к папке плагина (картинки). Пытаемся вычислить из адреса самого
 // скрипта (document.currentScript) — тогда перенос папки не ломает пути. Если скрипт
 // внедрён инлайном (src пустой), откатываемся к абсолютному пути ниже.
+// ВАЖНО: у be5invis.vscode-custom-css скрипт часто внедряется инлайном, и тогда
+// document.currentScript пуст — так что запасной абсолютный путь ниже НЕ «на крайний
+// случай», а основной рабочий путь. Меняй его под СВОЮ папку плагина при переносе.
+var IMG_FALLBACK = "vscode-file://vscode-app/d%3A/Desktop/components/vscode-bg/";
 var IMG = (function () {
     try {
         var src = (document.currentScript && document.currentScript.src) || "";
         var i = src.lastIndexOf("/");
         if (i >= 0) return src.slice(0, i + 1); // .../vscode-bg/custom-bg.js -> .../vscode-bg/
     } catch (e) {}
-    return "vscode-file://vscode-app/d%3A/Desktop/components/vscode-bg/"; // запасной путь
+    return IMG_FALLBACK; // адрес скрипта неизвестен (инлайн-внедрение) — берём заданный путь
 })();
 
 // Пути к картинкам набора — относительно IMG. Картинки наборов лежат в
@@ -18,16 +22,27 @@ var IMG = (function () {
 // переопределить акцент конкретного набора — правка хранится в cfg.setAccent[idx].
 // name — короткое имя набора (в тултипе кнопки BG, на чипах и в статусбаре).
 var SETS = [
-    { name: "Маки",          editor: "assets/editor/editor_0.jpg", sidebar: "assets/sidebar/sidebar_0.jpg", panel: "assets/panel/panel_0.jpg", accent: "#f38ba8" }, // 0
-    { name: "Пурпур",        editor: "assets/editor/editor_1.jpg", sidebar: "assets/sidebar/sidebar_1.jpg", panel: "assets/panel/panel_1.jpg", accent: "#cba6f7" }, // 1
-    { name: "Кровавая луна", editor: "assets/editor/editor_2.jpg", sidebar: "assets/sidebar/sidebar_2.jpg", panel: "assets/panel/panel_2.jpg", accent: "#f38ba8" }, // 2
-    { name: "Лунная тушь",   editor: "assets/editor/editor_3.jpg", sidebar: "assets/sidebar/sidebar_3.jpg", panel: "assets/panel/panel_3.jpg", accent: "#94e2d5" }, // 3
-    { name: "Синяя ночь",    editor: "assets/editor/editor_4.jpg", sidebar: "assets/sidebar/sidebar_4.jpg", panel: "assets/panel/panel_4.jpg", accent: "#89b4fa" }, // 4
-    { name: "Пурпурный сон", editor: "assets/editor/editor_5.jpg", sidebar: "assets/sidebar/sidebar_5.jpg", panel: "assets/panel/panel_5.jpg", accent: "#cba6f7" }, // 5
-    { name: "Коты и луна",   editor: "assets/editor/editor_6.jpg", sidebar: "assets/sidebar/sidebar_6.jpg", panel: "assets/panel/panel_6.jpg", accent: "#f5c2e7" }  // 6
+    { name: "Алые кроны",           editor: "assets/editor/editor_0.jpg", sidebar: "assets/sidebar/sidebar_0.jpg", panel: "assets/panel/panel_0.jpg", accent: "#f38ba8" }, // 0
+    { name: "Кот и звёзды",         editor: "assets/editor/editor_1.jpg", sidebar: "assets/sidebar/sidebar_1.jpg", panel: "assets/panel/panel_1.jpg", accent: "#cba6f7" }, // 1
+    { name: "Полночные маки",       editor: "assets/editor/editor_2.jpg", sidebar: "assets/sidebar/sidebar_2.jpg", panel: "assets/panel/panel_2.jpg", accent: "#f38ba8" }, // 2
+    { name: "Свиток тумана",        editor: "assets/editor/editor_3.jpg", sidebar: "assets/sidebar/sidebar_3.jpg", panel: "assets/panel/panel_3.jpg", accent: "#94e2d5" }, // 3
+    { name: "Хрустальное озеро",    editor: "assets/editor/editor_4.jpg", sidebar: "assets/sidebar/sidebar_4.jpg", panel: "assets/panel/panel_4.jpg", accent: "#89b4fa" }, // 4
+    { name: "Звёздный причал",      editor: "assets/editor/editor_5.jpg", sidebar: "assets/sidebar/sidebar_5.jpg", panel: "assets/panel/panel_5.jpg", accent: "#cba6f7" }, // 5
+    { name: "Багряный портал",      editor: "assets/editor/editor_6.jpg", sidebar: "assets/sidebar/sidebar_6.jpg", panel: "assets/panel/panel_6.jpg", accent: "#f5c2e7" }, // 6
+    { name: "Ведьмин чертог",       editor: "assets/editor/editor_7.jpg", sidebar: "assets/sidebar/sidebar_7.jpg", panel: "assets/panel/panel_7.jpg", accent: "#f38ba8" }, // 7
+    { name: "Лунная цитадель",      editor: "assets/editor/editor_8.jpg", sidebar: "assets/sidebar/sidebar_8.jpg", panel: "assets/panel/panel_8.jpg", accent: "#89b4fa" }, // 8
+    { name: "Тень мастера",         editor: "assets/editor/editor_9.jpg", sidebar: "assets/sidebar/sidebar_9.jpg", panel: "assets/panel/panel_9.jpg", accent: "#94e2d5" }, // 9
+    { name: "Меч в маках",          editor: "assets/editor/editor_10.jpg",sidebar: "assets/sidebar/sidebar_10.jpg",panel: "assets/panel/panel_10.jpg",accent: "#eba0ac" }, // 10
+    { name: "Ночь падающей звезды", editor: "assets/editor/editor_11.jpg",sidebar: "assets/sidebar/sidebar_11.jpg",panel: "assets/panel/panel_11.jpg",accent: "#74c7ec" }  // 11
 ];
-// Короткое имя набора по индексу (для статусбара/тултипов). Пустая строка, если индекс вне диапазона.
-function setName(idx) { var s = SETS[idx]; return (s && s.name) ? s.name : ""; }
+// Короткое имя набора по индексу (для статусбара/тултипов). Приоритет — имя,
+// заданное пользователем в панели (cfg.setName[idx]), затем «родное» имя из SETS,
+// иначе пустая строка. cfg к моменту вызова уже есть (функция зовётся из рантайма UI).
+function setName(idx) {
+    var o = (typeof cfg !== "undefined" && cfg.setName) ? cfg.setName[idx] : null;
+    if (typeof o === "string" && o) return o;
+    var s = SETS[idx]; return (s && s.name) ? s.name : "";
+}
 
 // ===== Дефолты =====
 // CFG_VERSION — версия схемы конфига. Растёт, когда меняется структура DEFAULTS так,
@@ -41,6 +56,8 @@ var DEFAULTS = {
     setOp: {},
     accent: "#cba6f7",                                  // глобальный акцент (запасной, если у набора нет своего)
     setAccent: {},                                      // переопределение акцента конкретного набора: { idx: "#rrggbb" }
+    setName: {},                                        // пользовательское имя набора: { idx: "строка" }
+    setImg: {},                                         // свои картинки набора по зонам: { idx: { editor?, sidebar?, panel? } }
     autoDim: true,                                      // авто-занижение яркости editor под светлые картинки (читаемость кода)
     fit: { editor: "cover", side: "cover", panel: "cover" }, // вписывание фоновой картинки по зонам: cover | contain
     // фильтры самой фоновой картинки — отдельно по зонам (редактор / сайдбар / панель)
@@ -50,15 +67,19 @@ var DEFAULTS = {
         panel:  { brightness: 1.0, saturate: 1.0, blur: 0 }
     },
     slideshow: { on: false, min: 15 },                  // авто-смена набора по таймеру
-    // авто-набор по времени суток: днём — свой набор, ночью — свой (день 8:00–20:00)
-    autoTime: { on: false, day: 0, night: 4 },
+    // авто-набор по времени суток: днём — свой набор, ночью — свой. Границы дня
+    // настраиваются (from/to, часы 0–23); поддерживается «через полночь» (to < from).
+    autoTime: { on: false, day: 0, night: 4, from: 8, to: 20 },
     fxp: { blur: 8, kbScale: 1.08, kbSpeed: 60, vignette: 0.32, partCount: 40, pomoMin: 25 },
     fx: {
         kenburns: true, glassTabs: true, vignette: true, glassSide: true,
         scrim: true, glassStatus: true, activeLine: true, groupRing: true,
         scrollbar: true, activityBg: true, tabAccent: true, rounded: true,
         cursorGlow: true, selection: true, splash: true,
-        groupBorder: true, titlebar: true, clock: true, particles: true, pomodoro: false
+        groupBorder: true, titlebar: true, clock: true, particles: true, pomodoro: false,
+        dimOnType: false,                               // приглушать фон редактора, пока идёт набор текста
+        dimOnBlur: false,                               // приглушать фон, когда окно VS Code теряет фокус
+        groupBorderMono: false                          // «Живой контур» одним акцентом (false — радужный перелив)
     },
     // Только совместимые по метрикам Nerd-шрифты, чтобы не ломать выравнивание терминала
     term: {
@@ -85,7 +106,9 @@ var FX_LIST = [
     ["rounded", "Скругления"], ["cursorGlow", "Свечение курсора"],
     ["selection", "Градиент выделения"], ["titlebar", "Титлбар"],
     ["splash", "Заставка"], ["clock", "Часы"],
-    ["particles", "Частицы"], ["pomodoro", "Помидор"]
+    ["particles", "Частицы"], ["pomodoro", "Помидор"],
+    ["dimOnType", "Тускнеть при печати"], ["dimOnBlur", "Тускнеть без фокуса"],
+    ["groupBorderMono", "Контур: 1 цвет"]
 ];
 
 // ключ, подпись, min, max, step, знаков после запятой
@@ -207,6 +230,32 @@ function mergeCfg(p) {
                 if (isColor(p.setAccent[ai])) c.setAccent[ai] = p.setAccent[ai];
             }
         }
+        // имя набора: строка (в textContent/title, НЕ в CSS — инъекция не грозит),
+        // только по валидным индексам, длина ограничена. Пустая строка -> не сохраняем
+        // (набор вернётся к «родному» имени из SETS).
+        if (p.setName && typeof p.setName === "object") {
+            c.setName = {};
+            for (var ni in p.setName) {
+                if (!/^\d+$/.test(ni) || parseInt(ni, 10) >= SETS.length) continue;
+                var nv = p.setName[ni];
+                if (typeof nv === "string" && nv.length && nv.length <= 40) c.setName[ni] = nv;
+            }
+        }
+        // свои картинки набора по зонам: строка-путь (в url('...') — cssUrl экранирует
+        // кавычки/слэши/переводы строк, инъекция не грозит), только валидные индексы,
+        // длина ограничена. Пустая строка -> зона возвращается к картинке из SETS.
+        if (p.setImg && typeof p.setImg === "object") {
+            c.setImg = {};
+            for (var ii in p.setImg) {
+                if (!/^\d+$/.test(ii) || parseInt(ii, 10) >= SETS.length) continue;
+                var zo = p.setImg[ii]; if (!zo || typeof zo !== "object") continue;
+                var cleanZ = {};
+                ["editor", "sidebar", "panel"].forEach(function (zk) {
+                    if (typeof zo[zk] === "string" && zo[zk].length && zo[zk].length <= 1024) cleanZ[zk] = zo[zk];
+                });
+                c.setImg[ii] = cleanZ;
+            }
+        }
         // авто-яркость editor: только булево
         if (typeof p.autoDim === "boolean") c.autoDim = p.autoDim;
         // вписывание по зонам: строго из белого списка cover|contain (в CSS — без кавычек)
@@ -229,12 +278,16 @@ function mergeCfg(p) {
             if (typeof p.slideshow.on === "boolean") c.slideshow.on = p.slideshow.on;
             if (typeof p.slideshow.min === "number") c.slideshow.min = clampNum(p.slideshow.min, 1, 120, c.slideshow.min);
         }
-        // авто-набор по времени: флаг + индексы наборов (день/ночь) в допустимом диапазоне
+        // авто-набор по времени: флаг + индексы наборов (день/ночь) + границы дня (часы 0–23)
         if (p.autoTime && typeof p.autoTime === "object") {
             if (typeof p.autoTime.on === "boolean") c.autoTime.on = p.autoTime.on;
             ["day", "night"].forEach(function (kk) {
                 var vi = p.autoTime[kk];
                 if (typeof vi === "number" && vi >= 0 && vi < SETS.length) c.autoTime[kk] = Math.floor(vi);
+            });
+            ["from", "to"].forEach(function (kk) {
+                var hv = p.autoTime[kk];
+                if (typeof hv === "number" && isFinite(hv)) c.autoTime[kk] = Math.min(23, Math.max(0, Math.floor(hv)));
             });
         }
         // эффекты: только булевы

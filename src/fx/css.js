@@ -3,10 +3,19 @@
 // Картинки лежат на vscode-file://vscode-app/… — тот же origin, что и воркбенч,
 // поэтому canvas не «портится» (getImageData не бросает security-ошибку).
 // Результат кэшируется; по готовности дёргаем пересборку стиля (bumpStyle+ensureStyle).
-var _imgState = {}; // url -> { ok: bool, luma: 0..1|null }
+// url -> { ok: bool, luma: 0..1|null, accent: "#rrggbb"|null, resolved: bool }.
+// Одна загрузка на URL обслуживает 404-фолбэк (ok), авто-яркость (luma), «акцент из
+// картинки» (accent) и health-check чипов (через onImage) — картинки больше не грузятся дважды.
+var _imgState = {};
+var _imgListeners = {}; // url -> [cb], вызываются один раз по готовности (или ошибке)
+function _fireImg(url, st) {
+    var ls = _imgListeners[url]; if (!ls) return;
+    _imgListeners[url] = null;
+    for (var i = 0; i < ls.length; i++) { try { ls[i](st); } catch (e) {} }
+}
 function probeImage(url) {
     if (Object.prototype.hasOwnProperty.call(_imgState, url)) return _imgState[url];
-    var st = { ok: true, luma: null }; // до загрузки считаем «ок, яркость неизвестна»
+    var st = { ok: true, luma: null, accent: null, resolved: false }; // до загрузки: «ок, метрики неизвестны»
     _imgState[url] = st;
     try {
         var im = new Image();
@@ -20,13 +29,71 @@ function probeImage(url) {
                     sum += (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255; n++; // Rec.601, 0..1
                 }
                 st.luma = n ? sum / n : 1;
-            } catch (e) { st.luma = 1; } // canvas «испорчен»/ошибка — не димим
-            bumpStyle(); ensureStyle();
+                st.accent = dominantAccent(d); // доминирующий цвет -> готовый акцент
+            } catch (e) { st.luma = 1; st.accent = null; } // canvas «испорчен»/ошибка — не димим
+            st.resolved = true; _fireImg(url, st); bumpStyle(); ensureStyle();
         };
-        im.onerror = function () { st.ok = false; bumpStyle(); ensureStyle(); };
+        im.onerror = function () { st.ok = false; st.resolved = true; _fireImg(url, st); bumpStyle(); ensureStyle(); };
         im.src = url;
     } catch (e) {}
     return st;
+}
+// Подписка на готовность пробы URL: если уже загружено/сломано — колбэк сразу, иначе в очередь.
+// Используется чипами наборов (health-check) вместо собственной второй загрузки картинки.
+function onImage(url, cb) {
+    var st = probeImage(url);
+    if (st.resolved) { try { cb(st); } catch (e) {} return; }
+    (_imgListeners[url] || (_imgListeners[url] = [])).push(cb);
+}
+
+// ===== Цвет из картинки (для «Акцент из картинки») =====
+function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), h = 0, s = 0, l = (mx + mn) / 2, d = mx - mn;
+    if (d) {
+        s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+        if (mx === r) h = (g - b) / d + (g < b ? 6 : 0);
+        else if (mx === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h /= 6;
+    }
+    return [h, s, l];
+}
+function _hue2rgb(p, q, t) {
+    if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+}
+function hslToHex(h, s, l) {
+    var r, g, b;
+    if (!s) { r = g = b = l; }
+    else {
+        var q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+        r = _hue2rgb(p, q, h + 1 / 3); g = _hue2rgb(p, q, h); b = _hue2rgb(p, q, h - 1 / 3);
+    }
+    function hx(v) { var t = Math.round(v * 255).toString(16); return t.length < 2 ? "0" + t : t; }
+    return "#" + hx(r) + hx(g) + hx(b);
+}
+// Доминирующий цвет как готовый акцент: круговое среднее оттенка с весом по насыщенности^2
+// (серые пиксели почти не влияют на оттенок), затем нормировка S/L в «читаемый акцент».
+// Почти серая картинка -> берём среднее RGB и поднимаем насыщенность.
+function dominantAccent(d) {
+    var n = d.length / 4; if (!n) return null;
+    var sx = 0, sy = 0, sw = 0, sS = 0, sL = 0, rr = 0, gg = 0, bb = 0, i, hsl, w, ang;
+    for (i = 0; i < d.length; i += 4) {
+        rr += d[i]; gg += d[i + 1]; bb += d[i + 2];
+        hsl = rgbToHsl(d[i], d[i + 1], d[i + 2]);
+        w = hsl[1] * hsl[1]; ang = hsl[0] * 2 * Math.PI;
+        sx += Math.cos(ang) * w; sy += Math.sin(ang) * w; sS += hsl[1] * w; sL += hsl[2] * w; sw += w;
+    }
+    var H, S, L;
+    if (sw < 1e-4) { var m = rgbToHsl(rr / n, gg / n, bb / n); H = m[0]; S = Math.max(0.5, m[1]); L = m[2]; }
+    else { H = Math.atan2(sy, sx) / (2 * Math.PI); if (H < 0) H += 1; S = sS / sw; L = sL / sw; }
+    S = Math.min(0.85, Math.max(0.55, S));
+    L = Math.min(0.70, Math.max(0.55, L));
+    return hslToHex(H, S, L);
 }
 // Коэффициент занижения яркости editor по средней светлоте картинки: тёмные/средние —
 // как есть (1.0), почти белые — до ~0.4, чтобы код не «слепило». Плавно между.
@@ -62,6 +129,21 @@ function switcherCSS() {
         // видимый фокус для клавиатуры (кнопка BG и все div-«кнопки» панели)
         "#moonlight-bg-switcher:focus-visible, #moonlight-bg-panel [role=button]:focus-visible {",
         "  outline: 2px solid var(--mlbg-accent); outline-offset: 1px;",
+        "}",
+        // Скроллбар панели «Фон и дизайн»: по умолчанию Electron рисует широкий светлый
+        // трек с серым ползунком — на тёмной панели он выбивается. Делаем тонкий, трек
+        // прозрачный, ползунок акцентного цвета (border+background-clip дают воздух вокруг).
+        // Firefox-свойства (scrollbar-*) — на случай не-Chromium движка; в VS Code работает
+        // именно ::-webkit-scrollbar. Нужен всегда, даже когда фон выключен, — панель живёт.
+        "#moonlight-bg-panel { scrollbar-width: thin; scrollbar-color: rgba(var(--mlbg-accent-rgb),0.45) transparent; }",
+        "#moonlight-bg-panel::-webkit-scrollbar { width: 10px; }",
+        "#moonlight-bg-panel::-webkit-scrollbar-track { background: transparent; }",
+        "#moonlight-bg-panel::-webkit-scrollbar-thumb {",
+        "  background: rgba(var(--mlbg-accent-rgb),0.35); border-radius: 8px;",
+        "  border: 2px solid transparent; background-clip: padding-box;",
+        "}",
+        "#moonlight-bg-panel::-webkit-scrollbar-thumb:hover {",
+        "  background: rgba(var(--mlbg-accent-rgb),0.6); border: 2px solid transparent; background-clip: padding-box;",
         "}"
     ].join("\n");
 }
@@ -77,7 +159,7 @@ function buildCSS() {
     // но кнопка BG и панель остаются рабочими, чтобы включить обратно.
     if (!cfg.enabled) return rootVar + "\n" + switcherCSS();
 
-    var s = SETS[activeIndex()], fx = cfg.fx, fxp = cfg.fxp, op = getOp();
+    var idx = activeIndex(), s = SETS[idx], fx = cfg.fx, fxp = cfg.fxp, op = getOp();
     // Палитра поверхностей под тему. surfRGB — база «матового стекла»/статусбара/титлбара;
     // titleSolid — непрозрачная подложка титлбара; scrimRGB — цвет тени-скрима под кодом
     // (на светлой теме код тёмный, поэтому ореол светлый); shadowRGB — тень текста в
@@ -89,17 +171,19 @@ function buildCSS() {
     var shadowRGB = light ? "255,255,255" : "0,0,0";
     // Фон зоны: 404 -> сплошная акцентная подложка (не пустота); иначе url + вписывание
     // (cover|contain из cfg.fit) на нужной позиции. zone: editor|side|panel.
-    function zoneBg(rel, zone, position) {
-        var url = IMG + rel;
+    // rel уже разрешён в абсолютный URL (zoneUrl учёл cfg.setImg). zone: editor|side|panel
+    // здесь — ключ cfg.fit (вписывание), поэтому "side", а не "sidebar".
+    function zoneBg(url, fitZone, position) {
         if (!probeImage(url).ok) return "rgba(var(--mlbg-accent-rgb),0.14)";
-        var fit = (cfg.fit && cfg.fit[zone] === "contain") ? "contain" : "cover";
+        var fit = (cfg.fit && cfg.fit[fitZone] === "contain") ? "contain" : "cover";
         return cssUrl(url) + " " + position + " / " + fit + " no-repeat";
     }
-    var BG_ED = zoneBg(s.editor, "editor", "center");
-    var BG_SB = zoneBg(s.sidebar, "side", "center bottom");
-    var BG_PN = zoneBg(s.panel, "panel", "right bottom");
+    var edUrl = zoneUrl(idx, "editor");
+    var BG_ED = zoneBg(edUrl, "editor", "center");
+    var BG_SB = zoneBg(zoneUrl(idx, "sidebar"), "side", "center bottom");
+    var BG_PN = zoneBg(zoneUrl(idx, "panel"), "panel", "right bottom");
     // Авто-дим editor по светлоте картинки (если включён): множитель к прозрачности.
-    var edDim = cfg.autoDim ? lumaDimFactor(probeImage(IMG + s.editor).luma) : 1;
+    var edDim = cfg.autoDim ? lumaDimFactor(probeImage(edUrl).luma) : 1;
     var out = [];
     function add() { for (var i = 0; i < arguments.length; i++) out.push(arguments[i]); }
     var TR = "  transition: opacity 0.5s ease;";
@@ -141,6 +225,22 @@ function buildCSS() {
         "}"
     );
     if (fx.kenburns) add("@keyframes mlbg-kenburns { from { transform: scale(1); } to { transform: scale(" + fxp.kbScale + "); } }");
+    // Приглушение фона при печати: пока на body висит класс mlbg-typing (навешивается
+    // в boot.js на набор текста и снимается после паузы), опускаем прозрачность оверлея
+    // редактора до ~30% от текущей. У оверлея уже есть transition:opacity — переход плавный.
+    if (fx.dimOnType) add(
+        "body.mlbg-typing .monaco-editor .overflow-guard > .monaco-scrollable-element::after {",
+        "  opacity: " + (op.editor * switchMul * edDim * 0.3) + " !important;",
+        "}"
+    );
+    // Приглушение фона при потере фокуса окном: класс body.mlbg-unfocused навешивается в
+    // boot.js на window blur и снимается на focus. Опускаем прозрачность оверлея редактора
+    // до ~35% (у оверлея уже есть transition:opacity — переход плавный).
+    if (fx.dimOnBlur) add(
+        "body.mlbg-unfocused .monaco-editor .overflow-guard > .monaco-scrollable-element::after {",
+        "  opacity: " + (op.editor * switchMul * edDim * 0.35) + " !important;",
+        "}"
+    );
 
     // САЙДБАР / ПАНЕЛЬ
     add(
@@ -262,13 +362,18 @@ function buildCSS() {
     );
     if (fx.selection) add(
         ".monaco-editor .view-overlays .selected-text {",
-        "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.32), rgba(137,180,250,0.32)) !important; border-radius: 2px;",
+        // оба стопа — акцент набора (разная прозрачность даёт глубину градиента),
+        // раньше второй стоп был зашит синим и не следовал за палитрой набора
+        "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.32), rgba(var(--mlbg-accent-rgb),0.16)) !important; border-radius: 2px;",
         "}"
     );
     if (fx.groupBorder) add(
         ".editor-group-container.active::before {",
         "  content:''; position:absolute; inset:0; z-index:6; pointer-events:none; padding:2px; border-radius:4px;",
-        "  background:linear-gradient(120deg,var(--mlbg-accent),#89b4fa,#a6e3a1,var(--mlbg-accent)); background-size:300% 300%;",
+        // По умолчанию — радужный перелив; groupBorderMono даёт «дыхание» одним акцентом.
+        "  background:" + (fx.groupBorderMono
+            ? "linear-gradient(120deg,var(--mlbg-accent),rgba(var(--mlbg-accent-rgb),0.25),var(--mlbg-accent))"
+            : "linear-gradient(120deg,var(--mlbg-accent),#89b4fa,#a6e3a1,var(--mlbg-accent))") + "; background-size:300% 300%;",
         "  animation: mlbg-flow 8s linear infinite;",
         "  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor;",
         "  mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite:exclude;",
@@ -279,7 +384,7 @@ function buildCSS() {
         ".part.titlebar, .titlebar {",
         // подложка титлбара — цвет темы var(--vscode-titleBar-activeBackground) с запасной
         // тема-зависимой константой; поверх — акцентный градиент, гаснущий к прозрачному.
-        "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.30), rgba(137,180,250,0.16) 45%, rgba(" + surfRGB + ",0) 78%), var(--vscode-titleBar-activeBackground, " + titleSolid + ") !important;",
+        "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.30), rgba(var(--mlbg-accent-rgb),0.14) 45%, rgba(" + surfRGB + ",0) 78%), var(--vscode-titleBar-activeBackground, " + titleSolid + ") !important;",
         "}"
     );
     if (fx.splash) add(
@@ -287,7 +392,7 @@ function buildCSS() {
         ".editor-group-container.empty::after {",
         "  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;",
         // заставка = картинка редактора, всегда «contain»; 404 -> акцентная подложка
-        "  background: " + (probeImage(IMG + s.editor).ok ? cssUrl(IMG + s.editor) + " center / contain no-repeat" : "rgba(var(--mlbg-accent-rgb),0.14)") + "; opacity: " + (0.12 * switchMul * edDim) + ";", TR, IMGF_ED,
+        "  background: " + (probeImage(edUrl).ok ? cssUrl(edUrl) + " center / contain no-repeat" : "rgba(var(--mlbg-accent-rgb),0.14)") + "; opacity: " + (0.12 * switchMul * edDim) + ";", TR, IMGF_ED,
         "}"
     );
 

@@ -137,22 +137,29 @@ function slideReset() { slide.last = Date.now(); preloadNext(); } // отсчё�
 // плодить Image() каждый раз. В режиме «случайно» следующий индекс неизвестен заранее,
 // поэтому предгружаем все наборы по одному разу (их немного).
 var _preloaded = {};
-function preloadOne(rel) {
-    var u = IMG + rel; if (_preloaded[u]) return; _preloaded[u] = true;
-    try { var im = new Image(); im.src = u; } catch (e) {}
+function preloadOne(url) {
+    if (!url || _preloaded[url]) return; _preloaded[url] = true;
+    try { var im = new Image(); im.src = url; } catch (e) {}
 }
 function preloadNext() {
     if (!cfg.slideshow || !cfg.slideshow.on || SETS.length < 2) return;
-    var targets = cfg.mode === "random"
-        ? SETS
-        : [SETS[(activeIndex() + 1) % SETS.length]];
-    targets.forEach(function (s) { preloadOne(s.editor); preloadOne(s.sidebar); preloadOne(s.panel); });
+    // индексы наборов для предзагрузки (учитывают cfg.setImg через zoneUrl)
+    var idxs = cfg.mode === "random"
+        ? SETS.map(function (_s, i) { return i; })
+        : [(activeIndex() + 1) % SETS.length];
+    idxs.forEach(function (i) { preloadOne(zoneUrl(i, "editor")); preloadOne(zoneUrl(i, "sidebar")); preloadOne(zoneUrl(i, "panel")); });
 }
 // ===== Авто-набор по времени суток =====
 // Днём (8:00–20:00) — cfg.autoTime.day, ночью — cfg.autoTime.night. Переиспользует
 // applyFade (как слайдшоу). Не трогает режим «случайно». Проверяется каждую секунду,
 // но переключает только при реальной смене нужного набора (idempotent).
-function isDaytime() { var h = new Date().getHours(); return h >= 8 && h < 20; }
+function isDaytime() {
+    var h = new Date().getHours(), at = cfg.autoTime || {};
+    var f = (typeof at.from === "number") ? at.from : 8;
+    var t = (typeof at.to === "number") ? at.to : 20;
+    if (f === t) return true;                       // границы совпали — считаем всегда день
+    return t > f ? (h >= f && h < t) : (h >= f || h < t); // t < f — интервал «через полночь»
+}
 function timeTick() {
     if (!cfg.autoTime || !cfg.autoTime.on || SETS.length < 1) return;
     if (cfg.mode === "random") return; // ручной «случайно» не перебиваем

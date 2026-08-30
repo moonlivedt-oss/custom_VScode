@@ -61,7 +61,9 @@ function build() {
     const body = FILES.map(readModule).join("\n");
     const out = BANNER + "(function () {\n    \"use strict\";\n\n" + body + "\n})();\n";
     fs.writeFileSync(OUT, out, "utf8");
-    console.log("OK: custom-bg.js собран из " + FILES.length + " модулей (" + out.length + " байт).");
+    // Buffer.byteLength, а не out.length: в комментариях кириллица (UTF-8 — 2 байта на
+    // символ), поэтому out.length (символы) занижает реальный размер файла в байтах.
+    console.log("OK: custom-bg.js собран из " + FILES.length + " модулей (" + Buffer.byteLength(out, "utf8") + " байт).");
     return out;
 }
 
