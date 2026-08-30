@@ -14,7 +14,8 @@
   "scripts": {
     "build": "node build.js",
     "test": "node test/smoke.js",
-    "check": "node build.js && node test/smoke.js"
+    "check": "node build.js && node test/smoke.js",
+    "hooks": "git config core.hooksPath hooks"
   },
   "engines": {
     "node": ">=14"

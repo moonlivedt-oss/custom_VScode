@@ -52,7 +52,10 @@ function readModule(rel) {
     return "    // ===================== " + rel + " =====================\n" + indent(code) + "\n";
 }
 
-function build() {
+// build(write): собирает и возвращает текст артефакта. write===false — только вернуть
+// строку, БЕЗ записи на диск и без лога (нужно смоук-тесту для проверки детерминизма,
+// чтобы прогон тестов не перезаписывал custom-bg.js). По умолчанию (CLI) пишет файл.
+function build(write) {
     const missing = FILES.filter(function (f) { return !fs.existsSync(path.join(ROOT, f)); });
     if (missing.length) {
         console.error("Не найдены модули:\n  " + missing.join("\n  "));
@@ -60,6 +63,7 @@ function build() {
     }
     const body = FILES.map(readModule).join("\n");
     const out = BANNER + "(function () {\n    \"use strict\";\n\n" + body + "\n})();\n";
+    if (write === false) return out;
     fs.writeFileSync(OUT, out, "utf8");
     // Buffer.byteLength, а не out.length: в комментариях кириллица (UTF-8 — 2 байта на
     // символ), поэтому out.length (символы) занижает реальный размер файла в байтах.

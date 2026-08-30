@@ -24,6 +24,17 @@
         return IMG_FALLBACK; // адрес скрипта неизвестен (инлайн-внедрение) — берём заданный путь
     })();
 
+    // Эффективная база для ОТНОСИТЕЛЬНЫХ путей картинок. Приоритет — путь, заданный
+    // пользователем в панели (cfg.imgBase): позволяет перенести папку плагина, не правя
+    // исходник и не пересобирая. Пусто — берём авто-определённый IMG. cfg к моменту вызова
+    // (рантайм: buildCSS/чипы) уже есть; typeof-страховка на случай ранних вызовов.
+    function imgBase() {
+        var b = (typeof cfg !== "undefined" && cfg && typeof cfg.imgBase === "string") ? cfg.imgBase : "";
+        // Удалённая база (http(s)://…) без явного согласия — игнорируем, возвращаем авто-путь:
+        // иначе чужой конфиг переключил бы загрузку ВСЕХ картинок на свой сервер.
+        return (b && imgAllowed(b)) ? b : IMG;
+    }
+
     // Пути к картинкам набора — относительно IMG. Картинки наборов лежат в
     // assets/{editor,panel,sidebar}/; ещё не разложенные по наборам — в assets/ (корень).
     // У каждого набора свой акцентный цвет (accent) под его палитру — при переключении
@@ -42,7 +53,16 @@
         { name: "Лунная цитадель",      editor: "assets/editor/editor_8.jpg", sidebar: "assets/sidebar/sidebar_8.jpg", panel: "assets/panel/panel_8.jpg", accent: "#89b4fa" }, // 8
         { name: "Тень мастера",         editor: "assets/editor/editor_9.jpg", sidebar: "assets/sidebar/sidebar_9.jpg", panel: "assets/panel/panel_9.jpg", accent: "#94e2d5" }, // 9
         { name: "Меч в маках",          editor: "assets/editor/editor_10.jpg",sidebar: "assets/sidebar/sidebar_10.jpg",panel: "assets/panel/panel_10.jpg",accent: "#eba0ac" }, // 10
-        { name: "Ночь падающей звезды", editor: "assets/editor/editor_11.jpg",sidebar: "assets/sidebar/sidebar_11.jpg",panel: "assets/panel/panel_11.jpg",accent: "#74c7ec" }  // 11
+        { name: "Ночь падающей звезды", editor: "assets/editor/editor_11.jpg",sidebar: "assets/sidebar/sidebar_11.jpg",panel: "assets/panel/panel_11.jpg",accent: "#74c7ec" }, // 11
+        // ===== Генеративные наборы (grad) — рисуются градиентом из палитры, БЕЗ картинок =====
+        // У такого набора нет editor/sidebar/panel: вместо url() зоны заливаются CSS-градиентом
+        // (см. gradFor в css.js). Ноль ассетов, мгновенная загрузка, работают на любой машине
+        // без правки путей. Пользователь всё равно может подложить свою картинку в зону
+        // (cfg.setImg[idx][zone]) — тогда она перекроет градиент. accent — акцент интерфейса.
+        { name: "Аврора", grad: ["#1e1e2e", "#89b4fa", "#94e2d5"], accent: "#89b4fa" }, // 12
+        { name: "Закат",  grad: ["#1e1e2e", "#f38ba8", "#fab387"], accent: "#f38ba8" }, // 13
+        { name: "Неон",   grad: ["#11111b", "#cba6f7", "#f5c2e7"], accent: "#cba6f7" }, // 14
+        { name: "Мох",    grad: ["#181825", "#a6e3a1", "#94e2d5"], accent: "#a6e3a1" }  // 15
     ];
     // Короткое имя набора по индексу (для статусбара/тултипов). Приоритет — имя,
     // заданное пользователем в панели (cfg.setName[idx]), затем «родное» имя из SETS,
@@ -60,10 +80,15 @@
     var DEFAULTS = {
         version: CFG_VERSION,
         enabled: true,                                      // мастер-выключатель: false — фон и эффекты выключены, настройки сохранены
+        imgBase: "",                                        // папка плагина для картинок; пусто — авто-определение (IMG). Переносимость без правки кода.
+        allowRemoteImages: false,                           // разрешить http(s)-картинки. По умолчанию выкл: чужой конфиг не заставит редактор ходить в сеть.
         mode: "0",
         baseOp: { editor: 0.06, side: 0.30, panel: 0.11 },
         setOp: {},
         accent: "#cba6f7",                                  // глобальный акцент (запасной, если у набора нет своего)
+        autoWorkspace: false,                               // фон по проекту: набор выбирается по имени открытой папки
+        workspaceSets: {},                                  // закреплённые наборы по проектам: { "имя папки": "индекс" }
+        ambientBranch: false,                               // тонкая полоска-индикатор ветки git (main -> красная, фича -> зелёная)
         setAccent: {},                                      // переопределение акцента конкретного набора: { idx: "#rrggbb" }
         setName: {},                                        // пользовательское имя набора: { idx: "строка" }
         setImg: {},                                         // свои картинки набора по зонам: { idx: { editor?, sidebar?, panel? } }
@@ -88,7 +113,10 @@
             groupBorder: true, titlebar: true, clock: true, particles: true, pomodoro: false,
             dimOnType: false,                               // приглушать фон редактора, пока идёт набор текста
             dimOnBlur: false,                               // приглушать фон, когда окно VS Code теряет фокус
-            groupBorderMono: false                          // «Живой контур» одним акцентом (false — радужный перелив)
+            groupBorderMono: false,                         // «Живой контур» одним акцентом (false — радужный перелив)
+            paletteSync: false,                             // «живой контур» из палитры фоновой картинки, а не радужный
+            parallax: false,                                // фон редактора чуть смещается за курсором (глубина)
+            flow: false                                     // «поток»: при долгом наборе фон плавно уходит сильнее
         },
         // Только совместимые по метрикам Nerd-шрифты, чтобы не ломать выравнивание терминала
         term: {
@@ -117,7 +145,8 @@
         ["splash", "Заставка"], ["clock", "Часы"],
         ["particles", "Частицы"], ["pomodoro", "Помидор"],
         ["dimOnType", "Тускнеть при печати"], ["dimOnBlur", "Тускнеть без фокуса"],
-        ["groupBorderMono", "Контур: 1 цвет"]
+        ["groupBorderMono", "Контур: 1 цвет"], ["paletteSync", "Палитра из картинки"],
+        ["parallax", "Параллакс фона"], ["flow", "Поток (глубокий дим)"]
     ];
 
     // ключ, подпись, min, max, step, знаков после запятой
@@ -146,6 +175,36 @@
     // Шрифт — строго из белого списка (там нет кавычек/;/{} — CSS-инъекция невозможна).
     function safeFont(f) { return TERM_FONTS.indexOf(f) >= 0 ? f : DEFAULTS.term.font; }
     function safeColor(c, fallback) { return isColor(c) ? c : fallback; }
+    // База картинок (папка плагина). Уходит в url('...') через cssUrl (кавычки/слэши/переводы
+    // строк экранируются — CSS-инъекция невозможна), поэтому здесь только приводим к единому
+    // виду: убираем переводы строк, ограничиваем длину, дописываем завершающий слэш. Пусто
+    // (или не строка) -> "" — тогда imgBase() возьмёт авто-определённый IMG.
+    function safeBase(s) {
+        if (typeof s !== "string") return "";
+        var b = s.trim().replace(/[\r\n]/g, "").slice(0, 512);
+        if (!b) return "";
+        return /\/$/.test(b) ? b : b + "/";
+    }
+    // ===== Безопасность источников картинок =====
+    // Картинка из конфига уходит в CSS url() и в new Image().src. Если разрешить любой URL,
+    // то ИМПОРТИРОВАННЫЙ или применённый чужой конфиг сможет указать http(s)-адрес — и редактор
+    // молча сходит в сеть за картинкой: утечка IP, факт использования плагина, потенциальный
+    // маячок-трекер. Поэтому по умолчанию пускаем только ЛОКАЛЬНЫЕ схемы; сеть — лишь когда
+    // пользователь сам включил cfg.allowRemoteImages.
+    var LOCAL_IMG_SCHEME = /^(?:vscode-file|vscode-resource|vscode-webview-resource|file|data):/i;
+    // Удалённый источник: абсолютный URL с не-локальной схемой ИЛИ протокол-относительный «//host».
+    function isRemoteUrl(u) {
+        if (typeof u !== "string") return false;
+        if (/^\/\//.test(u)) return true;                        // //host/x — тянет из сети
+        return /^[a-z][a-z0-9+.-]*:/i.test(u) && !LOCAL_IMG_SCHEME.test(u);
+    }
+    // Разрешена ли картинка к загрузке: относительные и локальные — да; удалённые — только по
+    // явному согласию (cfg.allowRemoteImages). typeof-страховка: cfg может ещё не быть.
+    function imgAllowed(u) {
+        if (typeof u !== "string" || !u) return false;
+        if (typeof cfg !== "undefined" && cfg && cfg.allowRemoteImages) return true;
+        return !isRemoteUrl(u);
+    }
     // Безопасная сборка CSS url('...'). Путь установки плагина (IMG) приходит из
     // document.currentScript.src и вставляется в CSS как есть. Если путь содержит
     // одинарную кавычку, обратный слэш или перевод строки (напр. C:\Users\O'Brien\…),
@@ -167,7 +226,7 @@
     (function () { for (var i = 0; i < PARAMS.length; i++) FXP_RANGE[PARAMS[i][0]] = [PARAMS[i][2], PARAMS[i][3]]; })();
 
     // ===== Конфиг: слияние с дефолтами + санитизация =====
-    var CFG_KEY = "moonlight-bg-config", LAST_KEY = "moonlight-bg-last";
+    var CFG_KEY = "moonlight-bg-config", LAST_KEY = "moonlight-bg-last", BACKUP_KEY = "moonlight-bg-backup";
     var sessionRandomIndex = null, switchMul = 1;
 
     function clone(x) { return JSON.parse(JSON.stringify(x)); }
@@ -203,6 +262,28 @@
             c.version = CFG_VERSION; // после слияния конфиг всегда текущей версии
             // мастер-выключатель фона/эффектов: только булево
             if (typeof p.enabled === "boolean") c.enabled = p.enabled;
+            // папка плагина для картинок: строка-URL, нормализуется safeBase (см. imgBase())
+            if (typeof p.imgBase === "string") c.imgBase = safeBase(p.imgBase);
+            // разрешение сетевых картинок: только булево (по умолчанию false — см. imgAllowed)
+            if (typeof p.allowRemoteImages === "boolean") c.allowRemoteImages = p.allowRemoteImages;
+            // фон по проекту: флаг + карта «имя папки -> индекс набора». Ключи (имена проектов)
+            // и число записей ограничены, значения — только валидные индексы существующих наборов,
+            // иначе подменённый конфиг мог бы раздуть объект и утечь в localStorage (как setOp/ui).
+            if (typeof p.autoWorkspace === "boolean") c.autoWorkspace = p.autoWorkspace;
+            if (p.workspaceSets && typeof p.workspaceSets === "object") {
+                c.workspaceSets = {};
+                var wc = 0;
+                for (var wk in p.workspaceSets) {
+                    if (!p.workspaceSets.hasOwnProperty(wk)) continue;
+                    if (wc >= 64 || typeof wk !== "string" || wk.length > 120) continue;
+                    if (DANGEROUS_KEYS.indexOf(wk) >= 0) continue; // имя проекта не может отравить прототип
+
+                    var wv = p.workspaceSets[wk];
+                    if (typeof wv === "string" && /^\d+$/.test(wv) && parseInt(wv, 10) < SETS.length) { c.workspaceSets[wk] = wv; wc++; }
+                }
+            }
+            // индикатор ветки: только булево
+            if (typeof p.ambientBranch === "boolean") c.ambientBranch = p.ambientBranch;
             // mode: "random" или строковый индекс набора в допустимом диапазоне
             if (p.mode === "random") c.mode = "random";
             else if (typeof p.mode === "string" && /^\d+$/.test(p.mode)) {
@@ -345,6 +426,22 @@
     }
     function saveCfg() { try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {} }
 
+    // ===== Резерв конфига (защита от неудачной замены) =====
+    // Перед рискованным ПОЛНЫМ замещением cfg (импорт файла, сброс к дефолту, применение
+    // пресета) снимаем текущий cfg в отдельный ключ. Кнопка «Восстановить» возвращает его.
+    // ВАЖНО: это откат неудачного действия, а НЕ бэкап на диск — полную очистку localStorage
+    // (переустановка custom-css, крупное обновление VS Code) резерв не переживёт; от этого
+    // спасает только ручной экспорт в файл. Лимит длины — как у loadCfg/импорта.
+    function backupCfg() { try { localStorage.setItem(BACKUP_KEY, JSON.stringify(cfg)); } catch (e) {} }
+    function hasBackup() { try { var r = localStorage.getItem(BACKUP_KEY); return !!(r && r.length <= 256 * 1024); } catch (e) { return false; } }
+    function readBackup() {
+        try {
+            var raw = localStorage.getItem(BACKUP_KEY);
+            if (raw && raw.length <= 256 * 1024) return mergeCfg(safeParse(raw)); // та же санитизация, что и импорт
+        } catch (e) {}
+        return null;
+    }
+
     var cfg = loadCfg();
 
     // ===================== src/core/state.js =====================
@@ -357,7 +454,36 @@
         try { localStorage.setItem(LAST_KEY, String(idx)); } catch (e) {}
         return idx;
     }
+    // Имя открытого проекта из заголовка окна VS Code. Заголовок обычно выглядит как
+    // "<файл> — <папка> — Visual Studio Code" (разделитель — тире с пробелами, у несохранённого
+    // файла спереди маркер). API папки в custom-css нет, поэтому парсим document.title:
+    // срезаем хвост " — Visual Studio Code" и берём последний сегмент (имя папки-проекта).
+    function workspaceName() {
+        try {
+            var t = (document.title || "").trim();
+            if (!t) return "";
+            t = t.replace(/\s*[—\-]\s*Visual Studio Code\s*$/i, "").trim();
+            var parts = t.split(/\s+[—\-]\s+/); // сегменты, разделённые тире с пробелами
+            var name = parts.length ? parts[parts.length - 1] : t;
+            return name.replace(/[●•*]/g, "").trim().slice(0, 120); // убрать маркер несохранённого
+        } catch (e) { return ""; }
+    }
+    // Набор, закреплённый за текущим проектом (cfg.workspaceSets[имя]), если «фон по проекту»
+    // включён и запись валидна. Иначе null — тогда activeIndex идёт по обычной логике.
+    function workspaceIndex() {
+        if (!cfg.autoWorkspace) return null;
+        var n = workspaceName();
+        var v = (n && cfg.workspaceSets) ? cfg.workspaceSets[n] : null;
+        if (typeof v === "string" && /^\d+$/.test(v)) {
+            var i = parseInt(v, 10);
+            if (i >= 0 && i < SETS.length) return i;
+        }
+        return null;
+    }
     function activeIndex() {
+        // «Фон по проекту» имеет приоритет над mode/слайдшоу/временем суток.
+        var wi = workspaceIndex();
+        if (wi !== null) return wi;
         if (cfg.mode === "random") {
             if (sessionRandomIndex === null) sessionRandomIndex = pickRandom();
             return sessionRandomIndex;
@@ -400,13 +526,21 @@
     // Абсолютный URL — есть схема (file:, vscode-file:, http:, d: и т.п.) или ведущий слэш;
     // такой путь берётся как есть. Иначе путь относительный — дописываем базу IMG.
     function isAbsUrl(u) { return /^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(u); }
-    function imgUrl(rel) { return isAbsUrl(rel) ? rel : IMG + rel; }
+    // Относительный путь дописываем к базе плагина (imgBase(): свой путь пользователя или IMG).
+    // Абсолютный удалённый URL без согласия пользователя (imgAllowed) не пропускаем — "" отдаёт
+    // пробе «битую» ссылку, и зона откатывается на акцентную подложку вместо сетевого запроса.
+    function imgUrl(rel) {
+        if (isAbsUrl(rel)) return imgAllowed(rel) ? rel : "";
+        return imgBase() + rel;
+    }
     // Путь картинки зоны набора: пользовательское переопределение (cfg.setImg[idx][zone])
     // или «родная» картинка из SETS. zone — ключ SETS: "editor" | "sidebar" | "panel".
     function setImage(idx, zone) {
         var o = cfg.setImg && cfg.setImg[idx];
         var ov = o && o[zone];
-        if (typeof ov === "string" && ov) return ov;
+        // Свой путь используем, только если он разрешён (локальный, либо сеть явно включена);
+        // заблокированный удалённый override игнорируем -> зона берёт «родную» картинку набора.
+        if (typeof ov === "string" && ov && imgAllowed(ov)) return ov;
         var s = SETS[idx]; return (s && s[zone]) ? s[zone] : "";
     }
     // Готовый абсолютный URL картинки зоны (переопределение -> resolve).
@@ -430,7 +564,7 @@
     }
     function probeImage(url) {
         if (Object.prototype.hasOwnProperty.call(_imgState, url)) return _imgState[url];
-        var st = { ok: true, luma: null, accent: null, resolved: false }; // до загрузки: «ок, метрики неизвестны»
+        var st = { ok: true, luma: null, accent: null, palette: null, resolved: false }; // до загрузки: «ок, метрики неизвестны»
         _imgState[url] = st;
         try {
             var im = new Image();
@@ -445,7 +579,8 @@
                     }
                     st.luma = n ? sum / n : 1;
                     st.accent = dominantAccent(d); // доминирующий цвет -> готовый акцент
-                } catch (e) { st.luma = 1; st.accent = null; } // canvas «испорчен»/ошибка — не димим
+                    st.palette = dominantPalette(d); // гармоничная палитра (для «Палитры из картинки»)
+                } catch (e) { st.luma = 1; st.accent = null; st.palette = null; } // canvas «испорчен»/ошибка — не димим
                 st.resolved = true; _fireImg(url, st); bumpStyle(); ensureStyle();
             };
             im.onerror = function () { st.ok = false; st.resolved = true; _fireImg(url, st); bumpStyle(); ensureStyle(); };
@@ -510,6 +645,62 @@
         L = Math.min(0.70, Math.max(0.55, L));
         return hslToHex(H, S, L);
     }
+    // ===== Палитра из картинки («wallust для VS Code») =====
+    // Гистограмма по 12 корзинам оттенка (вес — насыщенность^2, серые почти не влияют),
+    // топ-корзины -> до 3 гармоничных акцентов. Нормируем S/L в «читаемый» диапазон, как
+    // dominantAccent. Возвращает [] для почти серой картинки (тогда buildCSS берёт поворот
+    // оттенка основного акцента). Считается один раз на загрузку картинки (в probeImage).
+    function _normAccent(h, s, l) {
+        s = Math.min(0.85, Math.max(0.55, s)); l = Math.min(0.70, Math.max(0.55, l));
+        return hslToHex(h, s, l);
+    }
+    function dominantPalette(d) {
+        var BINS = 12, acc = [], i;
+        for (i = 0; i < BINS; i++) acc.push({ x: 0, y: 0, s: 0, w: 0, l: 0 });
+        for (i = 0; i < d.length; i += 4) {
+            var hsl = rgbToHsl(d[i], d[i + 1], d[i + 2]), w = hsl[1] * hsl[1];
+            var b = Math.min(BINS - 1, Math.floor(hsl[0] * BINS)), a = acc[b], ang = hsl[0] * 2 * Math.PI;
+            a.x += Math.cos(ang) * w; a.y += Math.sin(ang) * w; a.s += hsl[1] * w; a.l += hsl[2] * w; a.w += w;
+        }
+        acc.sort(function (A, B) { return B.w - A.w; });
+        var out = [];
+        for (i = 0; i < acc.length && out.length < 3; i++) {
+            var g = acc[i]; if (g.w < 1e-4) continue;
+            var H = Math.atan2(g.y, g.x) / (2 * Math.PI); if (H < 0) H += 1;
+            out.push(_normAccent(H, g.s / g.w, g.l / g.w));
+        }
+        return out;
+    }
+    // hex -> "r,g,b" массив и поворот оттенка (запасные accent2/accent3, когда палитры из
+    // картинки нет: почти серая картинка, набор-градиент или картинка ещё не загрузилась).
+    function hexToRgbArr(h) { return [parseInt(h.substr(1, 2), 16), parseInt(h.substr(3, 2), 16), parseInt(h.substr(5, 2), 16)]; }
+    function rotateHue(hex, dh) {
+        var c = hexToRgbArr(hex), hsl = rgbToHsl(c[0], c[1], c[2]);
+        var h = hsl[0] + dh; h -= Math.floor(h);
+        return hslToHex(h, Math.max(0.5, hsl[1]), Math.min(0.70, Math.max(0.55, hsl[2])));
+    }
+    // Три акцента для эффектов: основной (getAccent) + два спутника. При включённой «Палитре
+    // из картинки» и готовой пробе — из картинки; иначе повороты оттенка основного акцента.
+    function accentTrio(ac, edUrl) {
+        var pal = null;
+        if (cfg.fx && cfg.fx.paletteSync && edUrl) { var st = probeImage(edUrl); if (st && st.palette && st.palette.length) pal = st.palette; }
+        return [ac, (pal && pal[1]) || rotateHue(ac, 0.33), (pal && pal[2]) || rotateHue(ac, -0.33)];
+    }
+    // ===== Генеративные наборы (без картинок) =====
+    // Набор с массивом grad рисуется CSS-градиентом из палитры вместо фото. Ноль ассетов,
+    // грузится мгновенно, не зависит от путей (работает на любой машине). Пользовательская
+    // картинка зоны (cfg.setImg) всё равно перекрывает градиент — см. isGrad.
+    function isGradSet(idx) { var s = SETS[idx]; return !!(s && s.grad && s.grad.length); }
+    function hasUserImg(idx, zone) { var o = cfg.setImg && cfg.setImg[idx]; return !!(o && typeof o[zone] === "string" && o[zone]); }
+    function isGrad(idx, zone) { return isGradSet(idx) && !hasUserImg(idx, zone); }
+    // Градиент зоны: разный угол по зонам, чтобы редактор/сайдбар/панель не были одинаковыми.
+    // Палитра берётся из SETS (код, не пользовательский ввод) — CSS-инъекция невозможна.
+    function gradFor(idx, zone) {
+        var s = SETS[idx], pal = (s && s.grad) ? s.grad : [safeColor(cfg.accent, DEFAULTS.accent)];
+        var ang = zone === "editor" ? "135deg" : zone === "sidebar" ? "160deg" : "110deg";
+        return "linear-gradient(" + ang + ", " + pal.join(", ") + ")";
+    }
+
     // Коэффициент занижения яркости editor по средней светлоте картинки: тёмные/средние —
     // как есть (1.0), почти белые — до ~0.4, чтобы код не «слепило». Плавно между.
     function lumaDimFactor(luma) {
@@ -593,12 +784,22 @@
             var fit = (cfg.fit && cfg.fit[fitZone] === "contain") ? "contain" : "cover";
             return cssUrl(url) + " " + position + " / " + fit + " no-repeat";
         }
+        // Фон зоны: генеративный набор -> градиент (SETS zone-ключ), иначе картинка (zoneBg).
+        // zone — ключ SETS ("editor"|"sidebar"|"panel"); fitZone — ключ cfg.fit ("side" у сайдбара).
+        function bgFor(zone, fitZone, position) {
+            return isGrad(idx, zone) ? gradFor(idx, zone) : zoneBg(zoneUrl(idx, zone), fitZone, position);
+        }
         var edUrl = zoneUrl(idx, "editor");
-        var BG_ED = zoneBg(edUrl, "editor", "center");
-        var BG_SB = zoneBg(zoneUrl(idx, "sidebar"), "side", "center bottom");
-        var BG_PN = zoneBg(zoneUrl(idx, "panel"), "panel", "right bottom");
+        var edIsGrad = isGrad(idx, "editor");
+        var BG_ED = bgFor("editor", "editor", "center");
+        var BG_SB = bgFor("sidebar", "side", "center bottom");
+        var BG_PN = bgFor("panel", "panel", "right bottom");
         // Авто-дим editor по светлоте картинки (если включён): множитель к прозрачности.
-        var edDim = cfg.autoDim ? lumaDimFactor(probeImage(edUrl).luma) : 1;
+        // Для градиента яркость не измерить (нет пикселей) — множитель 1.
+        var edDim = (!edIsGrad && cfg.autoDim) ? lumaDimFactor(probeImage(edUrl).luma) : 1;
+        // Трио акцентов для эффектов: основной + два спутника (палитра из картинки редактора
+        // при включённой «Палитре из картинки», иначе повороты оттенка). ac2/ac3 — hex.
+        var trio = accentTrio(ac, edIsGrad ? null : edUrl), ac2 = trio[1], ac3 = trio[2];
         var out = [];
         function add() { for (var i = 0; i < arguments.length; i++) out.push(arguments[i]); }
         var TR = "  transition: opacity 0.5s ease;";
@@ -617,6 +818,9 @@
         // Акцентный цвет (ac/acRGB уже посчитаны выше) — все эффекты ниже используют
         // var(--mlbg-accent) / rgba(var(--mlbg-accent-rgb), a).
         add(rootVar);
+        // Спутники акцента как переменные (палитра эффектов). Пока их читает «живой контур»
+        // при «Палитре из картинки»; вынесены в :root для переиспользования другими эффектами.
+        add(":root { --mlbg-accent2: " + ac2 + "; --mlbg-accent3: " + ac3 + "; }");
 
         // Фильтры самой фоновой картинки (яркость/насыщенность/размытие) — своя строка на зону.
         // Числа зажаты в mergeCfg, здесь клампим повторно (defense-in-depth). Пустая строка,
@@ -636,6 +840,10 @@
             "  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;",
             "  background: " + BG_ED + ";",
             "  opacity: " + (op.editor * switchMul * edDim) + ";", TR, IMGF_ED,
+            // Параллакс: смещаем background-position за курсором (переменные ставит boot.js).
+            // Longhand после shorthand background перекрывает его позицию. Только картинка
+            // (у градиента позиции нет). cover уже с запасом перекрытия — сдвиг в ~8px не оголяет край.
+            (fx.parallax && !edIsGrad ? "  background-position: calc(50% + var(--mlbg-par-x,0px)) calc(50% + var(--mlbg-par-y,0px));" : ""),
             (fx.kenburns ? "  animation: mlbg-kenburns " + fxp.kbSpeed + "s ease-in-out infinite alternate; transform-origin:center; will-change:transform;" : ""),
             "}"
         );
@@ -654,6 +862,14 @@
         if (fx.dimOnBlur) add(
             "body.mlbg-unfocused .monaco-editor .overflow-guard > .monaco-scrollable-element::after {",
             "  opacity: " + (op.editor * switchMul * edDim * 0.35) + " !important;",
+            "}"
+        );
+        // «Поток»: при долгой непрерывной печати boot.js вешает body.mlbg-flowing — фон
+        // редактора гаснет сильнее, чем при обычном dim-on-type (~15% от текущего), и плавно
+        // (у оверлея есть transition:opacity). Снимается на паузе для чтения.
+        if (fx.flow) add(
+            "body.mlbg-flowing .monaco-editor .overflow-guard > .monaco-scrollable-element::after {",
+            "  opacity: " + (op.editor * switchMul * edDim * 0.15) + " !important;",
             "}"
         );
 
@@ -788,7 +1004,9 @@
             // По умолчанию — радужный перелив; groupBorderMono даёт «дыхание» одним акцентом.
             "  background:" + (fx.groupBorderMono
                 ? "linear-gradient(120deg,var(--mlbg-accent),rgba(var(--mlbg-accent-rgb),0.25),var(--mlbg-accent))"
-                : "linear-gradient(120deg,var(--mlbg-accent),#89b4fa,#a6e3a1,var(--mlbg-accent))") + "; background-size:300% 300%;",
+                : (fx.paletteSync
+                    ? "linear-gradient(120deg,var(--mlbg-accent)," + ac2 + "," + ac3 + ",var(--mlbg-accent))"
+                    : "linear-gradient(120deg,var(--mlbg-accent),#89b4fa,#a6e3a1,var(--mlbg-accent))")) + "; background-size:300% 300%;",
             "  animation: mlbg-flow 8s linear infinite;",
             "  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor;",
             "  mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite:exclude;",
@@ -806,8 +1024,8 @@
             ".editor-group-container.empty { position: relative; }",
             ".editor-group-container.empty::after {",
             "  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;",
-            // заставка = картинка редактора, всегда «contain»; 404 -> акцентная подложка
-            "  background: " + (probeImage(edUrl).ok ? cssUrl(edUrl) + " center / contain no-repeat" : "rgba(var(--mlbg-accent-rgb),0.14)") + "; opacity: " + (0.12 * switchMul * edDim) + ";", TR, IMGF_ED,
+            // заставка = картинка редактора, всегда «contain»; градиент -> сам градиент; 404 -> акцентная подложка
+            "  background: " + (edIsGrad ? gradFor(idx, "editor") : (probeImage(edUrl).ok ? cssUrl(edUrl) + " center / contain no-repeat" : "rgba(var(--mlbg-accent-rgb),0.14)")) + "; opacity: " + (0.12 * switchMul * edDim) + ";", TR, IMGF_ED,
             "}"
         );
 
@@ -914,6 +1132,11 @@
         autoDim: "Автоматически занижает яркость фоновой картинки редактора, если она светлая, чтобы код оставался читаемым. Не меняет саму настройку яркости.",
         img_fit: "Как вписывать фоновую картинку в зону: «Заполнить» (cover) — обрезая по краям; «Целиком» (contain) — вся картинка, могут быть поля. Для портретных/«тушь на белом» удобнее contain.",
         img_path: "Своя картинка для выбранной зоны активного набора вместо стандартной. Укажи путь file:///… (на Windows слэши прямые, буква диска в нижнем регистре). Пусто — вернётся картинка набора. В подсказке поля показан текущий путь по умолчанию.",
+        workspace_on: "Фон подбирается по открытому проекту (имени папки в заголовке окна). Включи и выбери набор — он закрепится за этим проектом; в другом проекте выбери свой. Имеет приоритет над слайдшоу и авто-набором по времени. Требует, чтобы в VS Code была открыта папка.",
+        ambient_branch: "Тонкая полоска у верхнего края окна подсказывает текущую git-ветку: на main/master — красноватая (ты на основной ветке), на остальных — зеленоватая. Ветка читается из статусбара; если индикатора git нет, полоска не появляется.",
+        allow_remote: "Разрешить фоновые картинки по http(s)-ссылкам. По умолчанию ВЫКЛ ради безопасности: тогда импортированный или чужой конфиг не сможет заставить редактор сходить в сеть за картинкой (утечка IP, факт использования плагина, возможный трекер). Включай, только если сам указываешь адрес картинки в интернете и доверяешь ему.",
+        share_code: "Короткий код всего образа (набор, яркость, эффекты, терминал, палитра) — без картинок и путей. «Скопировать» кладёт код в буфер, чтобы поделиться; вставь чужой код в поле и «Применить», чтобы примерить его вид. Свои картинки/пути и закрепления по проектам не затрагиваются.",
+        img_base: "Папка плагина, откуда берутся картинки наборов. Нужна, если перенёс плагин в другое место, а фон пропал (плитки набора с «!»). Укажи путь к папке с assets в виде vscode-file://vscode-app/… или file:///… (завершающий слэш добавится сам). Пусто — путь определяется автоматически; в подсказке поля показан текущий.",
         autotime_from: "С какого часа (0–23) считать «день» и включать дневной набор.",
         autotime_to: "До какого часа (0–23) длится «день». Если «до» меньше «с» — интервал считается через полночь (напр. день 20→6).",
         img_zone: "Для какой зоны настраиваются фильтры ниже. У каждой зоны свои значения. «Панель/терминал» — фон нижней панели за терминалом.",
@@ -956,6 +1179,9 @@
         fx_dimOnType: "Пока печатаешь, фоновая картинка редактора плавно тускнеет для читаемости и возвращается через паузу после последней клавиши.",
         fx_dimOnBlur: "Когда окно VS Code теряет фокус (переключился в браузер/мессенджер), фоновая картинка редактора плавно тускнеет, чтобы не отвлекать; при возврате фокуса возвращается.",
         fx_groupBorderMono: "Живой контур одним акцентным цветом набора вместо радужного перелива. Действует, когда включён «Живой контур».",
+        fx_paletteSync: "Радужный «живой контур» перекрашивается в палитру, извлечённую из фоновой картинки редактора (два цвета-спутника к основному акценту). Для картиночных наборов; на градиентных берётся поворот оттенка акцента.",
+        fx_parallax: "Фоновая картинка редактора едва заметно смещается вслед за курсором мыши, создавая ощущение глубины. Отключается системной настройкой «уменьшить движение».",
+        fx_flow: "«Поток»: чем дольше непрерывно печатаешь, тем сильнее гаснет фон редактора (глубже, чем «Тускнеть при печати»), а на паузе для чтения — возвращается. Помогает не отвлекаться в потоке.",
         term_font: "Шрифт терминала. В списке — совместимые по ширине Nerd-шрифты, чтобы не разъезжались колонки и сохранялись иконки oh-my-posh.",
         term_ligatures: "Слитное начертание пар символов (->, =>, != и т.п.).",
         term_cursorGlow: "Ореол-свечение вокруг курсора терминала.",
@@ -1093,20 +1319,24 @@
             var s = SETS[idx];
             // Мини-триптих: три вертикальные полоски с превью зон (редактор / сайдбар / панель),
             // чтобы собирать наборы на глаз. Полоски — фон chip как запасной вариант (editor).
-            c.style.backgroundImage = cssUrl(zoneUrl(idx, "editor"));
-            var zones = [zoneUrl(idx, "editor"), zoneUrl(idx, "sidebar"), zoneUrl(idx, "panel")];
+            // Генеративный набор — рисуем полоски градиентом (нет картинок и 404-проверки).
+            var grad = isGradSet(idx);
+            var ZK = ["editor", "sidebar", "panel"];
+            if (grad) c.style.background = gradFor(idx, "editor");
+            else c.style.backgroundImage = cssUrl(zoneUrl(idx, "editor"));
             for (var zi = 0; zi < 3; zi++) {
                 var strip = el("div",
                     "position:absolute; top:0; bottom:0; width:33.34%; left:" + (zi * 33.33) + "%;" +
                     "background-position:center; background-size:cover;" +
                     (zi ? "box-shadow:inset 1px 0 0 rgba(0,0,0,0.35);" : ""));
-                strip.style.backgroundImage = cssUrl(zones[zi]);
+                if (grad) strip.style.background = gradFor(idx, ZK[zi]);
+                else strip.style.backgroundImage = cssUrl(zoneUrl(idx, ZK[zi]));
                 c.appendChild(strip);
             }
             var num = el("span", "position:absolute; right:3px; bottom:1px; z-index:2; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.95);", label);
             c.appendChild(num);
             var nm = setName(idx); if (nm) c.title = idx + " · " + nm + " (редактор · сайдбар · панель)";
-            probeSet(idx, c);
+            if (!grad) probeSet(idx, c);
             if (!active) {
                 c.addEventListener("mouseenter", function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; previewSet(mode); });
                 c.addEventListener("mouseleave", function () { c.style.borderColor = "var(--mlp-border-soft,rgba(205,214,244,0.16))"; previewEnd(); });
@@ -1118,7 +1348,14 @@
         c.addEventListener("click", function () {
             _previewPrev = null; // фиксируем выбор: mouseleave после клика не откатит фон обратно
             if (mode === "random") sessionRandomIndex = pickRandom();
-            cfg.mode = mode; applyFade(); refreshPanel();
+            cfg.mode = mode;
+            // «Фон по проекту» включён и выбран конкретный набор — закрепляем его за текущей папкой,
+            // чтобы этот проект и дальше открывался с этим набором.
+            if (cfg.autoWorkspace && /^\d+$/.test(mode)) {
+                var wn = workspaceName();
+                if (wn && DANGEROUS_KEYS.indexOf(wn) < 0) { if (!cfg.workspaceSets) cfg.workspaceSets = {}; cfg.workspaceSets[wn] = mode; }
+            }
+            applyFade(); refreshPanel();
         });
         keyActivate(c, isSet ? ("Набор " + label + (setName(parseInt(mode, 10)) ? " — " + setName(parseInt(mode, 10)) : "")) : "Случайный набор");
         c.setAttribute("aria-pressed", active ? "true" : "false"); // какой набор выбран — для скринридера
@@ -1318,6 +1555,65 @@
         return makeToggle(function () { return cfg.slideshow.on; }, function (v) { cfg.slideshow.on = v; slideReset(); apply(); }, "Включить", INFO.slide_on);
     }
 
+    // Поле «Папка плагина» (cfg.imgBase): база для относительных путей картинок набора.
+    // Позволяет перенести плагин без правки исходника и пересборки. Пусто -> авто-путь (IMG),
+    // показанный в placeholder. Значение уходит в url('...') через cssUrl (инъекция исключена).
+    function makeImgBaseField() {
+        var wrap = el("div", ST.row);
+        wrap.appendChild(el("span", mutedLabel(92), "Папка"));
+        var ip = el("input", fieldStyle(" padding:3px 6px; font-size:11px;"));
+        ip.type = "text"; ip.maxLength = 512;
+        ip.value = cfg.imgBase || "";
+        ip.placeholder = IMG; // авто-определённый путь как подсказка
+        function commit() {
+            cfg.imgBase = safeBase(ip.value);
+            ip.value = cfg.imgBase; // показать нормализованный вид (с завершающим слэшем)
+            apply(); refreshPanel(); // плитки наборов перепроверят загрузку по новому пути
+        }
+        ip.addEventListener("change", commit);
+        ip.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commit(); ip.blur(); } });
+        wrap.appendChild(ip);
+        var d = infoDot(INFO.img_base); if (d) wrap.appendChild(d);
+        return wrap;
+    }
+    // Тумблер «Разрешить сетевые картинки» (cfg.allowRemoteImages). По умолчанию выкл —
+    // защита от того, что импортированный/чужой конфиг заставит редактор ходить в сеть.
+    function makeRemoteImagesToggle() {
+        return makeToggle(function () { return !!cfg.allowRemoteImages; },
+            function (v) { cfg.allowRemoteImages = v; apply(); refreshPanel(); }, "Разрешить сетевые картинки", INFO.allow_remote);
+    }
+
+    // ==== Фон по проекту (cfg.autoWorkspace / cfg.workspaceSets) ====
+    // Тумблер + имя текущего проекта + возможность «забыть» закрепление. Само закрепление
+    // набора за проектом происходит кликом по набору, когда режим включён (см. makeChip).
+    function makeWorkspaceUI() {
+        var box = el("div", null);
+        box.appendChild(makeToggle(function () { return !!cfg.autoWorkspace; },
+            function (v) { cfg.autoWorkspace = v; apply(); refreshPanel(); }, "Включить", INFO.workspace_on));
+        var name = workspaceName();
+        box.appendChild(el("div", "padding:4px 3px; color:var(--mlp-faint,#6c7086); font-size:11px;",
+            name ? ("Проект: " + name) : "Проект не определён — открыта ли папка?"));
+        var pinned = (name && cfg.workspaceSets) ? cfg.workspaceSets[name] : null;
+        if (name && pinned != null) {
+            box.appendChild(el("div", "padding:2px 3px 4px; color:var(--mlp-muted,#a6adc8); font-size:11px;",
+                "Закреплён набор " + pinned + (setName(parseInt(pinned, 10)) ? " · " + setName(parseInt(pinned, 10)) : "")));
+            var forget = el("div", "margin-top:2px; padding:6px; text-align:center; border-radius:7px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.12); border:1px solid rgba(var(--mlbg-accent-rgb),0.28);", "Забыть закрепление за проектом");
+            forget.addEventListener("click", function () { if (cfg.workspaceSets) delete cfg.workspaceSets[name]; apply(); refreshPanel(); });
+            keyActivate(forget, "Забыть закрепление набора за проектом");
+            box.appendChild(forget);
+        } else if (name && cfg.autoWorkspace) {
+            box.appendChild(el("div", "padding:2px 3px; color:var(--mlp-faint,#6c7086); font-size:11px;",
+                "Выбери набор выше — он закрепится за этим проектом."));
+        }
+        return box;
+    }
+    // Тумблер полоски-индикатора git-ветки (cfg.ambientBranch). ensureBranchStrip — из boot.js
+    // (в общей области видимости после склейки), зовём для мгновенной реакции на переключение.
+    function makeAmbientBranchToggle() {
+        return makeToggle(function () { return !!cfg.ambientBranch; },
+            function (v) { cfg.ambientBranch = v; apply(); try { ensureBranchStrip(); } catch (e) {} }, "Полоска-индикатор ветки", INFO.ambient_branch);
+    }
+
     // ==== Мастер-выключатель фона и эффектов (cfg.enabled) ====
     // Заметный тумблер вверху панели: выкл — «ванильный» VS Code, настройки сохранены.
     function makeMasterToggle() {
@@ -1449,6 +1745,7 @@
             rd.onload = function () {
                 try {
                     var parsed = safeParse(String(rd.result));
+                    backupCfg(); // текущие настройки -> резерв, чтобы неудачный импорт можно было откатить
                     cfg = mergeCfg(parsed); // mergeCfg санитизирует всё содержимое
                     sessionRandomIndex = null; // сбросить выбор random из прошлой сессии — переберётся под новый конфиг
                     apply(); refreshPanel();
@@ -1522,6 +1819,7 @@
                     if (del.contains(e.target)) return; // клик по «×» обрабатывается отдельно
                     var cur = loadPresets(); if (!(name in cur)) return;
                     var keepUi = cfg.ui;                // пресет меняет дизайн, не трогая положение панели
+                    backupCfg();                        // прежний вид -> резерв (можно откатить применение пресета)
                     cfg = mergeCfg(cur[name]); cfg.ui = keepUi;
                     sessionRandomIndex = null;          // random переберётся под новый конфиг
                     apply(); refreshPanel();
@@ -1539,6 +1837,75 @@
             });
             box.appendChild(list);
         }
+        return box;
+    }
+
+    // Восстановление из авто-резерва: возвращает конфиг, бывший до последней замены
+    // (импорт/сброс/пресет). Текущий cfg при этом сам уходит в резерв — поэтому «Восстановить»
+    // работает как переключатель между «до» и «после» (нажал не туда — нажми ещё раз).
+    function restoreBackup() {
+        var b = readBackup();
+        if (!b) { toast("Резерва нет", false); return; }
+        backupCfg();                 // текущее -> резерв (обратный откат тем же действием)
+        cfg = b; sessionRandomIndex = null;
+        apply(); refreshPanel();
+        toast("Восстановлены прежние настройки");
+    }
+
+    // ===== Шаринг образа коротким кодом =====
+    // Кодируем ТОЛЬКО «внешний вид» (без картинок, путей и личных привязок) в компактный
+    // base64-код, которым удобно поделиться. Применение чужого кода идёт через mergeCfg (та же
+    // санитизация, что и импорт), а машинно-зависимое (свои картинки, путь плагина, привязки к
+    // проектам) сохраняется от текущего конфига — чужой код их не трогает.
+    var SHARE_KEYS = ["mode", "accent", "setAccent", "setName", "baseOp", "setOp",
+        "fx", "fxp", "imgfx", "fit", "term", "slideshow", "autoTime", "autoDim", "enabled"];
+    var SHARE_KEEP = ["ui", "imgBase", "workspaceSets", "autoWorkspace", "ambientBranch", "setImg"]; // не трогаем при применении кода
+    // UTF-8-безопасный base64 (в именах наборов бывает кириллица — «сырой» btoa на ней падает).
+    function b64enc(s) { try { return btoa(unescape(encodeURIComponent(s))); } catch (e) { return ""; } }
+    function b64dec(s) { try { return decodeURIComponent(escape(atob(s))); } catch (e) { return ""; } }
+    function shareEncode() {
+        var o = {};
+        for (var i = 0; i < SHARE_KEYS.length; i++) { var k = SHARE_KEYS[i]; if (k in cfg) o[k] = cfg[k]; }
+        return b64enc(JSON.stringify(o));
+    }
+    function shareDecode(code) {
+        var json = b64dec(String(code).trim()); if (!json) return null;
+        try { var o = safeParse(json); return (o && typeof o === "object") ? o : null; } catch (e) { return null; }
+    }
+    function applyShareCode(code) {
+        var o = shareDecode(code);
+        if (!o) { toast("Код не распознан", false); return false; }
+        backupCfg(); // текущее -> резерв (применение чужого кода можно откатить)
+        var keep = {}; for (var i = 0; i < SHARE_KEEP.length; i++) keep[SHARE_KEEP[i]] = cfg[SHARE_KEEP[i]];
+        cfg = mergeCfg(o); // санитизация всего содержимого кода
+        for (var j = 0; j < SHARE_KEEP.length; j++) cfg[SHARE_KEEP[j]] = keep[SHARE_KEEP[j]]; // вернуть машинно-зависимое
+        sessionRandomIndex = null;
+        apply(); refreshPanel();
+        toast("Образ применён из кода");
+        return true;
+    }
+
+    // Секция «Поделиться»: копировать код текущего образа + поле для чужого кода и «Применить».
+    function makeShareUI() {
+        var box = el("div", null);
+        var copyB = makeIoBtn("Скопировать код образа");
+        copyB.style.marginBottom = "6px";
+        copyB.addEventListener("click", function () {
+            var code = shareEncode();
+            toast(code && copyText(code) ? "Код образа скопирован в буфер" : "Не удалось сформировать код", !!code);
+        });
+        box.appendChild(copyB);
+        var row = el("div", ST.row);
+        var ip = el("input", fieldStyle(" padding:3px 6px; font-size:11px;"));
+        ip.type = "text"; ip.placeholder = "Вставь код образа"; ip.maxLength = 8192;
+        var applyB = el("div", "flex:0 0 auto; padding:5px 10px; border-radius:7px; cursor:pointer; font-weight:600; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.16); border:1px solid rgba(var(--mlbg-accent-rgb),0.32);", "Применить");
+        function doApply() { if (applyShareCode(ip.value)) ip.value = ""; }
+        applyB.addEventListener("click", doApply);
+        keyActivate(applyB, "Применить код образа");
+        ip.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); doApply(); } });
+        row.appendChild(ip); row.appendChild(applyB);
+        var d = infoDot(INFO.share_code); if (d) row.appendChild(d);
+        box.appendChild(row);
         return box;
     }
 
@@ -1764,6 +2131,17 @@
         secImg.appendChild(makeAccentColor());
         secImg.appendChild(makeImgFilters());
 
+        // Папка плагина: база для картинок набора. Нужна при переносе плагина (иначе фон
+        // пропадает — плитки набора с «!»). Отдельная секция, чтобы не путать с путём картинки.
+        var secBase = collapsible(p, "Папка плагина", "Откуда брать картинки наборов. Меняй, если перенёс плагин и фон пропал. Пусто — путь определяется автоматически.");
+        secBase.appendChild(makeImgBaseField());
+        secBase.appendChild(makeRemoteImagesToggle());
+
+        // Контекст: фон под открытый проект + индикатор git-ветки (оба читают заголовок/статусбар).
+        var secWs = collapsible(p, "По проекту", "Набор под открытый проект и полоска-индикатор git-ветки. Держатся на чтении заголовка и статусбара VS Code.");
+        secWs.appendChild(makeWorkspaceUI());
+        secWs.appendChild(makeAmbientBranchToggle());
+
         // Сила эффектов
         var secFxp = collapsible(p, "Сила эффектов", "Числовые параметры эффектов из списка ниже.");
         PARAMS.forEach(function (d) { secFxp.appendChild(makeParamSlider(d)); });
@@ -1792,6 +2170,10 @@
         var secPreset = collapsible(p, "Пресеты", "Сохранённые образы: весь вид под именем, переключение одним кликом.");
         secPreset.appendChild(makePresetsUI());
 
+        // Поделиться образом коротким кодом (без картинок/путей)
+        var secShare = collapsible(p, "Поделиться", "Короткий код всего образа для обмена: скопируй свой или примени чужой. Картинки и пути не входят.");
+        secShare.appendChild(makeShareUI());
+
         // экспорт / импорт
         var io = el("div", "display:flex; gap:8px; margin-top:12px;");
         var expB = makeIoBtn("⬇ Экспорт"); expB.addEventListener("click", function () { exportCfg(); });
@@ -1799,12 +2181,24 @@
         io.appendChild(expB); io.appendChild(impB);
         p.appendChild(io);
 
+        // Восстановление из авто-резерва: появляется, когда резерв есть (после импорта/сброса/
+        // пресета). Возвращает конфиг, бывший до последней такой замены (можно нажать повторно).
+        if (hasBackup()) {
+            var restB = el("div", "margin-top:8px; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", "Восстановить прежние настройки");
+            restB.addEventListener("mouseenter", function () { restB.style.background = "rgba(137,180,250,0.26)"; });
+            restB.addEventListener("mouseleave", function () { restB.style.background = "rgba(137,180,250,0.14)"; });
+            restB.addEventListener("click", function () { restoreBackup(); });
+            keyActivate(restB, "Восстановить прежние настройки из резерва");
+            p.appendChild(restB);
+        }
+
         // сброс
         var reset = el("div", "margin-top:8px; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", "Сбросить к дефолту");
         reset.addEventListener("mouseenter", function () { reset.style.background = "rgba(var(--mlbg-accent-rgb),0.26)"; });
         reset.addEventListener("mouseleave", function () { reset.style.background = "rgba(var(--mlbg-accent-rgb),0.14)"; });
         reset.addEventListener("click", function () {
             var keepMode = cfg.mode, keepUi = cfg.ui; // сброс дизайна, но не положения/свёрнутости панели
+            backupCfg();                              // прежние настройки -> резерв (сброс можно откатить)
             cfg = clone(DEFAULTS); cfg.mode = keepMode; cfg.ui = keepUi;
             apply(); refreshPanel();
         });
@@ -2065,6 +2459,7 @@
         try { if (!_themeWatched) _themeWatched = watchTheme(); } catch (e) {}
         try { ensureStyle(); } catch (e) {}
         try { ensureStatusBar(); } catch (e) {}
+        try { ensureBranchStrip(); } catch (e) {}
         syncWidgets();
     }
     // Смена темы VS Code (класс vs/vs-dark на .monaco-workbench) не меняет ревизию стиля,
@@ -2096,7 +2491,7 @@
             // Частицы уже останавливаются отдельно (loopParticles видит document.hidden).
             if (document.hidden) return;
             _tick++;
-            ensureStatusBar(); ensureClock(); ensurePomodoro(); // дешёвые проверки наличия
+            ensureStatusBar(); ensureClock(); ensurePomodoro(); ensureBranchStrip(); // дешёвые проверки наличия
             tickClock(); tickPomo(); timeTick(); slideTick();   // обновления по времени
             if (_tick % 3 === 0) heal();                         // самолечение раз в 3с
         } catch (e) {}
@@ -2137,21 +2532,74 @@
     // нативные input-события на КАЖДЫЙ ввод текста (навигация стрелками их не вызывает —
     // поэтому не тускнеем от простого перемещения). На ввод вешаем body.mlbg-typing (CSS в
     // buildCSS опускает прозрачность оверлея редактора) и снимаем класс через паузу простоя.
-    var _typingTimer = 0;
+    // _flowCount копит непрерывные нажатия; после порога — режим «поток» (fx.flow).
+    var _typingTimer = 0, _flowCount = 0;
     function onEditorType(e) {
         try {
-            if (!cfg.enabled || !cfg.fx.dimOnType) return;
+            if (!cfg.enabled || (!cfg.fx.dimOnType && !cfg.fx.flow)) return;
             var t = e.target;
             if (!t || !t.classList || !t.classList.contains("inputarea")) return;
-            if (document.body && document.body.classList) document.body.classList.add("mlbg-typing");
+            var cl = document.body && document.body.classList;
+            if (cl && cfg.fx.dimOnType) cl.add("mlbg-typing");
+            if (cl && cfg.fx.flow) {
+                _flowCount++;
+                if (_flowCount >= 12) cl.add("mlbg-flowing"); // ~12 нажатий подряд без паузы -> «поток»
+            }
             if (_typingTimer) clearTimeout(_typingTimer);
             _typingTimer = setTimeout(function () {
-                _typingTimer = 0;
-                try { document.body.classList.remove("mlbg-typing"); } catch (er) {}
+                _typingTimer = 0; _flowCount = 0; // пауза на чтение — сбрасываем поток и подсветку
+                try { var c = document.body && document.body.classList; if (c) { c.remove("mlbg-typing"); c.remove("mlbg-flowing"); } } catch (er) {}
             }, 1400);
         } catch (err) {}
     }
     document.addEventListener("input", onEditorType, true);
+
+    // ===== Параллакс фона по курсору (fx.parallax) =====
+    // Двигаем CSS-переменные --mlbg-par-x/y на <html> вслед за мышью; CSS (buildCSS) смещает
+    // background-position оверлея редактора, создавая глубину. Коалесим в один кадр (rAF).
+    // Уважаем «уменьшить движение» и не работаем при скрытом окне/выключенном фоне.
+    var _parRaf = 0, _parX = 0, _parY = 0;
+    function _reduceMotion() { try { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) { return false; } }
+    function onParallax(e) {
+        if (!cfg.enabled || !cfg.fx.parallax || document.hidden || _reduceMotion()) return;
+        var w = window.innerWidth || 1, h = window.innerHeight || 1;
+        _parX = (0.5 - e.clientX / w) * 16; // ±8px «навстречу» курсору — ощущение глубины
+        _parY = (0.5 - e.clientY / h) * 16;
+        if (_parRaf) return;
+        _parRaf = requestAnimationFrame(function () {
+            _parRaf = 0;
+            try { var s = document.documentElement.style; s.setProperty("--mlbg-par-x", _parX.toFixed(1) + "px"); s.setProperty("--mlbg-par-y", _parY.toFixed(1) + "px"); } catch (er) {}
+        });
+    }
+    document.addEventListener("mousemove", onParallax, true);
+
+    // ===== Индикатор git-ветки (ambientBranch) =====
+    // Тонкая полоска у верхнего края окна: на main/master — красноватая (ты на основной ветке),
+    // на прочих — зеленоватая. Имя ветки берём из статусбара (иконка git-branch) — API для этого
+    // в custom-css нет, поэтому читаем DOM; если индикатора git нет, полоски тоже нет.
+    var BRANCH_ID = "moonlight-branch";
+    function gitBranch() {
+        try {
+            var wb = document.querySelector(".monaco-workbench"); if (!wb) return "";
+            var ico = wb.querySelector(".statusbar-item .codicon-git-branch");
+            if (!ico) return "";
+            var item = ico.closest ? ico.closest(".statusbar-item") : null;
+            var txt = (item && item.textContent) || "";
+            return txt.replace(/\s+/g, " ").trim().slice(0, 80);
+        } catch (e) { return ""; }
+    }
+    function ensureBranchStrip() {
+        var strip = document.getElementById(BRANCH_ID);
+        var b = (cfg.enabled && cfg.ambientBranch) ? gitBranch() : "";
+        if (!b) { if (strip && strip.remove) strip.remove(); return; }
+        if (!strip) {
+            strip = document.createElement("div"); strip.id = BRANCH_ID;
+            strip.style.cssText = "position:fixed; top:0; left:0; right:0; height:2px; z-index:100002; pointer-events:none; transition:background 0.4s ease;";
+            (document.body || document.documentElement).appendChild(strip);
+        }
+        strip.style.background = /^(main|master)$/i.test(b) ? "rgba(243,139,168,0.9)" : "rgba(166,227,161,0.85)";
+        strip.title = "git: " + b;
+    }
 
     // ===== Приглушение фона при потере фокуса окном (fx.dimOnBlur) =====
     // Вешаем/снимаем body.mlbg-unfocused на blur/focus окна; CSS-правило (buildCSS) действует,
@@ -2185,6 +2633,6 @@
     } catch (e) {}
     heal();
 
-    console.log("[MoonLight custom-bg] v14 installed (presets + dim-on-type + set rename + light panel), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
+    console.log("[MoonLight custom-bg] v14 installed (gradient sets + per-project + palette + branch strip + parallax + flow + share), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
 
 })();
