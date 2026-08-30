@@ -354,6 +354,22 @@ sandbox.cfg.setImg = { }; sandbox.cfg.setImg[gradIdx] = { editor: "file:///d:/o.
 contains(build(), "o.jpg", "генеративный набор: своя картинка зоны перекрывает градиент");
 sandbox.cfg.setImg = {}; sandbox.cfg.mode = "0";
 
+// ---- 17a2. Генеративных наборов теперь 6 (12–17), у зон разная форма градиента ----
+ok(sandbox.SETS.length === 18, "SETS: всего 18 наборов (12 фото + 6 генеративных)");
+var gradCount = 0;
+for (var gj = 0; gj < sandbox.SETS.length; gj++) if (sandbox.isGradSet(gj)) gradCount++;
+ok(gradCount === 6, "isGradSet: ровно 6 генеративных наборов");
+ok(sandbox.gradFor(gradIdx, "editor").indexOf("linear-gradient(135deg") === 0 &&
+    sandbox.gradFor(gradIdx, "panel").indexOf("radial-gradient(") === 0,
+    "gradFor: у зон разная форма (editor — диагональ, panel — радиальный)");
+
+// ---- 17a3. Превью при наведении: previewMode перебивает cfg.mode/фон по проекту ----
+sandbox.cfg.mode = "0"; sandbox.previewMode = 3;
+ok(sandbox.activeIndex() === 3, "previewMode: активным считается примеряемый набор");
+contains(build(), "--mlbg-accent: #94e2d5", "previewMode: CSS собирается под примеряемый набор");
+sandbox.previewMode = null;
+ok(sandbox.activeIndex() === 0, "previewMode=null: возвращается обычный набор (cfg.mode)");
+
 // ---- 17b. Палитра из картинки: живой контур берёт цвета палитры ----
 sandbox.cfg.mode = "0"; sandbox.cfg.enabled = true;
 sandbox.cfg.fx.groupBorder = true; sandbox.cfg.fx.groupBorderMono = false;

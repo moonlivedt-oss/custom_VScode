@@ -179,4 +179,4 @@ try {
 } catch (e) {}
 heal();
 
-console.log("[MoonLight custom-bg] v14 installed (gradient sets + per-project + palette + branch strip + parallax + flow + share), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
+console.log("[MoonLight custom-bg] v15 installed (18 sets: 6 gradient + smooth preview + per-zone gradients + per-project + palette + branch strip + parallax + flow + share), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());

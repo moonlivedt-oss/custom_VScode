@@ -62,7 +62,9 @@
         { name: "Аврора", grad: ["#1e1e2e", "#89b4fa", "#94e2d5"], accent: "#89b4fa" }, // 12
         { name: "Закат",  grad: ["#1e1e2e", "#f38ba8", "#fab387"], accent: "#f38ba8" }, // 13
         { name: "Неон",   grad: ["#11111b", "#cba6f7", "#f5c2e7"], accent: "#cba6f7" }, // 14
-        { name: "Мох",    grad: ["#181825", "#a6e3a1", "#94e2d5"], accent: "#a6e3a1" }  // 15
+        { name: "Мох",    grad: ["#181825", "#a6e3a1", "#94e2d5"], accent: "#a6e3a1" }, // 15
+        { name: "Сакура", grad: ["#1e1e2e", "#f5c2e7", "#eba0ac"], accent: "#f5c2e7" }, // 16
+        { name: "Янтарь", grad: ["#1e1e2e", "#fab387", "#f9e2af"], accent: "#fab387" }  // 17
     ];
     // Короткое имя набора по индексу (для статусбара/тултипов). Приоритет — имя,
     // заданное пользователем в панели (cfg.setName[idx]), затем «родное» имя из SETS,
@@ -480,7 +482,14 @@
         }
         return null;
     }
+    // previewMode — индекс набора, «примеряемого» при наведении на его чип в панели
+    // (см. previewSet/previewEnd в controls.js). Пока он задан, весь UI считает активным
+    // именно его — поэтому превью работает и в режиме «случайно», и при «фоне по проекту»,
+    // и не портит сохранённый cfg.mode. null — обычная логика выбора набора.
+    var previewMode = null;
     function activeIndex() {
+        // Превью при наведении важнее всего — иначе оно не перебило бы «фон по проекту».
+        if (previewMode !== null && previewMode >= 0 && previewMode < SETS.length) return previewMode;
         // «Фон по проекту» имеет приоритет над mode/слайдшоу/временем суток.
         var wi = workspaceIndex();
         if (wi !== null) return wi;
@@ -693,12 +702,15 @@
     function isGradSet(idx) { var s = SETS[idx]; return !!(s && s.grad && s.grad.length); }
     function hasUserImg(idx, zone) { var o = cfg.setImg && cfg.setImg[idx]; return !!(o && typeof o[zone] === "string" && o[zone]); }
     function isGrad(idx, zone) { return isGradSet(idx) && !hasUserImg(idx, zone); }
-    // Градиент зоны: разный угол по зонам, чтобы редактор/сайдбар/панель не были одинаковыми.
+    // Градиент зоны: у каждой зоны своя форма, чтобы редактор/сайдбар/панель не были
+    // одинаковыми — редактор идёт по диагонали, сайдбар той же палитрой в обратном порядке
+    // (тёмный край смещён к другому углу), панель — радиальный из нижнего правого угла.
     // Палитра берётся из SETS (код, не пользовательский ввод) — CSS-инъекция невозможна.
     function gradFor(idx, zone) {
         var s = SETS[idx], pal = (s && s.grad) ? s.grad : [safeColor(cfg.accent, DEFAULTS.accent)];
-        var ang = zone === "editor" ? "135deg" : zone === "sidebar" ? "160deg" : "110deg";
-        return "linear-gradient(" + ang + ", " + pal.join(", ") + ")";
+        if (zone === "sidebar") return "linear-gradient(160deg, " + pal.slice().reverse().join(", ") + ")";
+        if (zone === "panel")   return "radial-gradient(120% 120% at 100% 100%, " + pal.join(", ") + ")";
+        return "linear-gradient(135deg, " + pal.join(", ") + ")";
     }
 
     // Коэффициент занижения яркости editor по средней светлоте картинки: тёмные/средние —
@@ -1068,11 +1080,18 @@
         if (_applyRaf) return;
         _applyRaf = requestAnimationFrame(function () { _applyRaf = 0; apply(); });
     }
-    function applyFade() {
-        saveCfg(); updateLabel(); syncWidgets();
-        // switchMul влияет на CSS -> бампим ревизию на каждой фазе, иначе fade-in не пересоберётся.
+    // Плавная смена фона: гасим оверлеи зон (switchMul=0), затем в следующем кадре
+    // возвращаем (switchMul=1). У оверлеев есть transition:opacity, поэтому новый набор
+    // не «прыгает», а мягко проступает. Только CSS — без saveCfg/подписей; используется
+    // и сменой набора (applyFade), и предпросмотром при наведении (previewSet/previewEnd).
+    // switchMul влияет на CSS -> бампим ревизию на каждой фазе, иначе fade-in не пересоберётся.
+    function fadeSwap() {
         switchMul = 0; bumpStyle(); ensureStyle();
         requestAnimationFrame(function () { switchMul = 1; bumpStyle(); ensureStyle(); });
+    }
+    function applyFade() {
+        saveCfg(); updateLabel(); syncWidgets();
+        fadeSwap();
     }
 
     // ===================== src/ui/dom.js =====================
@@ -1273,18 +1292,35 @@
     }
 
     // ===== Предпросмотр набора при наведении =====
-    // Наведение на чип временно применяет его набор к фону (и акценту), НЕ сохраняя cfg,
-    // чтобы «примерить» набор без клика. Уход мышью возвращает прежний. Меняем только CSS
-    // (bumpStyle + ensureStyle), без saveCfg/updateLabel — localStorage и подписи не трогаем.
-    var _previewPrev = null;
-    function previewSet(mode) {
+    // Наведение на чип «примеряет» его набор к фону и акценту, не сохраняя cfg. Работает
+    // через previewMode (см. state.js): activeIndex начинает возвращать превью-набор, поэтому
+    // сохранённый cfg.mode не трогается, а превью работает и в «случайно», и при «фоне по
+    // проекту». Смена мягкая (fadeSwap — фон проступает плавно, не прыгает).
+    //
+    // Наведение дебаунсим (_previewDelay): пока курсор просто проезжает по ряду чипов, превью
+    // не дёргается на каждом; оно включается, только если задержаться на чипе. previewCancel
+    // снимает и отложенное, и активное превью (нужно на клике и при закрытии панели, т.к.
+    // удалённый из DOM чип не всегда шлёт mouseleave — иначе превью «залипло» бы).
+    var _previewTimer = 0, _previewDelay = 70;
+    function previewSet(idx) {
         if (!cfg.enabled) return;                 // фон выключен — превью не видно, не дёргаем CSS
-        if (_previewPrev === null) _previewPrev = cfg.mode;
-        cfg.mode = mode; bumpStyle(); ensureStyle();
+        if (previewMode === idx) return;          // уже показываем этот набор
+        if (_previewTimer) clearTimeout(_previewTimer);
+        _previewTimer = setTimeout(function () {
+            _previewTimer = 0; previewMode = idx; fadeSwap();
+        }, _previewDelay);
     }
     function previewEnd() {
-        if (_previewPrev === null) return;
-        cfg.mode = _previewPrev; _previewPrev = null; bumpStyle(); ensureStyle();
+        if (_previewTimer) { clearTimeout(_previewTimer); _previewTimer = 0; }
+        if (previewMode === null) return;
+        previewMode = null; fadeSwap();
+    }
+    // Снять превью без плавного возврата (курсор ушёл с чипа насовсем): используется на
+    // клике (фиксируем выбор — mouseleave после клика не должен ничего откатывать) и при
+    // закрытии панели. applyFade/refreshPanel далее сами перерисуют фон под выбранный набор.
+    function previewCancel() {
+        if (_previewTimer) { clearTimeout(_previewTimer); _previewTimer = 0; }
+        previewMode = null;
     }
 
     // health-check: помечаем чип, если картинка набора не грузится. Не грузим картинки сами —
@@ -1338,7 +1374,7 @@
             var nm = setName(idx); if (nm) c.title = idx + " · " + nm + " (редактор · сайдбар · панель)";
             if (!grad) probeSet(idx, c);
             if (!active) {
-                c.addEventListener("mouseenter", function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; previewSet(mode); });
+                c.addEventListener("mouseenter", function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; previewSet(idx); });
                 c.addEventListener("mouseleave", function () { c.style.borderColor = "var(--mlp-border-soft,rgba(205,214,244,0.16))"; previewEnd(); });
             }
         } else if (!active) {
@@ -1346,7 +1382,7 @@
             c.addEventListener("mouseleave", function () { c.style.background = "transparent"; });
         }
         c.addEventListener("click", function () {
-            _previewPrev = null; // фиксируем выбор: mouseleave после клика не откатит фон обратно
+            previewCancel(); // фиксируем выбор: mouseleave после клика не откатит фон обратно
             if (mode === "random") sessionRandomIndex = pickRandom();
             cfg.mode = mode;
             // «Фон по проекту» включён и выбран конкретный набор — закрепляем его за текущей папкой,
@@ -2016,6 +2052,7 @@
     var panelCleanup = null, panelPrevFocus = null;
     function closePanel() {
         hideInfo();
+        try { previewEnd(); } catch (e) {} // снять «залипшее» превью и вернуть реальный набор: удалённый чип может не прислать mouseleave
         if (panelCleanup) { try { panelCleanup(); } catch (e) {} panelCleanup = null; }
         var ex = document.getElementById(PANEL_ID); if (ex) ex.remove();
         // Вернуть фокус туда, откуда открыли панель (обычно кнопка BG) — для клавиатуры.
@@ -2663,6 +2700,6 @@
     } catch (e) {}
     heal();
 
-    console.log("[MoonLight custom-bg] v14 installed (gradient sets + per-project + palette + branch strip + parallax + flow + share), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
+    console.log("[MoonLight custom-bg] v15 installed (18 sets: 6 gradient + smooth preview + per-zone gradients + per-project + palette + branch strip + parallax + flow + share), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
 
 })();

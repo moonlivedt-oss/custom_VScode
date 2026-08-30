@@ -4,6 +4,7 @@
 var panelCleanup = null, panelPrevFocus = null;
 function closePanel() {
     hideInfo();
+    try { previewEnd(); } catch (e) {} // снять «залипшее» превью и вернуть реальный набор: удалённый чип может не прислать mouseleave
     if (panelCleanup) { try { panelCleanup(); } catch (e) {} panelCleanup = null; }
     var ex = document.getElementById(PANEL_ID); if (ex) ex.remove();
     // Вернуть фокус туда, откуда открыли панель (обычно кнопка BG) — для клавиатуры.

@@ -144,12 +144,15 @@ function accentTrio(ac, edUrl) {
 function isGradSet(idx) { var s = SETS[idx]; return !!(s && s.grad && s.grad.length); }
 function hasUserImg(idx, zone) { var o = cfg.setImg && cfg.setImg[idx]; return !!(o && typeof o[zone] === "string" && o[zone]); }
 function isGrad(idx, zone) { return isGradSet(idx) && !hasUserImg(idx, zone); }
-// Градиент зоны: разный угол по зонам, чтобы редактор/сайдбар/панель не были одинаковыми.
+// Градиент зоны: у каждой зоны своя форма, чтобы редактор/сайдбар/панель не были
+// одинаковыми — редактор идёт по диагонали, сайдбар той же палитрой в обратном порядке
+// (тёмный край смещён к другому углу), панель — радиальный из нижнего правого угла.
 // Палитра берётся из SETS (код, не пользовательский ввод) — CSS-инъекция невозможна.
 function gradFor(idx, zone) {
     var s = SETS[idx], pal = (s && s.grad) ? s.grad : [safeColor(cfg.accent, DEFAULTS.accent)];
-    var ang = zone === "editor" ? "135deg" : zone === "sidebar" ? "160deg" : "110deg";
-    return "linear-gradient(" + ang + ", " + pal.join(", ") + ")";
+    if (zone === "sidebar") return "linear-gradient(160deg, " + pal.slice().reverse().join(", ") + ")";
+    if (zone === "panel")   return "radial-gradient(120% 120% at 100% 100%, " + pal.join(", ") + ")";
+    return "linear-gradient(135deg, " + pal.join(", ") + ")";
 }
 
 // Коэффициент занижения яркости editor по средней светлоте картинки: тёмные/средние —
@@ -519,9 +522,16 @@ function applyThrottled() {
     if (_applyRaf) return;
     _applyRaf = requestAnimationFrame(function () { _applyRaf = 0; apply(); });
 }
-function applyFade() {
-    saveCfg(); updateLabel(); syncWidgets();
-    // switchMul влияет на CSS -> бампим ревизию на каждой фазе, иначе fade-in не пересоберётся.
+// Плавная смена фона: гасим оверлеи зон (switchMul=0), затем в следующем кадре
+// возвращаем (switchMul=1). У оверлеев есть transition:opacity, поэтому новый набор
+// не «прыгает», а мягко проступает. Только CSS — без saveCfg/подписей; используется
+// и сменой набора (applyFade), и предпросмотром при наведении (previewSet/previewEnd).
+// switchMul влияет на CSS -> бампим ревизию на каждой фазе, иначе fade-in не пересоберётся.
+function fadeSwap() {
     switchMul = 0; bumpStyle(); ensureStyle();
     requestAnimationFrame(function () { switchMul = 1; bumpStyle(); ensureStyle(); });
+}
+function applyFade() {
+    saveCfg(); updateLabel(); syncWidgets();
+    fadeSwap();
 }

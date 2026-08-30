@@ -33,7 +33,14 @@ function workspaceIndex() {
     }
     return null;
 }
+// previewMode — индекс набора, «примеряемого» при наведении на его чип в панели
+// (см. previewSet/previewEnd в controls.js). Пока он задан, весь UI считает активным
+// именно его — поэтому превью работает и в режиме «случайно», и при «фоне по проекту»,
+// и не портит сохранённый cfg.mode. null — обычная логика выбора набора.
+var previewMode = null;
 function activeIndex() {
+    // Превью при наведении важнее всего — иначе оно не перебило бы «фон по проекту».
+    if (previewMode !== null && previewMode >= 0 && previewMode < SETS.length) return previewMode;
     // «Фон по проекту» имеет приоритет над mode/слайдшоу/временем суток.
     var wi = workspaceIndex();
     if (wi !== null) return wi;

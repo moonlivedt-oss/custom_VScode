@@ -42,18 +42,35 @@ function makeSlider(opts) {
 }
 
 // ===== Предпросмотр набора при наведении =====
-// Наведение на чип временно применяет его набор к фону (и акценту), НЕ сохраняя cfg,
-// чтобы «примерить» набор без клика. Уход мышью возвращает прежний. Меняем только CSS
-// (bumpStyle + ensureStyle), без saveCfg/updateLabel — localStorage и подписи не трогаем.
-var _previewPrev = null;
-function previewSet(mode) {
+// Наведение на чип «примеряет» его набор к фону и акценту, не сохраняя cfg. Работает
+// через previewMode (см. state.js): activeIndex начинает возвращать превью-набор, поэтому
+// сохранённый cfg.mode не трогается, а превью работает и в «случайно», и при «фоне по
+// проекту». Смена мягкая (fadeSwap — фон проступает плавно, не прыгает).
+//
+// Наведение дебаунсим (_previewDelay): пока курсор просто проезжает по ряду чипов, превью
+// не дёргается на каждом; оно включается, только если задержаться на чипе. previewCancel
+// снимает и отложенное, и активное превью (нужно на клике и при закрытии панели, т.к.
+// удалённый из DOM чип не всегда шлёт mouseleave — иначе превью «залипло» бы).
+var _previewTimer = 0, _previewDelay = 70;
+function previewSet(idx) {
     if (!cfg.enabled) return;                 // фон выключен — превью не видно, не дёргаем CSS
-    if (_previewPrev === null) _previewPrev = cfg.mode;
-    cfg.mode = mode; bumpStyle(); ensureStyle();
+    if (previewMode === idx) return;          // уже показываем этот набор
+    if (_previewTimer) clearTimeout(_previewTimer);
+    _previewTimer = setTimeout(function () {
+        _previewTimer = 0; previewMode = idx; fadeSwap();
+    }, _previewDelay);
 }
 function previewEnd() {
-    if (_previewPrev === null) return;
-    cfg.mode = _previewPrev; _previewPrev = null; bumpStyle(); ensureStyle();
+    if (_previewTimer) { clearTimeout(_previewTimer); _previewTimer = 0; }
+    if (previewMode === null) return;
+    previewMode = null; fadeSwap();
+}
+// Снять превью без плавного возврата (курсор ушёл с чипа насовсем): используется на
+// клике (фиксируем выбор — mouseleave после клика не должен ничего откатывать) и при
+// закрытии панели. applyFade/refreshPanel далее сами перерисуют фон под выбранный набор.
+function previewCancel() {
+    if (_previewTimer) { clearTimeout(_previewTimer); _previewTimer = 0; }
+    previewMode = null;
 }
 
 // health-check: помечаем чип, если картинка набора не грузится. Не грузим картинки сами —
@@ -107,7 +124,7 @@ function makeChip(mode, label) {
         var nm = setName(idx); if (nm) c.title = idx + " · " + nm + " (редактор · сайдбар · панель)";
         if (!grad) probeSet(idx, c);
         if (!active) {
-            c.addEventListener("mouseenter", function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; previewSet(mode); });
+            c.addEventListener("mouseenter", function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; previewSet(idx); });
             c.addEventListener("mouseleave", function () { c.style.borderColor = "var(--mlp-border-soft,rgba(205,214,244,0.16))"; previewEnd(); });
         }
     } else if (!active) {
@@ -115,7 +132,7 @@ function makeChip(mode, label) {
         c.addEventListener("mouseleave", function () { c.style.background = "transparent"; });
     }
     c.addEventListener("click", function () {
-        _previewPrev = null; // фиксируем выбор: mouseleave после клика не откатит фон обратно
+        previewCancel(); // фиксируем выбор: mouseleave после клика не откатит фон обратно
         if (mode === "random") sessionRandomIndex = pickRandom();
         cfg.mode = mode;
         // «Фон по проекту» включён и выбран конкретный набор — закрепляем его за текущей папкой,

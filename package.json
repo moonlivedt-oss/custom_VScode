@@ -1,6 +1,6 @@
 {
   "name": "moonlight-custom-bg",
-  "version": "14.0.0",
+  "version": "15.0.0",
   "description": "Кастомный фон и панель оформления для VS Code: картинки по зонам, наборы с палитрой, слайдшоу и живые эффекты. Грузится через be5invis.vscode-custom-css.",
   "license": "MIT",
   "private": true,
