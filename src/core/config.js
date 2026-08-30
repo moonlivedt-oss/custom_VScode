@@ -15,6 +15,17 @@ var IMG = (function () {
     return IMG_FALLBACK; // адрес скрипта неизвестен (инлайн-внедрение) — берём заданный путь
 })();
 
+// Эффективная база для ОТНОСИТЕЛЬНЫХ путей картинок. Приоритет — путь, заданный
+// пользователем в панели (cfg.imgBase): позволяет перенести папку плагина, не правя
+// исходник и не пересобирая. Пусто — берём авто-определённый IMG. cfg к моменту вызова
+// (рантайм: buildCSS/чипы) уже есть; typeof-страховка на случай ранних вызовов.
+function imgBase() {
+    var b = (typeof cfg !== "undefined" && cfg && typeof cfg.imgBase === "string") ? cfg.imgBase : "";
+    // Удалённая база (http(s)://…) без явного согласия — игнорируем, возвращаем авто-путь:
+    // иначе чужой конфиг переключил бы загрузку ВСЕХ картинок на свой сервер.
+    return (b && imgAllowed(b)) ? b : IMG;
+}
+
 // Пути к картинкам набора — относительно IMG. Картинки наборов лежат в
 // assets/{editor,panel,sidebar}/; ещё не разложенные по наборам — в assets/ (корень).
 // У каждого набора свой акцентный цвет (accent) под его палитру — при переключении
@@ -33,7 +44,16 @@ var SETS = [
     { name: "Лунная цитадель",      editor: "assets/editor/editor_8.jpg", sidebar: "assets/sidebar/sidebar_8.jpg", panel: "assets/panel/panel_8.jpg", accent: "#89b4fa" }, // 8
     { name: "Тень мастера",         editor: "assets/editor/editor_9.jpg", sidebar: "assets/sidebar/sidebar_9.jpg", panel: "assets/panel/panel_9.jpg", accent: "#94e2d5" }, // 9
     { name: "Меч в маках",          editor: "assets/editor/editor_10.jpg",sidebar: "assets/sidebar/sidebar_10.jpg",panel: "assets/panel/panel_10.jpg",accent: "#eba0ac" }, // 10
-    { name: "Ночь падающей звезды", editor: "assets/editor/editor_11.jpg",sidebar: "assets/sidebar/sidebar_11.jpg",panel: "assets/panel/panel_11.jpg",accent: "#74c7ec" }  // 11
+    { name: "Ночь падающей звезды", editor: "assets/editor/editor_11.jpg",sidebar: "assets/sidebar/sidebar_11.jpg",panel: "assets/panel/panel_11.jpg",accent: "#74c7ec" }, // 11
+    // ===== Генеративные наборы (grad) — рисуются градиентом из палитры, БЕЗ картинок =====
+    // У такого набора нет editor/sidebar/panel: вместо url() зоны заливаются CSS-градиентом
+    // (см. gradFor в css.js). Ноль ассетов, мгновенная загрузка, работают на любой машине
+    // без правки путей. Пользователь всё равно может подложить свою картинку в зону
+    // (cfg.setImg[idx][zone]) — тогда она перекроет градиент. accent — акцент интерфейса.
+    { name: "Аврора", grad: ["#1e1e2e", "#89b4fa", "#94e2d5"], accent: "#89b4fa" }, // 12
+    { name: "Закат",  grad: ["#1e1e2e", "#f38ba8", "#fab387"], accent: "#f38ba8" }, // 13
+    { name: "Неон",   grad: ["#11111b", "#cba6f7", "#f5c2e7"], accent: "#cba6f7" }, // 14
+    { name: "Мох",    grad: ["#181825", "#a6e3a1", "#94e2d5"], accent: "#a6e3a1" }  // 15
 ];
 // Короткое имя набора по индексу (для статусбара/тултипов). Приоритет — имя,
 // заданное пользователем в панели (cfg.setName[idx]), затем «родное» имя из SETS,
@@ -51,10 +71,15 @@ var CFG_VERSION = 1;
 var DEFAULTS = {
     version: CFG_VERSION,
     enabled: true,                                      // мастер-выключатель: false — фон и эффекты выключены, настройки сохранены
+    imgBase: "",                                        // папка плагина для картинок; пусто — авто-определение (IMG). Переносимость без правки кода.
+    allowRemoteImages: false,                           // разрешить http(s)-картинки. По умолчанию выкл: чужой конфиг не заставит редактор ходить в сеть.
     mode: "0",
     baseOp: { editor: 0.06, side: 0.30, panel: 0.11 },
     setOp: {},
     accent: "#cba6f7",                                  // глобальный акцент (запасной, если у набора нет своего)
+    autoWorkspace: false,                               // фон по проекту: набор выбирается по имени открытой папки
+    workspaceSets: {},                                  // закреплённые наборы по проектам: { "имя папки": "индекс" }
+    ambientBranch: false,                               // тонкая полоска-индикатор ветки git (main -> красная, фича -> зелёная)
     setAccent: {},                                      // переопределение акцента конкретного набора: { idx: "#rrggbb" }
     setName: {},                                        // пользовательское имя набора: { idx: "строка" }
     setImg: {},                                         // свои картинки набора по зонам: { idx: { editor?, sidebar?, panel? } }
@@ -79,7 +104,10 @@ var DEFAULTS = {
         groupBorder: true, titlebar: true, clock: true, particles: true, pomodoro: false,
         dimOnType: false,                               // приглушать фон редактора, пока идёт набор текста
         dimOnBlur: false,                               // приглушать фон, когда окно VS Code теряет фокус
-        groupBorderMono: false                          // «Живой контур» одним акцентом (false — радужный перелив)
+        groupBorderMono: false,                         // «Живой контур» одним акцентом (false — радужный перелив)
+        paletteSync: false,                             // «живой контур» из палитры фоновой картинки, а не радужный
+        parallax: false,                                // фон редактора чуть смещается за курсором (глубина)
+        flow: false                                     // «поток»: при долгом наборе фон плавно уходит сильнее
     },
     // Только совместимые по метрикам Nerd-шрифты, чтобы не ломать выравнивание терминала
     term: {
@@ -108,7 +136,8 @@ var FX_LIST = [
     ["splash", "Заставка"], ["clock", "Часы"],
     ["particles", "Частицы"], ["pomodoro", "Помидор"],
     ["dimOnType", "Тускнеть при печати"], ["dimOnBlur", "Тускнеть без фокуса"],
-    ["groupBorderMono", "Контур: 1 цвет"]
+    ["groupBorderMono", "Контур: 1 цвет"], ["paletteSync", "Палитра из картинки"],
+    ["parallax", "Параллакс фона"], ["flow", "Поток (глубокий дим)"]
 ];
 
 // ключ, подпись, min, max, step, знаков после запятой
@@ -137,6 +166,36 @@ function clampNum(v, min, max, def) {
 // Шрифт — строго из белого списка (там нет кавычек/;/{} — CSS-инъекция невозможна).
 function safeFont(f) { return TERM_FONTS.indexOf(f) >= 0 ? f : DEFAULTS.term.font; }
 function safeColor(c, fallback) { return isColor(c) ? c : fallback; }
+// База картинок (папка плагина). Уходит в url('...') через cssUrl (кавычки/слэши/переводы
+// строк экранируются — CSS-инъекция невозможна), поэтому здесь только приводим к единому
+// виду: убираем переводы строк, ограничиваем длину, дописываем завершающий слэш. Пусто
+// (или не строка) -> "" — тогда imgBase() возьмёт авто-определённый IMG.
+function safeBase(s) {
+    if (typeof s !== "string") return "";
+    var b = s.trim().replace(/[\r\n]/g, "").slice(0, 512);
+    if (!b) return "";
+    return /\/$/.test(b) ? b : b + "/";
+}
+// ===== Безопасность источников картинок =====
+// Картинка из конфига уходит в CSS url() и в new Image().src. Если разрешить любой URL,
+// то ИМПОРТИРОВАННЫЙ или применённый чужой конфиг сможет указать http(s)-адрес — и редактор
+// молча сходит в сеть за картинкой: утечка IP, факт использования плагина, потенциальный
+// маячок-трекер. Поэтому по умолчанию пускаем только ЛОКАЛЬНЫЕ схемы; сеть — лишь когда
+// пользователь сам включил cfg.allowRemoteImages.
+var LOCAL_IMG_SCHEME = /^(?:vscode-file|vscode-resource|vscode-webview-resource|file|data):/i;
+// Удалённый источник: абсолютный URL с не-локальной схемой ИЛИ протокол-относительный «//host».
+function isRemoteUrl(u) {
+    if (typeof u !== "string") return false;
+    if (/^\/\//.test(u)) return true;                        // //host/x — тянет из сети
+    return /^[a-z][a-z0-9+.-]*:/i.test(u) && !LOCAL_IMG_SCHEME.test(u);
+}
+// Разрешена ли картинка к загрузке: относительные и локальные — да; удалённые — только по
+// явному согласию (cfg.allowRemoteImages). typeof-страховка: cfg может ещё не быть.
+function imgAllowed(u) {
+    if (typeof u !== "string" || !u) return false;
+    if (typeof cfg !== "undefined" && cfg && cfg.allowRemoteImages) return true;
+    return !isRemoteUrl(u);
+}
 // Безопасная сборка CSS url('...'). Путь установки плагина (IMG) приходит из
 // document.currentScript.src и вставляется в CSS как есть. Если путь содержит
 // одинарную кавычку, обратный слэш или перевод строки (напр. C:\Users\O'Brien\…),
@@ -158,7 +217,7 @@ var FXP_RANGE = {};
 (function () { for (var i = 0; i < PARAMS.length; i++) FXP_RANGE[PARAMS[i][0]] = [PARAMS[i][2], PARAMS[i][3]]; })();
 
 // ===== Конфиг: слияние с дефолтами + санитизация =====
-var CFG_KEY = "moonlight-bg-config", LAST_KEY = "moonlight-bg-last";
+var CFG_KEY = "moonlight-bg-config", LAST_KEY = "moonlight-bg-last", BACKUP_KEY = "moonlight-bg-backup";
 var sessionRandomIndex = null, switchMul = 1;
 
 function clone(x) { return JSON.parse(JSON.stringify(x)); }
@@ -194,6 +253,28 @@ function mergeCfg(p) {
         c.version = CFG_VERSION; // после слияния конфиг всегда текущей версии
         // мастер-выключатель фона/эффектов: только булево
         if (typeof p.enabled === "boolean") c.enabled = p.enabled;
+        // папка плагина для картинок: строка-URL, нормализуется safeBase (см. imgBase())
+        if (typeof p.imgBase === "string") c.imgBase = safeBase(p.imgBase);
+        // разрешение сетевых картинок: только булево (по умолчанию false — см. imgAllowed)
+        if (typeof p.allowRemoteImages === "boolean") c.allowRemoteImages = p.allowRemoteImages;
+        // фон по проекту: флаг + карта «имя папки -> индекс набора». Ключи (имена проектов)
+        // и число записей ограничены, значения — только валидные индексы существующих наборов,
+        // иначе подменённый конфиг мог бы раздуть объект и утечь в localStorage (как setOp/ui).
+        if (typeof p.autoWorkspace === "boolean") c.autoWorkspace = p.autoWorkspace;
+        if (p.workspaceSets && typeof p.workspaceSets === "object") {
+            c.workspaceSets = {};
+            var wc = 0;
+            for (var wk in p.workspaceSets) {
+                if (!p.workspaceSets.hasOwnProperty(wk)) continue;
+                if (wc >= 64 || typeof wk !== "string" || wk.length > 120) continue;
+                if (DANGEROUS_KEYS.indexOf(wk) >= 0) continue; // имя проекта не может отравить прототип
+
+                var wv = p.workspaceSets[wk];
+                if (typeof wv === "string" && /^\d+$/.test(wv) && parseInt(wv, 10) < SETS.length) { c.workspaceSets[wk] = wv; wc++; }
+            }
+        }
+        // индикатор ветки: только булево
+        if (typeof p.ambientBranch === "boolean") c.ambientBranch = p.ambientBranch;
         // mode: "random" или строковый индекс набора в допустимом диапазоне
         if (p.mode === "random") c.mode = "random";
         else if (typeof p.mode === "string" && /^\d+$/.test(p.mode)) {
@@ -335,5 +416,21 @@ function loadCfg() {
     return clone(DEFAULTS);
 }
 function saveCfg() { try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {} }
+
+// ===== Резерв конфига (защита от неудачной замены) =====
+// Перед рискованным ПОЛНЫМ замещением cfg (импорт файла, сброс к дефолту, применение
+// пресета) снимаем текущий cfg в отдельный ключ. Кнопка «Восстановить» возвращает его.
+// ВАЖНО: это откат неудачного действия, а НЕ бэкап на диск — полную очистку localStorage
+// (переустановка custom-css, крупное обновление VS Code) резерв не переживёт; от этого
+// спасает только ручной экспорт в файл. Лимит длины — как у loadCfg/импорта.
+function backupCfg() { try { localStorage.setItem(BACKUP_KEY, JSON.stringify(cfg)); } catch (e) {} }
+function hasBackup() { try { var r = localStorage.getItem(BACKUP_KEY); return !!(r && r.length <= 256 * 1024); } catch (e) { return false; } }
+function readBackup() {
+    try {
+        var raw = localStorage.getItem(BACKUP_KEY);
+        if (raw && raw.length <= 256 * 1024) return mergeCfg(safeParse(raw)); // та же санитизация, что и импорт
+    } catch (e) {}
+    return null;
+}
 
 var cfg = loadCfg();

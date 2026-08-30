@@ -88,20 +88,24 @@ function makeChip(mode, label) {
         var s = SETS[idx];
         // Мини-триптих: три вертикальные полоски с превью зон (редактор / сайдбар / панель),
         // чтобы собирать наборы на глаз. Полоски — фон chip как запасной вариант (editor).
-        c.style.backgroundImage = cssUrl(zoneUrl(idx, "editor"));
-        var zones = [zoneUrl(idx, "editor"), zoneUrl(idx, "sidebar"), zoneUrl(idx, "panel")];
+        // Генеративный набор — рисуем полоски градиентом (нет картинок и 404-проверки).
+        var grad = isGradSet(idx);
+        var ZK = ["editor", "sidebar", "panel"];
+        if (grad) c.style.background = gradFor(idx, "editor");
+        else c.style.backgroundImage = cssUrl(zoneUrl(idx, "editor"));
         for (var zi = 0; zi < 3; zi++) {
             var strip = el("div",
                 "position:absolute; top:0; bottom:0; width:33.34%; left:" + (zi * 33.33) + "%;" +
                 "background-position:center; background-size:cover;" +
                 (zi ? "box-shadow:inset 1px 0 0 rgba(0,0,0,0.35);" : ""));
-            strip.style.backgroundImage = cssUrl(zones[zi]);
+            if (grad) strip.style.background = gradFor(idx, ZK[zi]);
+            else strip.style.backgroundImage = cssUrl(zoneUrl(idx, ZK[zi]));
             c.appendChild(strip);
         }
         var num = el("span", "position:absolute; right:3px; bottom:1px; z-index:2; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.95);", label);
         c.appendChild(num);
         var nm = setName(idx); if (nm) c.title = idx + " · " + nm + " (редактор · сайдбар · панель)";
-        probeSet(idx, c);
+        if (!grad) probeSet(idx, c);
         if (!active) {
             c.addEventListener("mouseenter", function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; previewSet(mode); });
             c.addEventListener("mouseleave", function () { c.style.borderColor = "var(--mlp-border-soft,rgba(205,214,244,0.16))"; previewEnd(); });
@@ -113,7 +117,14 @@ function makeChip(mode, label) {
     c.addEventListener("click", function () {
         _previewPrev = null; // фиксируем выбор: mouseleave после клика не откатит фон обратно
         if (mode === "random") sessionRandomIndex = pickRandom();
-        cfg.mode = mode; applyFade(); refreshPanel();
+        cfg.mode = mode;
+        // «Фон по проекту» включён и выбран конкретный набор — закрепляем его за текущей папкой,
+        // чтобы этот проект и дальше открывался с этим набором.
+        if (cfg.autoWorkspace && /^\d+$/.test(mode)) {
+            var wn = workspaceName();
+            if (wn && DANGEROUS_KEYS.indexOf(wn) < 0) { if (!cfg.workspaceSets) cfg.workspaceSets = {}; cfg.workspaceSets[wn] = mode; }
+        }
+        applyFade(); refreshPanel();
     });
     keyActivate(c, isSet ? ("Набор " + label + (setName(parseInt(mode, 10)) ? " — " + setName(parseInt(mode, 10)) : "")) : "Случайный набор");
     c.setAttribute("aria-pressed", active ? "true" : "false"); // какой набор выбран — для скринридера
@@ -311,6 +322,65 @@ function makeImgFilters() {
 }
 function makeSlideToggle() {
     return makeToggle(function () { return cfg.slideshow.on; }, function (v) { cfg.slideshow.on = v; slideReset(); apply(); }, "Включить", INFO.slide_on);
+}
+
+// Поле «Папка плагина» (cfg.imgBase): база для относительных путей картинок набора.
+// Позволяет перенести плагин без правки исходника и пересборки. Пусто -> авто-путь (IMG),
+// показанный в placeholder. Значение уходит в url('...') через cssUrl (инъекция исключена).
+function makeImgBaseField() {
+    var wrap = el("div", ST.row);
+    wrap.appendChild(el("span", mutedLabel(92), "Папка"));
+    var ip = el("input", fieldStyle(" padding:3px 6px; font-size:11px;"));
+    ip.type = "text"; ip.maxLength = 512;
+    ip.value = cfg.imgBase || "";
+    ip.placeholder = IMG; // авто-определённый путь как подсказка
+    function commit() {
+        cfg.imgBase = safeBase(ip.value);
+        ip.value = cfg.imgBase; // показать нормализованный вид (с завершающим слэшем)
+        apply(); refreshPanel(); // плитки наборов перепроверят загрузку по новому пути
+    }
+    ip.addEventListener("change", commit);
+    ip.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commit(); ip.blur(); } });
+    wrap.appendChild(ip);
+    var d = infoDot(INFO.img_base); if (d) wrap.appendChild(d);
+    return wrap;
+}
+// Тумблер «Разрешить сетевые картинки» (cfg.allowRemoteImages). По умолчанию выкл —
+// защита от того, что импортированный/чужой конфиг заставит редактор ходить в сеть.
+function makeRemoteImagesToggle() {
+    return makeToggle(function () { return !!cfg.allowRemoteImages; },
+        function (v) { cfg.allowRemoteImages = v; apply(); refreshPanel(); }, "Разрешить сетевые картинки", INFO.allow_remote);
+}
+
+// ==== Фон по проекту (cfg.autoWorkspace / cfg.workspaceSets) ====
+// Тумблер + имя текущего проекта + возможность «забыть» закрепление. Само закрепление
+// набора за проектом происходит кликом по набору, когда режим включён (см. makeChip).
+function makeWorkspaceUI() {
+    var box = el("div", null);
+    box.appendChild(makeToggle(function () { return !!cfg.autoWorkspace; },
+        function (v) { cfg.autoWorkspace = v; apply(); refreshPanel(); }, "Включить", INFO.workspace_on));
+    var name = workspaceName();
+    box.appendChild(el("div", "padding:4px 3px; color:var(--mlp-faint,#6c7086); font-size:11px;",
+        name ? ("Проект: " + name) : "Проект не определён — открыта ли папка?"));
+    var pinned = (name && cfg.workspaceSets) ? cfg.workspaceSets[name] : null;
+    if (name && pinned != null) {
+        box.appendChild(el("div", "padding:2px 3px 4px; color:var(--mlp-muted,#a6adc8); font-size:11px;",
+            "Закреплён набор " + pinned + (setName(parseInt(pinned, 10)) ? " · " + setName(parseInt(pinned, 10)) : "")));
+        var forget = el("div", "margin-top:2px; padding:6px; text-align:center; border-radius:7px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.12); border:1px solid rgba(var(--mlbg-accent-rgb),0.28);", "Забыть закрепление за проектом");
+        forget.addEventListener("click", function () { if (cfg.workspaceSets) delete cfg.workspaceSets[name]; apply(); refreshPanel(); });
+        keyActivate(forget, "Забыть закрепление набора за проектом");
+        box.appendChild(forget);
+    } else if (name && cfg.autoWorkspace) {
+        box.appendChild(el("div", "padding:2px 3px; color:var(--mlp-faint,#6c7086); font-size:11px;",
+            "Выбери набор выше — он закрепится за этим проектом."));
+    }
+    return box;
+}
+// Тумблер полоски-индикатора git-ветки (cfg.ambientBranch). ensureBranchStrip — из boot.js
+// (в общей области видимости после склейки), зовём для мгновенной реакции на переключение.
+function makeAmbientBranchToggle() {
+    return makeToggle(function () { return !!cfg.ambientBranch; },
+        function (v) { cfg.ambientBranch = v; apply(); try { ensureBranchStrip(); } catch (e) {} }, "Полоска-индикатор ветки", INFO.ambient_branch);
 }
 
 // ==== Мастер-выключатель фона и эффектов (cfg.enabled) ====

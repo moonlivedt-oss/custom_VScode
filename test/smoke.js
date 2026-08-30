@@ -100,6 +100,8 @@ function makeSandbox() {
             };
         })(),
         navigator: { clipboard: { writeText: noop } },
+        btoa: function (s) { return Buffer.from(String(s), "binary").toString("base64"); },
+        atob: function (s) { return Buffer.from(String(s), "base64").toString("binary"); },
         matchMedia: function () { return { matches: false, addEventListener: noop, addListener: noop }; },
         requestAnimationFrame: function () { return 1; }, // НЕ вызываем cb — избегаем рекурсии
         cancelAnimationFrame: noop,
@@ -165,7 +167,7 @@ delete sandbox._imgState[sandbox.IMG + sandbox.SETS[0].editor];
 
 // ---- 3. Смена набора меняет акцент ----
 sandbox.cfg.mode = "3";
-contains(build(), "--mlbg-accent: #94e2d5", "набор 3 (Лунная тушь) даёт свой акцент #94e2d5");
+contains(build(), "--mlbg-accent: #94e2d5", "набор 3 (Свиток тумана) даёт свой акцент #94e2d5");
 sandbox.cfg.mode = "0";
 
 // ---- 4. Светлая / тёмная тема подменяет поверхности ----
@@ -291,6 +293,155 @@ var sn = sandbox.mergeCfg({
 ok(sn.setName["0"] === "Ок" && !("999999" in sn.setName) && !("abc" in sn.setName) &&
     !("1" in sn.setName) && !("2" in sn.setName),
     "mergeCfg: setName оставляет только валидное имя (индекс в диапазоне, строка <= 40)");
+
+// ---- 11. Портируемость: cfg.imgBase задаёт базу относительных путей ----
+ok(sandbox.safeBase("vscode-file://vscode-app/x") === "vscode-file://vscode-app/x/" &&
+    sandbox.safeBase("  path/  ") === "path/" && sandbox.safeBase("a\nb/") === "ab/" &&
+    sandbox.safeBase("") === "" && sandbox.safeBase(123) === "",
+    "safeBase: тримит, убирает переводы строк, дописывает слэш, пустое/не-строка -> пусто");
+ok(sandbox.mergeCfg({ imgBase: "d:/plugins/vscode-bg" }).imgBase === "d:/plugins/vscode-bg/",
+    "mergeCfg: imgBase нормализован (завершающий слэш)");
+sandbox.cfg.imgBase = "file:///d:/moved/";
+ok(sandbox.imgUrl("assets/x.jpg") === "file:///d:/moved/assets/x.jpg",
+    "imgUrl: относительный путь берёт cfg.imgBase, когда он задан");
+ok(sandbox.imgUrl("file:///d:/abs.jpg") === "file:///d:/abs.jpg",
+    "imgUrl: абсолютный путь imgBase игнорирует");
+sandbox.cfg.imgBase = "";
+ok(sandbox.imgUrl("assets/x.jpg") === sandbox.IMG + "assets/x.jpg",
+    "imgUrl: пустой imgBase -> авто-путь IMG");
+
+// ---- 12. Санитизация: fit принимает только cover|contain ----
+var fitc = sandbox.mergeCfg({ fit: { editor: "contain", side: "zzz", panel: "cover" } }).fit;
+ok(fitc.editor === "contain" && fitc.panel === "cover" && fitc.side === sandbox.DEFAULTS.fit.side,
+    "mergeCfg: fit принимает cover|contain, мусор -> дефолт зоны");
+
+// ---- 13. Санитизация: imgfx зажимает числа в диапазоны ----
+var ifx = sandbox.mergeCfg({ imgfx: { editor: { brightness: 9, saturate: -1, blur: 999 } } }).imgfx.editor;
+ok(ifx.brightness === 1.5 && ifx.saturate === 0 && ifx.blur === 12,
+    "mergeCfg: imgfx.brightness/saturate/blur зажаты в допустимые диапазоны");
+
+// ---- 14. Санитизация: setImg только валидные индексы и длина пути ----
+var longPath = new Array(1100).join("y"); // 1099 символов > лимита 1024
+var simg = sandbox.mergeCfg({ setImg: {
+    "0": { editor: "ok.jpg", sidebar: longPath },
+    "999999": { editor: "x.jpg" }, "abc": { editor: "x.jpg" }
+} }).setImg;
+ok(simg["0"].editor === "ok.jpg" && !("sidebar" in simg["0"]) &&
+    !("999999" in simg) && !("abc" in simg),
+    "mergeCfg: setImg оставляет валидный индекс/путь, длинный путь и чужие индексы отброшены");
+
+// ---- 15. Миграция: version приводится к текущей CFG_VERSION ----
+ok(sandbox.mergeCfg({ version: 0 }).version === sandbox.CFG_VERSION &&
+    sandbox.migrateCfg({ version: 0 }).version === sandbox.CFG_VERSION,
+    "migrateCfg/mergeCfg: version приводится к текущей CFG_VERSION");
+
+// ---- 16. Резерв конфига: backupCfg -> readBackup возвращает равнозначный конфиг ----
+sandbox.cfg = sandbox.mergeCfg({ mode: "2", accent: "#123456" });
+sandbox.backupCfg();
+var rb = sandbox.readBackup();
+ok(rb && rb.mode === "2" && rb.accent === "#123456" && sandbox.hasBackup() === true,
+    "backupCfg/readBackup: резерв сохраняется и корректно читается");
+
+// ---- 17a. Генеративные наборы: градиент вместо картинки, без url() ----
+var gradIdx = -1;
+for (var gi = 0; gi < sandbox.SETS.length; gi++) if (sandbox.isGradSet(gi)) { gradIdx = gi; break; }
+ok(gradIdx >= 0 && sandbox.isGradSet(0) === false, "isGradSet: генеративные наборы распознаются, картиночные — нет");
+sandbox.cfg.mode = String(gradIdx); sandbox.cfg.setImg = {};
+var cssGrad = build();
+contains(cssGrad, "linear-gradient(", "генеративный набор: зоны залиты CSS-градиентом");
+ok(cssGrad.indexOf("url('") < 0, "генеративный набор: картинок (url) в CSS нет");
+sandbox.cfg.setImg = { }; sandbox.cfg.setImg[gradIdx] = { editor: "file:///d:/o.jpg" };
+contains(build(), "o.jpg", "генеративный набор: своя картинка зоны перекрывает градиент");
+sandbox.cfg.setImg = {}; sandbox.cfg.mode = "0";
+
+// ---- 17b. Палитра из картинки: живой контур берёт цвета палитры ----
+sandbox.cfg.mode = "0"; sandbox.cfg.enabled = true;
+sandbox.cfg.fx.groupBorder = true; sandbox.cfg.fx.groupBorderMono = false;
+var pEd = sandbox.IMG + sandbox.SETS[0].editor;
+sandbox._imgState[pEd] = { ok: true, luma: 0.5, palette: ["#111111", "#22ff22", "#3333ff"], resolved: true };
+sandbox.cfg.fx.paletteSync = true;
+var cssPal = build();
+ok(cssPal.indexOf("#22ff22") >= 0 && cssPal.indexOf("#a6e3a1") < 0,
+    "paletteSync: живой контур красится палитрой картинки, а не радужным дефолтом");
+ok(JSON.stringify(sandbox.dominantPalette(red)).indexOf("#") >= 0, "dominantPalette: возвращает hex-цвета");
+sandbox.cfg.fx.paletteSync = false;
+contains(build(), "#a6e3a1", "paletteSync выкл: живой контур снова радужный по умолчанию");
+delete sandbox._imgState[pEd];
+
+// ---- 17c. Параллакс: включённый эффект двигает background-position за курсором ----
+sandbox.cfg.fx.parallax = true;
+contains(build(), "var(--mlbg-par-x", "parallax: background-position привязан к переменной курсора");
+sandbox.cfg.fx.parallax = false;
+ok(build().indexOf("var(--mlbg-par-x") < 0, "parallax выкл: смещения фона нет");
+
+// ---- 17d. Поток: включённый эффект добавляет правило body.mlbg-flowing ----
+sandbox.cfg.fx.flow = true;
+contains(build(), "body.mlbg-flowing", "flow: CSS содержит правило глубокого приглушения в потоке");
+sandbox.cfg.fx.flow = false;
+ok(build().indexOf("body.mlbg-flowing") < 0, "flow выкл: правила потока нет");
+
+// ---- 17e. Фон по проекту: имя из заголовка + приоритет закреплённого набора ----
+sandbox.document.title = "app.js — MyProject — Visual Studio Code";
+ok(sandbox.workspaceName() === "MyProject", "workspaceName: имя проекта из заголовка окна (тире-разделитель)");
+sandbox.document.title = "readme.md - Repo - Visual Studio Code";
+ok(sandbox.workspaceName() === "Repo", "workspaceName: работает и с дефисным разделителем");
+sandbox.cfg.autoWorkspace = true; sandbox.cfg.workspaceSets = { "Repo": "3" }; sandbox.cfg.mode = "0";
+ok(sandbox.activeIndex() === 3, "activeIndex: закреплённый за проектом набор важнее cfg.mode");
+sandbox.cfg.autoWorkspace = false; sandbox.cfg.workspaceSets = {}; sandbox.document.title = ""; sandbox.cfg.mode = "0";
+var wsm = sandbox.mergeCfg({ autoWorkspace: true, workspaceSets: { "ok": "2", "bad": "999", "x": 5 } });
+ok(wsm.autoWorkspace === true && wsm.workspaceSets.ok === "2" && !("bad" in wsm.workspaceSets) && !("x" in wsm.workspaceSets),
+    "mergeCfg: workspaceSets оставляет только валидные индексы-строки существующих наборов");
+ok(sandbox.mergeCfg({ ambientBranch: "yes" }).ambientBranch === false && sandbox.mergeCfg({ ambientBranch: true }).ambientBranch === true,
+    "mergeCfg: ambientBranch принимает только булево");
+
+// ---- 17f. Шаринг образа: код кодирует вид и применяется, не трогая машинно-зависимое ----
+sandbox.cfg = sandbox.mergeCfg({ mode: "2", accent: "#abcdef", fxp: { blur: 3 } });
+var shareCode = sandbox.shareEncode();
+ok(typeof shareCode === "string" && shareCode.length > 0, "shareEncode: образ кодируется в непустую строку");
+sandbox.cfg = sandbox.mergeCfg({ mode: "5", accent: "#000000" });
+sandbox.cfg.imgBase = "file:///mine/"; sandbox.cfg.setImg = { "0": { editor: "mine.jpg" } };
+sandbox.applyShareCode(shareCode);
+ok(sandbox.cfg.mode === "2" && sandbox.cfg.accent === "#abcdef", "applyShareCode: вид (набор/акцент) применился из кода");
+ok(sandbox.cfg.imgBase === "file:///mine/" && sandbox.cfg.setImg["0"].editor === "mine.jpg",
+    "applyShareCode: свои картинки и путь плагина НЕ затронуты чужим кодом");
+ok(sandbox.shareDecode("aGVsbG8=") === null, "shareDecode: валидный base64, но не JSON -> null (без падения)");
+sandbox.cfg.mode = "0";
+
+// ---- 17g. Безопасность: сетевые картинки блокируются по умолчанию ----
+ok(sandbox.isRemoteUrl("http://evil/x.jpg") && sandbox.isRemoteUrl("https://evil/x.jpg") &&
+    sandbox.isRemoteUrl("//evil/x.jpg") && !sandbox.isRemoteUrl("file:///d:/x.jpg") &&
+    !sandbox.isRemoteUrl("vscode-file://vscode-app/x.jpg") && !sandbox.isRemoteUrl("assets/x.jpg"),
+    "isRemoteUrl: http(s)/протокол-относительные — удалённые, локальные/относительные — нет");
+sandbox.cfg.allowRemoteImages = false;
+ok(sandbox.imgUrl("http://evil/x.jpg") === "" && sandbox.imgUrl("file:///d:/x.jpg") === "file:///d:/x.jpg",
+    "imgUrl: удалённый URL блокируется (\"\"), локальный проходит");
+sandbox.cfg.mode = "0"; sandbox.cfg.setImg = { "0": { editor: "http://evil/beacon.jpg" } };
+ok(sandbox.setImage(0, "editor") === sandbox.SETS[0].editor,
+    "setImage: заблокированная удалённая картинка -> откат на родную картинку набора");
+var cssRemote = build();
+ok(cssRemote.indexOf("evil") < 0, "buildCSS: удалённого адреса нет в CSS (в сеть не ходим)");
+sandbox.cfg.allowRemoteImages = true;
+ok(sandbox.imgUrl("http://ok/x.jpg") === "http://ok/x.jpg" && sandbox.setImage(0, "editor") === "http://evil/beacon.jpg",
+    "allowRemoteImages: явное согласие пропускает сетевые картинки");
+sandbox.cfg.allowRemoteImages = false; sandbox.cfg.setImg = {};
+// удалённая imgBase из чужого конфига игнорируется -> авто-путь
+sandbox.cfg.imgBase = "http://evil/";
+ok(sandbox.imgUrl("assets/x.jpg") === sandbox.IMG + "assets/x.jpg", "imgBase: удалённая база игнорируется без согласия -> авто-путь");
+sandbox.cfg.imgBase = "";
+// имя проекта не может отравить прототип (own-ключ "__proto__" из JSON отбрасывается)
+var pp = sandbox.mergeCfg({ workspaceSets: JSON.parse('{"__proto__":"1","ok":"1"}') });
+ok(!Object.prototype.hasOwnProperty.call(pp.workspaceSets, "__proto__") && pp.workspaceSets.ok === "1",
+    "mergeCfg: опасный ключ проекта (__proto__) отброшен, безопасные сохранены");
+ok(sandbox.mergeCfg({ allowRemoteImages: "1" }).allowRemoteImages === false,
+    "mergeCfg: allowRemoteImages принимает только булево");
+ok(sandbox.countRemoteImgs({ imgBase: "http://x/", setImg: { "0": { editor: "https://y/a.jpg", sidebar: "assets/ok.jpg" }, "1": { panel: "//z/b.jpg" } } }) === 3,
+    "countRemoteImgs: считает удалённые ссылки (imgBase + setImg), локальные пропускает");
+ok(sandbox.countRemoteImgs({ setImg: { "0": { editor: "assets/ok.jpg" } } }) === 0 && sandbox.countRemoteImgs(null) === 0,
+    "countRemoteImgs: локальные пути и пустой ввод дают 0");
+
+// ---- 17. Детерминизм сборки: build() дважды даёт идентичный артефакт ----
+var B = require(path.join(ROOT, "build.js"));
+ok(B.build(false) === B.build(false), "build.js: повторная сборка даёт идентичный custom-bg.js (детерминизм)");
 
 // ============================================================
 console.log("\nИтог: " + passed + " ok, " + failed + " fail.");

@@ -5,6 +5,7 @@ function heal() {
     try { if (!_themeWatched) _themeWatched = watchTheme(); } catch (e) {}
     try { ensureStyle(); } catch (e) {}
     try { ensureStatusBar(); } catch (e) {}
+    try { ensureBranchStrip(); } catch (e) {}
     syncWidgets();
 }
 // Смена темы VS Code (класс vs/vs-dark на .monaco-workbench) не меняет ревизию стиля,
@@ -36,7 +37,7 @@ setInterval(function () {
         // Частицы уже останавливаются отдельно (loopParticles видит document.hidden).
         if (document.hidden) return;
         _tick++;
-        ensureStatusBar(); ensureClock(); ensurePomodoro(); // дешёвые проверки наличия
+        ensureStatusBar(); ensureClock(); ensurePomodoro(); ensureBranchStrip(); // дешёвые проверки наличия
         tickClock(); tickPomo(); timeTick(); slideTick();   // обновления по времени
         if (_tick % 3 === 0) heal();                         // самолечение раз в 3с
     } catch (e) {}
@@ -77,21 +78,74 @@ document.addEventListener("keydown", onHotkey, true);
 // нативные input-события на КАЖДЫЙ ввод текста (навигация стрелками их не вызывает —
 // поэтому не тускнеем от простого перемещения). На ввод вешаем body.mlbg-typing (CSS в
 // buildCSS опускает прозрачность оверлея редактора) и снимаем класс через паузу простоя.
-var _typingTimer = 0;
+// _flowCount копит непрерывные нажатия; после порога — режим «поток» (fx.flow).
+var _typingTimer = 0, _flowCount = 0;
 function onEditorType(e) {
     try {
-        if (!cfg.enabled || !cfg.fx.dimOnType) return;
+        if (!cfg.enabled || (!cfg.fx.dimOnType && !cfg.fx.flow)) return;
         var t = e.target;
         if (!t || !t.classList || !t.classList.contains("inputarea")) return;
-        if (document.body && document.body.classList) document.body.classList.add("mlbg-typing");
+        var cl = document.body && document.body.classList;
+        if (cl && cfg.fx.dimOnType) cl.add("mlbg-typing");
+        if (cl && cfg.fx.flow) {
+            _flowCount++;
+            if (_flowCount >= 12) cl.add("mlbg-flowing"); // ~12 нажатий подряд без паузы -> «поток»
+        }
         if (_typingTimer) clearTimeout(_typingTimer);
         _typingTimer = setTimeout(function () {
-            _typingTimer = 0;
-            try { document.body.classList.remove("mlbg-typing"); } catch (er) {}
+            _typingTimer = 0; _flowCount = 0; // пауза на чтение — сбрасываем поток и подсветку
+            try { var c = document.body && document.body.classList; if (c) { c.remove("mlbg-typing"); c.remove("mlbg-flowing"); } } catch (er) {}
         }, 1400);
     } catch (err) {}
 }
 document.addEventListener("input", onEditorType, true);
+
+// ===== Параллакс фона по курсору (fx.parallax) =====
+// Двигаем CSS-переменные --mlbg-par-x/y на <html> вслед за мышью; CSS (buildCSS) смещает
+// background-position оверлея редактора, создавая глубину. Коалесим в один кадр (rAF).
+// Уважаем «уменьшить движение» и не работаем при скрытом окне/выключенном фоне.
+var _parRaf = 0, _parX = 0, _parY = 0;
+function _reduceMotion() { try { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) { return false; } }
+function onParallax(e) {
+    if (!cfg.enabled || !cfg.fx.parallax || document.hidden || _reduceMotion()) return;
+    var w = window.innerWidth || 1, h = window.innerHeight || 1;
+    _parX = (0.5 - e.clientX / w) * 16; // ±8px «навстречу» курсору — ощущение глубины
+    _parY = (0.5 - e.clientY / h) * 16;
+    if (_parRaf) return;
+    _parRaf = requestAnimationFrame(function () {
+        _parRaf = 0;
+        try { var s = document.documentElement.style; s.setProperty("--mlbg-par-x", _parX.toFixed(1) + "px"); s.setProperty("--mlbg-par-y", _parY.toFixed(1) + "px"); } catch (er) {}
+    });
+}
+document.addEventListener("mousemove", onParallax, true);
+
+// ===== Индикатор git-ветки (ambientBranch) =====
+// Тонкая полоска у верхнего края окна: на main/master — красноватая (ты на основной ветке),
+// на прочих — зеленоватая. Имя ветки берём из статусбара (иконка git-branch) — API для этого
+// в custom-css нет, поэтому читаем DOM; если индикатора git нет, полоски тоже нет.
+var BRANCH_ID = "moonlight-branch";
+function gitBranch() {
+    try {
+        var wb = document.querySelector(".monaco-workbench"); if (!wb) return "";
+        var ico = wb.querySelector(".statusbar-item .codicon-git-branch");
+        if (!ico) return "";
+        var item = ico.closest ? ico.closest(".statusbar-item") : null;
+        var txt = (item && item.textContent) || "";
+        return txt.replace(/\s+/g, " ").trim().slice(0, 80);
+    } catch (e) { return ""; }
+}
+function ensureBranchStrip() {
+    var strip = document.getElementById(BRANCH_ID);
+    var b = (cfg.enabled && cfg.ambientBranch) ? gitBranch() : "";
+    if (!b) { if (strip && strip.remove) strip.remove(); return; }
+    if (!strip) {
+        strip = document.createElement("div"); strip.id = BRANCH_ID;
+        strip.style.cssText = "position:fixed; top:0; left:0; right:0; height:2px; z-index:100002; pointer-events:none; transition:background 0.4s ease;";
+        (document.body || document.documentElement).appendChild(strip);
+    }
+    strip.style.background = /^(main|master)$/i.test(b) ? "rgba(243,139,168,0.9)" : "rgba(166,227,161,0.85)";
+    strip.title = "git: " + b;
+}
 
 // ===== Приглушение фона при потере фокуса окном (fx.dimOnBlur) =====
 // Вешаем/снимаем body.mlbg-unfocused на blur/focus окна; CSS-правило (buildCSS) действует,
@@ -125,4 +179,4 @@ try {
 } catch (e) {}
 heal();
 
-console.log("[MoonLight custom-bg] v14 installed (presets + dim-on-type + set rename + light panel), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
+console.log("[MoonLight custom-bg] v14 installed (gradient sets + per-project + palette + branch strip + parallax + flow + share), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());

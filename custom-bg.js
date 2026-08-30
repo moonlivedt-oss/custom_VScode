@@ -1703,6 +1703,7 @@
     function toast(msg, ok) {
         var t = el("div",
             "position:fixed; bottom:44px; right:16px; z-index:100004; padding:9px 13px; border-radius:9px;" +
+            "max-width:min(360px,80vw); line-height:1.4;" + // длинные предупреждения переносятся, а не уезжают за край
             "font-weight:600; font-family:var(--vscode-font-family,sans-serif); box-shadow:0 8px 24px rgba(0,0,0,0.5);", msg);
         t.style.background = ok === false ? "rgba(243,139,168,0.96)" : "rgba(166,227,161,0.96)";
         t.style.color = "#181825";
@@ -1710,7 +1711,8 @@
         t.setAttribute("role", "status");
         t.setAttribute("aria-live", ok === false ? "assertive" : "polite");
         document.body.appendChild(t);
-        setTimeout(function () { t.remove(); }, 3200);
+        // Предупреждения (ok===false) держим дольше — их успеть прочитать важнее.
+        setTimeout(function () { t.remove(); }, ok === false ? 6000 : 3200);
     }
     function copyText(s) {
         try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(s); return true; } } catch (e) {}
@@ -1734,6 +1736,25 @@
         toast(saved && copied ? "Экспорт: файл сохранён + в буфере обмена"
             : saved ? "Экспорт: файл сохранён" : copied ? "Экспорт: скопировано в буфер" : "Не удалось выгрузить", (saved || copied));
     }
+    // Считает удалённые (http(s)/сетевые) ссылки на картинки в СЫРОМ конфиге (до санитизации):
+    // база imgBase и все cfg.setImg[idx][zone]. Нужно, чтобы честно предупредить при импорте
+    // чужого файла — такие ссылки по умолчанию блокируются (imgAllowed), но пользователь должен
+    // знать, что кто-то пытался заставить редактор ходить в сеть.
+    function countRemoteImgs(p) {
+        var n = 0;
+        try {
+            if (!p || typeof p !== "object") return 0;
+            if (typeof p.imgBase === "string" && isRemoteUrl(p.imgBase)) n++;
+            if (p.setImg && typeof p.setImg === "object") {
+                for (var i in p.setImg) {
+                    if (!p.setImg.hasOwnProperty(i)) continue;
+                    var z = p.setImg[i]; if (!z || typeof z !== "object") continue;
+                    ["editor", "sidebar", "panel"].forEach(function (k) { if (typeof z[k] === "string" && isRemoteUrl(z[k])) n++; });
+                }
+            }
+        } catch (e) {}
+        return n;
+    }
     function importCfg() {
         var inp = document.createElement("input");
         inp.type = "file"; inp.accept = "application/json,.json"; inp.style.display = "none";
@@ -1745,11 +1766,20 @@
             rd.onload = function () {
                 try {
                     var parsed = safeParse(String(rd.result));
+                    var remote = countRemoteImgs(parsed); // считаем ДО санитизации (сырой файл)
                     backupCfg(); // текущие настройки -> резерв, чтобы неудачный импорт можно было откатить
                     cfg = mergeCfg(parsed); // mergeCfg санитизирует всё содержимое
                     sessionRandomIndex = null; // сбросить выбор random из прошлой сессии — переберётся под новый конфиг
                     apply(); refreshPanel();
-                    toast("Настройки импортированы");
+                    // Предупреждаем о сетевых ссылках на картинки в импортированном файле:
+                    // по умолчанию они заблокированы, но пользователь должен знать, что они там были.
+                    if (remote > 0) {
+                        toast(cfg.allowRemoteImages
+                            ? ("Импортировано. Внимание: в файле " + remote + " сетевых ссылок на картинки — они будут загружаться, потому что «Разрешить сетевые картинки» включено.")
+                            : ("Импортировано. Заблокировано " + remote + " сетевых ссылок на картинки — редактор в сеть не пойдёт. Включи «Разрешить сетевые картинки», только если доверяешь источнику."), false);
+                    } else {
+                        toast("Настройки импортированы");
+                    }
                 } catch (e) { toast("Ошибка: файл не читается как JSON", false); }
                 inp.remove();
             };

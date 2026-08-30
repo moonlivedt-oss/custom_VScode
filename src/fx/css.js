@@ -15,7 +15,7 @@ function _fireImg(url, st) {
 }
 function probeImage(url) {
     if (Object.prototype.hasOwnProperty.call(_imgState, url)) return _imgState[url];
-    var st = { ok: true, luma: null, accent: null, resolved: false }; // до загрузки: «ок, метрики неизвестны»
+    var st = { ok: true, luma: null, accent: null, palette: null, resolved: false }; // до загрузки: «ок, метрики неизвестны»
     _imgState[url] = st;
     try {
         var im = new Image();
@@ -30,7 +30,8 @@ function probeImage(url) {
                 }
                 st.luma = n ? sum / n : 1;
                 st.accent = dominantAccent(d); // доминирующий цвет -> готовый акцент
-            } catch (e) { st.luma = 1; st.accent = null; } // canvas «испорчен»/ошибка — не димим
+                st.palette = dominantPalette(d); // гармоничная палитра (для «Палитры из картинки»)
+            } catch (e) { st.luma = 1; st.accent = null; st.palette = null; } // canvas «испорчен»/ошибка — не димим
             st.resolved = true; _fireImg(url, st); bumpStyle(); ensureStyle();
         };
         im.onerror = function () { st.ok = false; st.resolved = true; _fireImg(url, st); bumpStyle(); ensureStyle(); };
@@ -95,6 +96,62 @@ function dominantAccent(d) {
     L = Math.min(0.70, Math.max(0.55, L));
     return hslToHex(H, S, L);
 }
+// ===== Палитра из картинки («wallust для VS Code») =====
+// Гистограмма по 12 корзинам оттенка (вес — насыщенность^2, серые почти не влияют),
+// топ-корзины -> до 3 гармоничных акцентов. Нормируем S/L в «читаемый» диапазон, как
+// dominantAccent. Возвращает [] для почти серой картинки (тогда buildCSS берёт поворот
+// оттенка основного акцента). Считается один раз на загрузку картинки (в probeImage).
+function _normAccent(h, s, l) {
+    s = Math.min(0.85, Math.max(0.55, s)); l = Math.min(0.70, Math.max(0.55, l));
+    return hslToHex(h, s, l);
+}
+function dominantPalette(d) {
+    var BINS = 12, acc = [], i;
+    for (i = 0; i < BINS; i++) acc.push({ x: 0, y: 0, s: 0, w: 0, l: 0 });
+    for (i = 0; i < d.length; i += 4) {
+        var hsl = rgbToHsl(d[i], d[i + 1], d[i + 2]), w = hsl[1] * hsl[1];
+        var b = Math.min(BINS - 1, Math.floor(hsl[0] * BINS)), a = acc[b], ang = hsl[0] * 2 * Math.PI;
+        a.x += Math.cos(ang) * w; a.y += Math.sin(ang) * w; a.s += hsl[1] * w; a.l += hsl[2] * w; a.w += w;
+    }
+    acc.sort(function (A, B) { return B.w - A.w; });
+    var out = [];
+    for (i = 0; i < acc.length && out.length < 3; i++) {
+        var g = acc[i]; if (g.w < 1e-4) continue;
+        var H = Math.atan2(g.y, g.x) / (2 * Math.PI); if (H < 0) H += 1;
+        out.push(_normAccent(H, g.s / g.w, g.l / g.w));
+    }
+    return out;
+}
+// hex -> "r,g,b" массив и поворот оттенка (запасные accent2/accent3, когда палитры из
+// картинки нет: почти серая картинка, набор-градиент или картинка ещё не загрузилась).
+function hexToRgbArr(h) { return [parseInt(h.substr(1, 2), 16), parseInt(h.substr(3, 2), 16), parseInt(h.substr(5, 2), 16)]; }
+function rotateHue(hex, dh) {
+    var c = hexToRgbArr(hex), hsl = rgbToHsl(c[0], c[1], c[2]);
+    var h = hsl[0] + dh; h -= Math.floor(h);
+    return hslToHex(h, Math.max(0.5, hsl[1]), Math.min(0.70, Math.max(0.55, hsl[2])));
+}
+// Три акцента для эффектов: основной (getAccent) + два спутника. При включённой «Палитре
+// из картинки» и готовой пробе — из картинки; иначе повороты оттенка основного акцента.
+function accentTrio(ac, edUrl) {
+    var pal = null;
+    if (cfg.fx && cfg.fx.paletteSync && edUrl) { var st = probeImage(edUrl); if (st && st.palette && st.palette.length) pal = st.palette; }
+    return [ac, (pal && pal[1]) || rotateHue(ac, 0.33), (pal && pal[2]) || rotateHue(ac, -0.33)];
+}
+// ===== Генеративные наборы (без картинок) =====
+// Набор с массивом grad рисуется CSS-градиентом из палитры вместо фото. Ноль ассетов,
+// грузится мгновенно, не зависит от путей (работает на любой машине). Пользовательская
+// картинка зоны (cfg.setImg) всё равно перекрывает градиент — см. isGrad.
+function isGradSet(idx) { var s = SETS[idx]; return !!(s && s.grad && s.grad.length); }
+function hasUserImg(idx, zone) { var o = cfg.setImg && cfg.setImg[idx]; return !!(o && typeof o[zone] === "string" && o[zone]); }
+function isGrad(idx, zone) { return isGradSet(idx) && !hasUserImg(idx, zone); }
+// Градиент зоны: разный угол по зонам, чтобы редактор/сайдбар/панель не были одинаковыми.
+// Палитра берётся из SETS (код, не пользовательский ввод) — CSS-инъекция невозможна.
+function gradFor(idx, zone) {
+    var s = SETS[idx], pal = (s && s.grad) ? s.grad : [safeColor(cfg.accent, DEFAULTS.accent)];
+    var ang = zone === "editor" ? "135deg" : zone === "sidebar" ? "160deg" : "110deg";
+    return "linear-gradient(" + ang + ", " + pal.join(", ") + ")";
+}
+
 // Коэффициент занижения яркости editor по средней светлоте картинки: тёмные/средние —
 // как есть (1.0), почти белые — до ~0.4, чтобы код не «слепило». Плавно между.
 function lumaDimFactor(luma) {
@@ -178,12 +235,22 @@ function buildCSS() {
         var fit = (cfg.fit && cfg.fit[fitZone] === "contain") ? "contain" : "cover";
         return cssUrl(url) + " " + position + " / " + fit + " no-repeat";
     }
+    // Фон зоны: генеративный набор -> градиент (SETS zone-ключ), иначе картинка (zoneBg).
+    // zone — ключ SETS ("editor"|"sidebar"|"panel"); fitZone — ключ cfg.fit ("side" у сайдбара).
+    function bgFor(zone, fitZone, position) {
+        return isGrad(idx, zone) ? gradFor(idx, zone) : zoneBg(zoneUrl(idx, zone), fitZone, position);
+    }
     var edUrl = zoneUrl(idx, "editor");
-    var BG_ED = zoneBg(edUrl, "editor", "center");
-    var BG_SB = zoneBg(zoneUrl(idx, "sidebar"), "side", "center bottom");
-    var BG_PN = zoneBg(zoneUrl(idx, "panel"), "panel", "right bottom");
+    var edIsGrad = isGrad(idx, "editor");
+    var BG_ED = bgFor("editor", "editor", "center");
+    var BG_SB = bgFor("sidebar", "side", "center bottom");
+    var BG_PN = bgFor("panel", "panel", "right bottom");
     // Авто-дим editor по светлоте картинки (если включён): множитель к прозрачности.
-    var edDim = cfg.autoDim ? lumaDimFactor(probeImage(edUrl).luma) : 1;
+    // Для градиента яркость не измерить (нет пикселей) — множитель 1.
+    var edDim = (!edIsGrad && cfg.autoDim) ? lumaDimFactor(probeImage(edUrl).luma) : 1;
+    // Трио акцентов для эффектов: основной + два спутника (палитра из картинки редактора
+    // при включённой «Палитре из картинки», иначе повороты оттенка). ac2/ac3 — hex.
+    var trio = accentTrio(ac, edIsGrad ? null : edUrl), ac2 = trio[1], ac3 = trio[2];
     var out = [];
     function add() { for (var i = 0; i < arguments.length; i++) out.push(arguments[i]); }
     var TR = "  transition: opacity 0.5s ease;";
@@ -202,6 +269,9 @@ function buildCSS() {
     // Акцентный цвет (ac/acRGB уже посчитаны выше) — все эффекты ниже используют
     // var(--mlbg-accent) / rgba(var(--mlbg-accent-rgb), a).
     add(rootVar);
+    // Спутники акцента как переменные (палитра эффектов). Пока их читает «живой контур»
+    // при «Палитре из картинки»; вынесены в :root для переиспользования другими эффектами.
+    add(":root { --mlbg-accent2: " + ac2 + "; --mlbg-accent3: " + ac3 + "; }");
 
     // Фильтры самой фоновой картинки (яркость/насыщенность/размытие) — своя строка на зону.
     // Числа зажаты в mergeCfg, здесь клампим повторно (defense-in-depth). Пустая строка,
@@ -221,6 +291,10 @@ function buildCSS() {
         "  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;",
         "  background: " + BG_ED + ";",
         "  opacity: " + (op.editor * switchMul * edDim) + ";", TR, IMGF_ED,
+        // Параллакс: смещаем background-position за курсором (переменные ставит boot.js).
+        // Longhand после shorthand background перекрывает его позицию. Только картинка
+        // (у градиента позиции нет). cover уже с запасом перекрытия — сдвиг в ~8px не оголяет край.
+        (fx.parallax && !edIsGrad ? "  background-position: calc(50% + var(--mlbg-par-x,0px)) calc(50% + var(--mlbg-par-y,0px));" : ""),
         (fx.kenburns ? "  animation: mlbg-kenburns " + fxp.kbSpeed + "s ease-in-out infinite alternate; transform-origin:center; will-change:transform;" : ""),
         "}"
     );
@@ -239,6 +313,14 @@ function buildCSS() {
     if (fx.dimOnBlur) add(
         "body.mlbg-unfocused .monaco-editor .overflow-guard > .monaco-scrollable-element::after {",
         "  opacity: " + (op.editor * switchMul * edDim * 0.35) + " !important;",
+        "}"
+    );
+    // «Поток»: при долгой непрерывной печати boot.js вешает body.mlbg-flowing — фон
+    // редактора гаснет сильнее, чем при обычном dim-on-type (~15% от текущего), и плавно
+    // (у оверлея есть transition:opacity). Снимается на паузе для чтения.
+    if (fx.flow) add(
+        "body.mlbg-flowing .monaco-editor .overflow-guard > .monaco-scrollable-element::after {",
+        "  opacity: " + (op.editor * switchMul * edDim * 0.15) + " !important;",
         "}"
     );
 
@@ -373,7 +455,9 @@ function buildCSS() {
         // По умолчанию — радужный перелив; groupBorderMono даёт «дыхание» одним акцентом.
         "  background:" + (fx.groupBorderMono
             ? "linear-gradient(120deg,var(--mlbg-accent),rgba(var(--mlbg-accent-rgb),0.25),var(--mlbg-accent))"
-            : "linear-gradient(120deg,var(--mlbg-accent),#89b4fa,#a6e3a1,var(--mlbg-accent))") + "; background-size:300% 300%;",
+            : (fx.paletteSync
+                ? "linear-gradient(120deg,var(--mlbg-accent)," + ac2 + "," + ac3 + ",var(--mlbg-accent))"
+                : "linear-gradient(120deg,var(--mlbg-accent),#89b4fa,#a6e3a1,var(--mlbg-accent))")) + "; background-size:300% 300%;",
         "  animation: mlbg-flow 8s linear infinite;",
         "  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor;",
         "  mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite:exclude;",
@@ -391,8 +475,8 @@ function buildCSS() {
         ".editor-group-container.empty { position: relative; }",
         ".editor-group-container.empty::after {",
         "  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;",
-        // заставка = картинка редактора, всегда «contain»; 404 -> акцентная подложка
-        "  background: " + (probeImage(edUrl).ok ? cssUrl(edUrl) + " center / contain no-repeat" : "rgba(var(--mlbg-accent-rgb),0.14)") + "; opacity: " + (0.12 * switchMul * edDim) + ";", TR, IMGF_ED,
+        // заставка = картинка редактора, всегда «contain»; градиент -> сам градиент; 404 -> акцентная подложка
+        "  background: " + (edIsGrad ? gradFor(idx, "editor") : (probeImage(edUrl).ok ? cssUrl(edUrl) + " center / contain no-repeat" : "rgba(var(--mlbg-accent-rgb),0.14)")) + "; opacity: " + (0.12 * switchMul * edDim) + ";", TR, IMGF_ED,
         "}"
     );
 

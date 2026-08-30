@@ -149,6 +149,17 @@ function togglePanel(ev) {
     secImg.appendChild(makeAccentColor());
     secImg.appendChild(makeImgFilters());
 
+    // Папка плагина: база для картинок набора. Нужна при переносе плагина (иначе фон
+    // пропадает — плитки набора с «!»). Отдельная секция, чтобы не путать с путём картинки.
+    var secBase = collapsible(p, "Папка плагина", "Откуда брать картинки наборов. Меняй, если перенёс плагин и фон пропал. Пусто — путь определяется автоматически.");
+    secBase.appendChild(makeImgBaseField());
+    secBase.appendChild(makeRemoteImagesToggle());
+
+    // Контекст: фон под открытый проект + индикатор git-ветки (оба читают заголовок/статусбар).
+    var secWs = collapsible(p, "По проекту", "Набор под открытый проект и полоска-индикатор git-ветки. Держатся на чтении заголовка и статусбара VS Code.");
+    secWs.appendChild(makeWorkspaceUI());
+    secWs.appendChild(makeAmbientBranchToggle());
+
     // Сила эффектов
     var secFxp = collapsible(p, "Сила эффектов", "Числовые параметры эффектов из списка ниже.");
     PARAMS.forEach(function (d) { secFxp.appendChild(makeParamSlider(d)); });
@@ -177,6 +188,10 @@ function togglePanel(ev) {
     var secPreset = collapsible(p, "Пресеты", "Сохранённые образы: весь вид под именем, переключение одним кликом.");
     secPreset.appendChild(makePresetsUI());
 
+    // Поделиться образом коротким кодом (без картинок/путей)
+    var secShare = collapsible(p, "Поделиться", "Короткий код всего образа для обмена: скопируй свой или примени чужой. Картинки и пути не входят.");
+    secShare.appendChild(makeShareUI());
+
     // экспорт / импорт
     var io = el("div", "display:flex; gap:8px; margin-top:12px;");
     var expB = makeIoBtn("⬇ Экспорт"); expB.addEventListener("click", function () { exportCfg(); });
@@ -184,12 +199,24 @@ function togglePanel(ev) {
     io.appendChild(expB); io.appendChild(impB);
     p.appendChild(io);
 
+    // Восстановление из авто-резерва: появляется, когда резерв есть (после импорта/сброса/
+    // пресета). Возвращает конфиг, бывший до последней такой замены (можно нажать повторно).
+    if (hasBackup()) {
+        var restB = el("div", "margin-top:8px; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", "Восстановить прежние настройки");
+        restB.addEventListener("mouseenter", function () { restB.style.background = "rgba(137,180,250,0.26)"; });
+        restB.addEventListener("mouseleave", function () { restB.style.background = "rgba(137,180,250,0.14)"; });
+        restB.addEventListener("click", function () { restoreBackup(); });
+        keyActivate(restB, "Восстановить прежние настройки из резерва");
+        p.appendChild(restB);
+    }
+
     // сброс
     var reset = el("div", "margin-top:8px; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", "Сбросить к дефолту");
     reset.addEventListener("mouseenter", function () { reset.style.background = "rgba(var(--mlbg-accent-rgb),0.26)"; });
     reset.addEventListener("mouseleave", function () { reset.style.background = "rgba(var(--mlbg-accent-rgb),0.14)"; });
     reset.addEventListener("click", function () {
         var keepMode = cfg.mode, keepUi = cfg.ui; // сброс дизайна, но не положения/свёрнутости панели
+        backupCfg();                              // прежние настройки -> резерв (сброс можно откатить)
         cfg = clone(DEFAULTS); cfg.mode = keepMode; cfg.ui = keepUi;
         apply(); refreshPanel();
     });

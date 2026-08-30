@@ -7,7 +7,36 @@ function pickRandom() {
     try { localStorage.setItem(LAST_KEY, String(idx)); } catch (e) {}
     return idx;
 }
+// Имя открытого проекта из заголовка окна VS Code. Заголовок обычно выглядит как
+// "<файл> — <папка> — Visual Studio Code" (разделитель — тире с пробелами, у несохранённого
+// файла спереди маркер). API папки в custom-css нет, поэтому парсим document.title:
+// срезаем хвост " — Visual Studio Code" и берём последний сегмент (имя папки-проекта).
+function workspaceName() {
+    try {
+        var t = (document.title || "").trim();
+        if (!t) return "";
+        t = t.replace(/\s*[—\-]\s*Visual Studio Code\s*$/i, "").trim();
+        var parts = t.split(/\s+[—\-]\s+/); // сегменты, разделённые тире с пробелами
+        var name = parts.length ? parts[parts.length - 1] : t;
+        return name.replace(/[●•*]/g, "").trim().slice(0, 120); // убрать маркер несохранённого
+    } catch (e) { return ""; }
+}
+// Набор, закреплённый за текущим проектом (cfg.workspaceSets[имя]), если «фон по проекту»
+// включён и запись валидна. Иначе null — тогда activeIndex идёт по обычной логике.
+function workspaceIndex() {
+    if (!cfg.autoWorkspace) return null;
+    var n = workspaceName();
+    var v = (n && cfg.workspaceSets) ? cfg.workspaceSets[n] : null;
+    if (typeof v === "string" && /^\d+$/.test(v)) {
+        var i = parseInt(v, 10);
+        if (i >= 0 && i < SETS.length) return i;
+    }
+    return null;
+}
 function activeIndex() {
+    // «Фон по проекту» имеет приоритет над mode/слайдшоу/временем суток.
+    var wi = workspaceIndex();
+    if (wi !== null) return wi;
     if (cfg.mode === "random") {
         if (sessionRandomIndex === null) sessionRandomIndex = pickRandom();
         return sessionRandomIndex;
@@ -50,13 +79,21 @@ function setAccentValue(v) {
 // Абсолютный URL — есть схема (file:, vscode-file:, http:, d: и т.п.) или ведущий слэш;
 // такой путь берётся как есть. Иначе путь относительный — дописываем базу IMG.
 function isAbsUrl(u) { return /^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(u); }
-function imgUrl(rel) { return isAbsUrl(rel) ? rel : IMG + rel; }
+// Относительный путь дописываем к базе плагина (imgBase(): свой путь пользователя или IMG).
+// Абсолютный удалённый URL без согласия пользователя (imgAllowed) не пропускаем — "" отдаёт
+// пробе «битую» ссылку, и зона откатывается на акцентную подложку вместо сетевого запроса.
+function imgUrl(rel) {
+    if (isAbsUrl(rel)) return imgAllowed(rel) ? rel : "";
+    return imgBase() + rel;
+}
 // Путь картинки зоны набора: пользовательское переопределение (cfg.setImg[idx][zone])
 // или «родная» картинка из SETS. zone — ключ SETS: "editor" | "sidebar" | "panel".
 function setImage(idx, zone) {
     var o = cfg.setImg && cfg.setImg[idx];
     var ov = o && o[zone];
-    if (typeof ov === "string" && ov) return ov;
+    // Свой путь используем, только если он разрешён (локальный, либо сеть явно включена);
+    // заблокированный удалённый override игнорируем -> зона берёт «родную» картинку набора.
+    if (typeof ov === "string" && ov && imgAllowed(ov)) return ov;
     var s = SETS[idx]; return (s && s[zone]) ? s[zone] : "";
 }
 // Готовый абсолютный URL картинки зоны (переопределение -> resolve).
