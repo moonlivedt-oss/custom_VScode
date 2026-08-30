@@ -1,0 +1,15 @@
+# Единый перевод строк (LF) для текста — иначе на Windows (core.autocrlf=true)
+# custom-bg.js на диске в CRLF, а в гите в LF, и сравнения путаются.
+* text=auto eol=lf
+
+# Собранный артефакт и исходники — всегда LF (build.js склеивает через "\n").
+custom-bg.js text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+
+# Бинарники — не трогать переводы строк, не показывать в diff как текст.
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [18, 20]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # Зависимостей нет (npm ci не нужен) — сразу собираем и тестируем.
+      # Синтаксис каждого модуля по отдельности: smoke ловит рантайм после склейки,
+      # а node --check ловит синтаксическую ошибку в конкретном файле src/**.
+      - name: Синтаксис модулей (node --check)
+        run: for f in $(find src -name '*.js'); do node --check "$f"; done
+
+      - name: Smoke test
+        run: node test/smoke.js
+
+      # Собранный custom-bg.js должен совпадать с пересборкой из src/ —
+      # иначе кто-то поправил src, но забыл `node build.js`. git diff это ловит.
+      - name: Артефакт пересобран из src/
+        run: |
+          node build.js
+          if ! git diff --quiet -- custom-bg.js; then
+            echo "::error::custom-bg.js не совпадает с пересборкой из src/. Запусти 'node build.js' и закоммить результат."
+            git diff --stat -- custom-bg.js
+            exit 1
+          fi
