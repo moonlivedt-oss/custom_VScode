@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Вопрос или обсуждение
+    url: https://github.com/moonlivedt-oss/custom_VScode/discussions
+    about: Общие вопросы, помощь с установкой и идеи для обсуждения — сюда, а не в issue.
+  - name: FAQ / Решение проблем
+    url: https://github.com/moonlivedt-oss/custom_VScode#faq--решение-проблем
+    about: Частые проблемы (фон пропал, кнопки BG нет, перенос папки) уже разобраны в README.

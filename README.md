@@ -18,14 +18,37 @@
 
 ---
 
+## Быстрый старт
+
+1. Поставь расширение **be5invis.vscode-custom-css** (Marketplace или
+   `code --install-extension be5invis.vscode-custom-css`).
+2. Склонируй репозиторий: `git clone https://github.com/moonlivedt-oss/custom_VScode.git`
+3. Добавь путь к `custom-bg.js` в `settings.json`
+   (`Ctrl+Shift+P` → *Open User Settings (JSON)*):
+   ```jsonc
+   "vscode_custom_css.imports": [
+     "file:///d:/путь/до/vscode-bg/custom-bg.js"
+   ]
+   ```
+4. `Ctrl+Shift+P` → **Enable Custom CSS and JS** и **полностью перезапусти** VS Code
+   (`File → Exit`).
+
+Готово — в статусбаре справа появится кнопка **`BG 0`**, клик открывает панель «Фон и дизайн».
+Подробности, перенос папки и решение проблем — ниже ([Установка](#установка),
+[FAQ](#faq--решение-проблем)).
+
+---
+
 ## Содержание
 
+- [Быстрый старт](#быстрый-старт)
 - [Что это](#что-это)
 - [Возможности](#возможности)
 - [Наборы фонов](#наборы-фонов)
 - [Установка](#установка)
 - [Как пользоваться](#как-пользоваться)
 - [Фон под проект и индикатор ветки](#фон-под-проект-и-индикатор-ветки)
+- [FAQ / Решение проблем](#faq--решение-проблем)
 - [Структура проекта](#структура-проекта)
 - [Сборка](#сборка)
 - [Добавление набора](#добавление-набора)
@@ -251,6 +274,38 @@ API для этого в custom-css нет, поэтому парсится DOM.
 
 ---
 
+## FAQ / Решение проблем
+
+**После обновления VS Code фон и кнопка `BG` пропали.**
+Это ограничение самого механизма custom-css, не плагина: при каждом обновлении VS Code патч
+слетает. Верни его — `Ctrl+Shift+P` → **Enable Custom CSS and JS** → полный перезапуск
+(`File → Exit`). Настройки при этом не теряются.
+
+**VS Code пишет, что установка «повреждена» (Your Code installation appears to be corrupt).**
+Это баннер, который показывает be5invis.vscode-custom-css после патча ядра — не ошибка плагина.
+Нажми «шестерёнку» на баннере → **Don't Show Again**.
+
+**Перенёс папку плагина — фон исчез, на чипах наборов красный «!».**
+Картинки ищутся по старому пути. Открой кнопку `BG` → секцию **«Папка плагина»** и укажи путь к
+папке с `assets` (в формате `vscode-file://vscode-app/…` или `file:///…`). Править исходник и
+пересобирать не нужно. Пустое поле = путь определяется автоматически.
+
+**Кнопки `BG` нет в статусбаре.**
+Убедись, что путь в `vscode_custom_css.imports` ведёт именно к `custom-bg.js`, custom-css
+включён (**Enable Custom CSS and JS**) и VS Code перезапущен целиком (`File → Exit`, не просто
+закрытие окна). Проверь консоль: `Help → Toggle Developer Tools` → Console → строка
+`[MoonLight custom-bg] v15 …`. Если её нет — скрипт не подгрузился (проверь путь и слэши).
+
+**Как узнать версию.**
+`Help → Toggle Developer Tools` → Console → строка `[MoonLight custom-bg] v15 …`.
+
+**Ничего не помогло / нашёл баг / есть идея.**
+Открой [issue](https://github.com/moonlivedt-oss/custom_VScode/issues) (приложи версию из
+консоли и ОС) или зайди в
+[Discussions](https://github.com/moonlivedt-oss/custom_VScode/discussions).
+
+---
+
 ## Структура проекта
 
 ```
@@ -259,9 +314,11 @@ vscode-bg/
   build.js             ← сборщик: node build.js
   package.json         ← npm-скрипты (build / test / check / hooks); зависимостей нет
   README.md            ← этот файл
+  CHANGELOG.md         ← история версий
   LICENSE              ← MIT
   .gitattributes       ← фиксирует перевод строк (LF) для текста
   .github/workflows/   ← CI: смоук-тест + проверка что custom-bg.js пересобран
+  .github/ISSUE_TEMPLATE/ ← шаблоны issue (баг / идея) + ссылки на Discussions
   hooks/pre-commit     ← локальный git-хук: пересборка + smoke перед коммитом (npm run hooks)
   assets/              ← картинки
     editor/            ← фоны редактора набора (editor_0.jpg …)
