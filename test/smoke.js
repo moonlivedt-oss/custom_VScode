@@ -46,7 +46,9 @@ function ctxStub() {
 }
 function makeEl(tag) {
     var e = {
-        tagName: tag, style: {}, children: [], _attrs: {},
+        // style поддерживает setProperty/removeProperty — панель ставит CSS-переменные
+        // (--mlp-*) и стиль вкладок через них; без этих методов togglePanel бросил бы.
+        tagName: tag, style: { cssText: "", setProperty: noop, removeProperty: noop }, children: [], _attrs: {},
         appendChild: function (c) { this.children.push(c); return c; },
         insertBefore: function (c) { this.children.push(c); return c; },
         removeChild: noop, remove: noop, addEventListener: noop, removeEventListener: noop,
@@ -572,6 +574,48 @@ sandbox.cfg = sandbox.mergeCfg({ mode: "0", partStyle: "dots" });
 sandbox.applyShareCode(scode);
 ok(sandbox.cfg.partStyle === "sakura", "shareEncode/applyShareCode: стиль частиц переносится кодом образа");
 sandbox.cfg.partStyle = "dots";
+
+// ---- 20. Панель со вкладками собирается без ошибок (togglePanel не бросает) ----
+// Панель раскладывает 12 секций по 4 вкладкам (Набор/Вид/Терминал/Система). Прямой вызов
+// togglePanel в мини-DOM-стабе ловит ReferenceError/битую проводку контролов панели, которую
+// проверка только buildCSS не видит (панель строит десятки контролов из controls.js/io.js).
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" });
+var panelThrew = null;
+try { sandbox.togglePanel({ stopPropagation: function () {} }); }
+catch (e) { panelThrew = e; }
+ok(panelThrew === null, "togglePanel: панель со вкладками строится без исключений" + (panelThrew ? " (" + panelThrew.message + ")" : ""));
+// панель добавлена в body и это наш диалог (id === PANEL_ID)
+var builtPanel = null;
+for (var bi = 0; bi < sandbox.document.body.children.length; bi++) {
+    var ch = sandbox.document.body.children[bi];
+    if (ch && ch.id === sandbox.PANEL_ID) { builtPanel = ch; break; }
+}
+ok(!!builtPanel, "togglePanel: диалог панели добавлен в body (id=" + sandbox.PANEL_ID + ")");
+ok(builtPanel && builtPanel.getAttribute("role") === "dialog", "togglePanel: у панели role=dialog (доступность)");
+// повторный вызов и refreshPanel не должны падать (частый путь: таймеры/смена набора)
+var reThrew = null;
+try { sandbox.refreshPanel(); sandbox.togglePanel({ stopPropagation: function () {} }); }
+catch (e2) { reThrew = e2; }
+ok(reThrew === null, "refreshPanel + повторный togglePanel не бросают" + (reThrew ? " (" + reThrew.message + ")" : ""));
+ok(sandbox.panelTab === 0, "panelTab: активная вкладка по умолчанию 0");
+
+// ---- 20b. Запоминание вкладки: cfg.ui.tab санитизируется и подхватывается панелью ----
+ok(sandbox.mergeCfg({ ui: { tab: 2 } }).ui.tab === 2 &&
+    sandbox.mergeCfg({ ui: { tab: -5 } }).ui.tab === 0 &&
+    sandbox.mergeCfg({ ui: { tab: 999 } }).ui.tab === 15 &&
+    sandbox.mergeCfg({ ui: { tab: "x" } }).ui.tab === 0,
+    "mergeCfg: ui.tab — неотрицательное целое, зажато в 0..15, мусор -> 0");
+sandbox.cfg = sandbox.mergeCfg({ mode: "0", ui: { tab: 2 } });
+sandbox.togglePanel({ stopPropagation: function () {} });
+ok(sandbox.panelTab === 2, "togglePanel: стартовая вкладка берётся из cfg.ui.tab (запомнена между запусками)");
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" }); // вернуть дефолт для последующих тестов
+
+// ---- 20c. Зависимые контролы: partStyle-селект появляется только при включённых частицах ----
+// (косвенно — панель со включёнными/выключенными частицами строится без ошибок в обоих случаях)
+sandbox.cfg.fx.particles = false;
+var noPartThrew = null; try { sandbox.togglePanel({ stopPropagation: function () {} }); } catch (e3) { noPartThrew = e3; }
+ok(noPartThrew === null, "togglePanel: панель строится и когда «Частицы» выключены (стиль частиц скрыт)");
+sandbox.cfg.fx.particles = true;
 
 // ---- 17. Детерминизм сборки: build() дважды даёт идентичный артефакт ----
 var B = require(path.join(ROOT, "build.js"));

@@ -201,7 +201,13 @@ function makeParamSlider(def) {
     });
 }
 function makeCheck(key, label) {
-    return makeToggle(function () { return cfg.fx[key]; }, function (v) { cfg.fx[key] = v; apply(); }, label, INFO["fx_" + key]);
+    return makeToggle(function () { return cfg.fx[key]; }, function (v) {
+        cfg.fx[key] = v; apply();
+        // «Частицы»/«Помидор» управляют показом зависимых контролов (стиль/число частиц,
+        // длительность помидора) — пересобираем панель, чтобы они появились/исчезли.
+        // refreshPanel сохраняет вкладку/прокрутку/фокус (см. panel.js).
+        if (key === "particles" || key === "pomodoro") { try { refreshPanel(); } catch (e) {} }
+    }, label, INFO["fx_" + key]);
 }
 
 // ==== Контролы секции «Терминал» (работают с cfg.term) ====
@@ -275,19 +281,24 @@ function makeAccentColor() {
     hex.addEventListener("change", commitAccentHex);
     hex.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commitAccentHex(); hex.blur(); } });
     wrap.appendChild(ip); wrap.appendChild(hex);
-    // «из картинки»: берём доминирующий цвет фоновой картинки редактора набора как акцент
-    var pick = el("div", "flex:0 0 auto; padding:3px 8px; border-radius:6px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", "из картинки");
-    pick.title = "Взять акцент из фоновой картинки набора";
-    pick.addEventListener("click", function () {
-        onImage(zoneUrl(activeIndex(), "editor"), function (st) {
-            if (st.ok && st.accent) {
-                setAccentValue(st.accent); ip.value = st.accent; hex.value = st.accent;
-                apply(); refreshPanel(); toast("Акцент из картинки: " + st.accent);
-            } else { toast("Не удалось взять цвет из картинки", false); }
+    // «из картинки»: берём доминирующий цвет фоновой картинки редактора набора как акцент.
+    // У генеративного набора картинки нет (зона рисуется градиентом) — там кнопку не
+    // показываем (иначе клик всегда упирался бы в «Не удалось взять цвет из картинки»).
+    // Если в зону редактора подложена своя картинка (isGrad ложно), кнопка снова доступна.
+    if (!isGrad(activeIndex(), "editor")) {
+        var pick = el("div", "flex:0 0 auto; padding:3px 8px; border-radius:6px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", "из картинки");
+        pick.title = "Взять акцент из фоновой картинки набора";
+        pick.addEventListener("click", function () {
+            onImage(zoneUrl(activeIndex(), "editor"), function (st) {
+                if (st.ok && st.accent) {
+                    setAccentValue(st.accent); ip.value = st.accent; hex.value = st.accent;
+                    apply(); refreshPanel(); toast("Акцент из картинки: " + st.accent);
+                } else { toast("Не удалось взять цвет из картинки", false); }
+            });
         });
-    });
-    keyActivate(pick, "Акцент из картинки");
-    wrap.appendChild(pick);
+        keyActivate(pick, "Акцент из картинки");
+        wrap.appendChild(pick);
+    }
     var d = infoDot(INFO.accent); if (d) wrap.appendChild(d);
     return wrap;
 }

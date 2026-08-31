@@ -136,7 +136,7 @@ var DEFAULTS = {
         cursorSize: 1,                                  // ширина курсора (scaleX): 0 — скрыть, 1 — обычный, до 2.5
         cursorHeight: 1                                 // высота курсора (scaleY): 1 — обычная, до 2.5
     },
-    ui: { collapsed: {}, posX: null, posY: null }
+    ui: { collapsed: {}, posX: null, posY: null, tab: 0 } // tab — активная вкладка панели (Набор/Вид/Терминал/Система)
 };
 
 var TERM_FONTS = [
@@ -447,6 +447,9 @@ function mergeCfg(p) {
             }
             if (typeof p.ui.posX === "number" && isFinite(p.ui.posX)) c.ui.posX = p.ui.posX;
             if (typeof p.ui.posY === "number" && isFinite(p.ui.posY)) c.ui.posY = p.ui.posY;
+            // активная вкладка панели: неотрицательное целое (реальный верх зажмёт togglePanel
+            // под число вкладок; здесь просто небольшой безопасный потолок против мусора)
+            if (typeof p.ui.tab === "number" && isFinite(p.ui.tab)) c.ui.tab = Math.min(15, Math.max(0, Math.floor(p.ui.tab)));
         }
     }
     return c;
