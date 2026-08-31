@@ -34,7 +34,10 @@ function makeSlider(opts) {
     var sl = el("input", ST.range);
     sl.type = "range"; sl.min = String(opts.min); sl.max = String(opts.max); sl.step = String(opts.step); sl.value = String(opts.get());
     var val = el("span", "flex:0 0 " + valW + "px; text-align:right; color:var(--mlp-muted,#a6adc8);", Number(opts.get()).toFixed(opts.dec));
-    sl.addEventListener("input", function () { var v = parseFloat(sl.value); opts.onInput(v); val.textContent = v.toFixed(opts.dec); applyThrottled(); });
+    // input — «живое» применение без записи (коалесинг в кадр); change (отпускание ползунка)
+    // — единственная запись в localStorage. Раньше saveCfg дёргался на каждый кадр перетаскивания.
+    sl.addEventListener("input", function () { var v = parseFloat(sl.value); opts.onInput(v); val.textContent = v.toFixed(opts.dec); applyThrottledLive(); });
+    sl.addEventListener("change", function () { try { saveCfg(); } catch (e) {} });
     wrap.appendChild(sl); wrap.appendChild(val);
     var d = infoDot(opts.info); if (d) wrap.appendChild(d);
     wrap._refresh = function () { sl.value = String(opts.get()); val.textContent = Number(opts.get()).toFixed(opts.dec); };
@@ -108,15 +111,25 @@ function makeChip(mode, label) {
         // Генеративный набор — рисуем полоски градиентом (нет картинок и 404-проверки).
         var grad = isGradSet(idx);
         var ZK = ["editor", "sidebar", "panel"];
+        // Чип 48×32 не должен держать полноразмерный JPEG фоновым слоем (100–250 КБ × зоны ×
+        // наборы = мегабайты, и всё заново при каждой пересборке панели). Кладём акцентный
+        // плейсхолдер, а как только проба картинки готова — подставляем компактный data-URL
+        // из probeImage.thumb (второй загрузки нет). Сетевая/битая картинка -> остаётся плейсхолдер.
+        function paintZone(node, zone) {
+            var url = zoneUrl(idx, zone);
+            node.style.background = "rgba(var(--mlbg-accent-rgb),0.14)";
+            node.style.backgroundPosition = "center"; node.style.backgroundSize = "cover";
+            onImage(url, function (st) { if (st && st.thumb) node.style.backgroundImage = cssUrl(st.thumb); });
+        }
         if (grad) c.style.background = gradFor(idx, "editor");
-        else c.style.backgroundImage = cssUrl(zoneUrl(idx, "editor"));
+        else paintZone(c, "editor");
         for (var zi = 0; zi < 3; zi++) {
             var strip = el("div",
                 "position:absolute; top:0; bottom:0; width:33.34%; left:" + (zi * 33.33) + "%;" +
                 "background-position:center; background-size:cover;" +
                 (zi ? "box-shadow:inset 1px 0 0 rgba(0,0,0,0.35);" : ""));
             if (grad) strip.style.background = gradFor(idx, ZK[zi]);
-            else strip.style.backgroundImage = cssUrl(zoneUrl(idx, ZK[zi]));
+            else paintZone(strip, ZK[zi]);
             c.appendChild(strip);
         }
         var num = el("span", "position:absolute; right:3px; bottom:1px; z-index:2; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.95);", label);
@@ -218,8 +231,17 @@ function makeTermColor(key, label) {
     wrap.appendChild(el("span", mutedLabel(56), label));
     var ip = el("input", "flex:0 0 auto; width:34px; height:22px; padding:0; border:1px solid var(--mlp-border,rgba(205,214,244,0.2)); border-radius:6px; background:transparent; cursor:pointer;");
     ip.type = "color"; ip.value = cfg.term[key];
-    var hex = el("span", "flex:1 1 auto; color:var(--mlp-faint,#6c7086); font-size:11px;", cfg.term[key]);
-    ip.addEventListener("input", function () { cfg.term[key] = ip.value; hex.textContent = ip.value; applyThrottled(); });
+    var hex = el("input", "flex:1 1 auto; min-width:0; background:transparent; border:none; padding:0; color:var(--mlp-faint,#6c7086); font-size:11px; font-family:inherit;");
+    hex.type = "text"; hex.value = cfg.term[key]; hex.maxLength = 7; hex.setAttribute("aria-label", label + " HEX");
+    ip.addEventListener("input", function () { cfg.term[key] = ip.value; hex.value = ip.value; applyThrottledLive(); });
+    ip.addEventListener("change", function () { try { saveCfg(); } catch (e) {} });
+    function commitTermHex() {
+        var v = hex.value.trim();
+        if (isColor(v)) { cfg.term[key] = v; ip.value = v; hex.value = v; apply(); }
+        else hex.value = ip.value; // невалидно -> вернуть текущий цвет
+    }
+    hex.addEventListener("change", commitTermHex);
+    hex.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commitTermHex(); hex.blur(); } });
     wrap.appendChild(ip); wrap.appendChild(hex);
     var d = infoDot(INFO["term_" + key]); if (d) wrap.appendChild(d);
     return wrap;
@@ -239,9 +261,19 @@ function makeAccentColor() {
     var cur = getAccent();
     var ip = el("input", "flex:0 0 auto; width:34px; height:22px; padding:0; border:1px solid var(--mlp-border,rgba(205,214,244,0.2)); border-radius:6px; background:transparent; cursor:pointer;");
     ip.type = "color"; ip.value = cur;
-    var hex = el("span", "flex:1 1 auto; color:var(--mlp-faint,#6c7086); font-size:11px;", cur);
+    // HEX редактируемый: можно вписать/вставить #rrggbb, а не только тыкать в палитру.
+    var hex = el("input", "flex:1 1 auto; min-width:0; background:transparent; border:none; padding:0; color:var(--mlp-faint,#6c7086); font-size:11px; font-family:inherit;");
+    hex.type = "text"; hex.value = cur; hex.maxLength = 7; hex.setAttribute("aria-label", "Акцент HEX");
     // акцент правится для АКТИВНОГО набора (setAccentValue), у каждого набора свой
-    ip.addEventListener("input", function () { setAccentValue(ip.value); hex.textContent = ip.value; applyThrottled(); });
+    ip.addEventListener("input", function () { setAccentValue(ip.value); hex.value = ip.value; applyThrottledLive(); });
+    ip.addEventListener("change", function () { try { saveCfg(); } catch (e) {} });
+    function commitAccentHex() {
+        var v = hex.value.trim();
+        if (isColor(v)) { setAccentValue(v); ip.value = v; hex.value = v; apply(); }
+        else hex.value = ip.value; // невалидно -> вернуть текущий цвет
+    }
+    hex.addEventListener("change", commitAccentHex);
+    hex.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commitAccentHex(); hex.blur(); } });
     wrap.appendChild(ip); wrap.appendChild(hex);
     // «из картинки»: берём доминирующий цвет фоновой картинки редактора набора как акцент
     var pick = el("div", "flex:0 0 auto; padding:3px 8px; border-radius:6px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", "из картинки");
@@ -249,7 +281,7 @@ function makeAccentColor() {
     pick.addEventListener("click", function () {
         onImage(zoneUrl(activeIndex(), "editor"), function (st) {
             if (st.ok && st.accent) {
-                setAccentValue(st.accent); ip.value = st.accent; hex.textContent = st.accent;
+                setAccentValue(st.accent); ip.value = st.accent; hex.value = st.accent;
                 apply(); refreshPanel(); toast("Акцент из картинки: " + st.accent);
             } else { toast("Не удалось взять цвет из картинки", false); }
         });
@@ -460,7 +492,7 @@ function collapsible(parent, title, info) {
     var chev = el("span", "flex:0 0 auto; width:10px; text-align:center; color:var(--mlbg-accent); font-size:9px; transition:transform 0.15s;", "▶");
     chev.style.transform = collapsed ? "rotate(0deg)" : "rotate(90deg)";
     head.appendChild(chev);
-    head.appendChild(el("div", "flex:1 1 auto; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.7px; color:var(--mlp-head,#bac2de);", title));
+    head.appendChild(el("div", "flex:1 1 auto; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--mlp-head,#bac2de);", title));
     var idot = infoDot(info); if (idot) head.appendChild(idot);
     var body = el("div", "padding:6px 3px 2px;");
     body.style.display = collapsed ? "none" : "block";

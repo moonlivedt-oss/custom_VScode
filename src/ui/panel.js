@@ -49,12 +49,14 @@ function togglePanel(ev) {
     // прежним литералам (внешний вид не меняется), на светлой — подменяются на светлые,
     // иначе панель оставалась тёмной поверх светлого VS Code. Каскадирует на всех потомков.
     (function () {
+        // faint подняли по контрасту (WCAG): на светлой теме темнее (#6b6e85 вместо #8c8fa1),
+        // на тёмной светлее (#8b93ad вместо #6c7086) — вспомогательный текст стал читаемым.
         var V = isLightTheme() ? {
-            fg: "#1e1e2e", muted: "#5c5f77", faint: "#8c8fa1", field: "rgba(255,255,255,0.75)",
+            fg: "#1e1e2e", muted: "#5c5f77", faint: "#6b6e85", field: "rgba(255,255,255,0.75)",
             border: "rgba(30,30,46,0.22)", borderSoft: "rgba(30,30,46,0.16)", borderFaint: "rgba(30,30,46,0.12)",
             head: "#4c4f69", bg: "rgba(245,245,250,0.98)"
         } : {
-            fg: "#cdd6f4", muted: "#a6adc8", faint: "#6c7086", field: "rgba(30,30,46,0.6)",
+            fg: "#cdd6f4", muted: "#a6adc8", faint: "#8b93ad", field: "rgba(30,30,46,0.6)",
             border: "rgba(205,214,244,0.2)", borderSoft: "rgba(205,214,244,0.16)", borderFaint: "rgba(205,214,244,0.12)",
             head: "#bac2de", bg: "rgba(24,24,37,0.98)"
         };

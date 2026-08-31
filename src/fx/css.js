@@ -15,7 +15,7 @@ function _fireImg(url, st) {
 }
 function probeImage(url) {
     if (Object.prototype.hasOwnProperty.call(_imgState, url)) return _imgState[url];
-    var st = { ok: true, luma: null, accent: null, palette: null, resolved: false }; // до загрузки: «ок, метрики неизвестны»
+    var st = { ok: true, luma: null, accent: null, palette: null, thumb: null, resolved: false }; // до загрузки: «ок, метрики неизвестны»
     _imgState[url] = st;
     try {
         var im = new Image();
@@ -32,6 +32,16 @@ function probeImage(url) {
                 st.accent = dominantAccent(d); // доминирующий цвет -> готовый акцент
                 st.palette = dominantPalette(d); // гармоничная палитра (для «Палитры из картинки»)
             } catch (e) { st.luma = 1; st.accent = null; st.palette = null; } // canvas «испорчен»/ошибка — не димим
+            // Мини-превью для чипов набора: чип 48×32 не нуждается в полноразмерном JPEG (100–250 КБ),
+            // который иначе висел бы фоновым слоем и заново подтягивался на КАЖДОЙ пересборке панели.
+            // Рисуем один раз из уже загруженной картинки (второй загрузки нет) в компактный data-URL.
+            // Локальный origin (vscode-file) -> canvas не «испорчен»; для сетевых картинок toDataURL
+            // может бросить (тогда чип покажет акцентный плейсхолдер) — оборачиваем отдельным try.
+            try {
+                var tc = document.createElement("canvas"); tc.width = 96; tc.height = 64;
+                tc.getContext("2d").drawImage(im, 0, 0, 96, 64);
+                st.thumb = tc.toDataURL("image/jpeg", 0.72);
+            } catch (e2) { st.thumb = null; }
             st.resolved = true; _fireImg(url, st); bumpStyle(); ensureStyle();
         };
         im.onerror = function () { st.ok = false; st.resolved = true; _fireImg(url, st); bumpStyle(); ensureStyle(); };
@@ -186,8 +196,12 @@ function switcherCSS() {
     return [
         "#moonlight-bg-switcher { cursor: pointer; }",
         "#moonlight-bg-switcher:hover { background: rgba(var(--mlbg-accent-rgb),0.18); }",
-        // видимый фокус для клавиатуры (кнопка BG и все div-«кнопки» панели)
-        "#moonlight-bg-switcher:focus-visible, #moonlight-bg-panel [role=button]:focus-visible {",
+        // видимый фокус для клавиатуры: кнопка BG, все div-«кнопки» панели И нативные
+        // контролы (поля, ползунки, селекты, чекбоксы, цвет) — иначе с клавиатуры не видно,
+        // где ты находишься. Обводка акцентом, чуть отступя, поверх любого фона панели.
+        "#moonlight-bg-switcher:focus-visible, #moonlight-bg-panel [role=button]:focus-visible,",
+        "#moonlight-bg-panel input:focus-visible, #moonlight-bg-panel select:focus-visible,",
+        "#moonlight-bg-panel textarea:focus-visible {",
         "  outline: 2px solid var(--mlbg-accent); outline-offset: 1px;",
         "}",
         // Скроллбар панели «Фон и дизайн»: по умолчанию Electron рисует широкий светлый
@@ -521,6 +535,17 @@ var _applyRaf = 0;
 function applyThrottled() {
     if (_applyRaf) return;
     _applyRaf = requestAnimationFrame(function () { _applyRaf = 0; apply(); });
+}
+// «Живое» применение БЕЗ записи в localStorage — для непрерывных изменений во время
+// перетаскивания слайдера или выбора цвета. Раньше каждый такой кадр звал apply() ->
+// saveCfg(), то есть до ~60 синхронных записей в localStorage в секунду (джанк + износ).
+// Теперь во время движения только пересобираем CSS/виджеты, а cfg пишем один раз —
+// по событию change (отпускание ползунка / фиксация цвета), см. makeSlider/цветовые контролы.
+function applyNoSave() { bumpStyle(); ensureStyle(); updateLabel(); syncWidgets(); }
+var _applyLiveRaf = 0;
+function applyThrottledLive() {
+    if (_applyLiveRaf) return;
+    _applyLiveRaf = requestAnimationFrame(function () { _applyLiveRaf = 0; applyNoSave(); });
 }
 // Плавная смена фона: гасим оверлеи зон (switchMul=0), затем в следующем кадре
 // возвращаем (switchMul=1). У оверлеев есть transition:opacity, поэтому новый набор

@@ -478,6 +478,22 @@ ok(sandbox.mergeForeign({ allowRemoteImages: true, mode: "2" }).allowRemoteImage
 ok(sandbox.mergeCfg({ allowRemoteImages: true }).allowRemoteImages === true,
     "mergeCfg: собственный сохранённый конфиг сохраняет включённые сетевые картинки");
 
+// ---- 17h. DES-5: живое применение (applyNoSave) НЕ пишет конфиг в localStorage ----
+ok(typeof sandbox.applyNoSave === "function" && typeof sandbox.applyThrottledLive === "function",
+    "apply: есть applyNoSave/applyThrottledLive (живое применение без записи)");
+sandbox.cfg.mode = "0"; sandbox.cfg.enabled = true;
+sandbox.localStorage.setItem(sandbox.CFG_KEY, "SENTINEL");
+sandbox.applyNoSave();
+ok(sandbox.localStorage.getItem(sandbox.CFG_KEY) === "SENTINEL",
+    "applyNoSave: не трогает localStorage (запись только по change/отпусканию)");
+sandbox.saveCfg();
+ok(sandbox.localStorage.getItem(sandbox.CFG_KEY) !== "SENTINEL",
+    "saveCfg: конфиг реально записывается, когда нужно");
+
+// ---- 17i. DES-3: probeImage резервирует поле thumb для мини-превью чипов ----
+ok("thumb" in sandbox.probeImage("vscode-file://vscode-app/test/never.jpg"),
+    "probeImage: состояние картинки содержит поле thumb (мини-превью чипа)");
+
 // ---- 17. Детерминизм сборки: build() дважды даёт идентичный артефакт ----
 var B = require(path.join(ROOT, "build.js"));
 ok(B.build(false) === B.build(false), "build.js: повторная сборка даёт идентичный custom-bg.js (детерминизм)");
