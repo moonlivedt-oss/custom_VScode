@@ -2338,8 +2338,31 @@
         try { p.focus(); } catch (e) {}
     }
 
+    // Пересобрать открытую панель, СОХРАНИВ прокрутку и фокус. Раньше refreshPanel просто
+    // закрывал и открывал панель заново — прокрутка прыгала наверх, а фокус терялся; при этом
+    // его дёргают и таймеры (слайдшоу/по времени), так что открытая панель «саморазрушалась»
+    // под пользователем каждые N минут. Теперь: запоминаем scrollTop и ПОРЯДКОВЫЙ номер
+    // сфокусированного контрола в списке фокусируемых (структура панели детерминирована —
+    // после пересборки тот же контрол стоит на том же месте), затем восстанавливаем. Фокус
+    // ставим ДО scrollTop: .focus() сам подкручивает элемент в видимую область, поэтому scrollTop
+    // должен побеждать последним. Активная подсветка чипов при этом остаётся корректной.
     function refreshPanel() {
-        if (document.getElementById(PANEL_ID)) { closePanel(); togglePanel({ stopPropagation: function () {} }); }
+        var old = document.getElementById(PANEL_ID);
+        if (!old) return;
+        var scroll = 0, focusIdx = -1;
+        try { scroll = old.scrollTop; } catch (e) {}
+        try {
+            var f = panelFocusables(old), act = document.activeElement;
+            for (var i = 0; i < f.length; i++) if (f[i] === act) { focusIdx = i; break; }
+        } catch (e) {}
+        closePanel();
+        togglePanel({ stopPropagation: function () {} });
+        var np = document.getElementById(PANEL_ID);
+        if (!np) return;
+        if (focusIdx >= 0) {
+            try { var nf = panelFocusables(np); if (nf[focusIdx] && nf[focusIdx].focus) nf[focusIdx].focus(); } catch (e) {}
+        }
+        try { np.scrollTop = scroll; } catch (e) {}
     }
 
     // ===================== src/widgets/extras.js =====================
