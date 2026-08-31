@@ -3,9 +3,11 @@
 // скрипта (document.currentScript) — тогда перенос папки не ломает пути. Если скрипт
 // внедрён инлайном (src пустой), откатываемся к абсолютному пути ниже.
 // ВАЖНО: у be5invis.vscode-custom-css скрипт часто внедряется инлайном, и тогда
-// document.currentScript пуст — так что запасной абсолютный путь ниже НЕ «на крайний
-// случай», а основной рабочий путь. Меняй его под СВОЮ папку плагина при переносе.
-var IMG_FALLBACK = "vscode-file://vscode-app/d%3A/Desktop/components/vscode-bg/";
+// document.currentScript пуст. Личный абсолютный путь сюда НЕ хардкодим: он утёк бы в
+// публичный репозиторий (структура ФС автора) и всё равно неверен на чужой машине.
+// Пусто -> при инлайн-внедрении укажи путь ОДИН раз в панели («Папка плагина», cfg.imgBase):
+// он сохранится в localStorage конкретной машины, а не в коде.
+var IMG_FALLBACK = "";
 var IMG = (function () {
     try {
         var src = (document.currentScript && document.currentScript.src) || "";
@@ -185,11 +187,21 @@ function safeBase(s) {
 // маячок-трекер. Поэтому по умолчанию пускаем только ЛОКАЛЬНЫЕ схемы; сеть — лишь когда
 // пользователь сам включил cfg.allowRemoteImages.
 var LOCAL_IMG_SCHEME = /^(?:vscode-file|vscode-resource|vscode-webview-resource|file|data):/i;
-// Удалённый источник: абсолютный URL с не-локальной схемой ИЛИ протокол-относительный «//host».
+// file://ХОСТ/share на Windows разворачивается в UNC-путь \\ХОСТ\share — а это сетевой
+// SMB-запрос (утечка факта использования, IP и NetNTLM-хеша, тот же класс, что CVE-2025-24054
+// и утечка через обои Windows Themes), НЕ «локальная картинка». Локальными считаем только
+// file:/// (пустой хост) и file://localhost|127.0.0.1/… ; любой другой хост в file:// уводит
+// в сеть так же, как http, — и должен блокироваться (imgAllowed) без явного согласия.
+var FILE_UNC_RE = /^file:\/\/(?!\/|localhost[:/]|127\.0\.0\.1[:/])[^/]/i;
+// Удалённый источник: абсолютный URL с не-локальной схемой, протокол-относительный «//host»
+// ИЛИ file:// с непустым хостом (UNC). Обратные слэши приводим к прямым — иначе
+// file:\\host\share (браузер сам нормализует \ в /) проскользнул бы мимо проверки.
 function isRemoteUrl(u) {
     if (typeof u !== "string") return false;
-    if (/^\/\//.test(u)) return true;                        // //host/x — тянет из сети
-    return /^[a-z][a-z0-9+.-]*:/i.test(u) && !LOCAL_IMG_SCHEME.test(u);
+    var s = u.replace(/\\/g, "/");
+    if (/^\/\//.test(s)) return true;                        // //host/x — тянет из сети
+    if (FILE_UNC_RE.test(s)) return true;                    // file://host/… — UNC/SMB на Windows
+    return /^[a-z][a-z0-9+.-]*:/i.test(s) && !LOCAL_IMG_SCHEME.test(s);
 }
 // Разрешена ли картинка к загрузке: относительные и локальные — да; удалённые — только по
 // явному согласию (cfg.allowRemoteImages). typeof-страховка: cfg может ещё не быть.
@@ -405,6 +417,16 @@ function mergeCfg(p) {
             if (typeof p.ui.posY === "number" && isFinite(p.ui.posY)) c.ui.posY = p.ui.posY;
         }
     }
+    return c;
+}
+// Любой ЧУЖОЙ конфиг (импорт файла, применённый пресет) принимаем с ПРИНУДИТЕЛЬНО
+// выключенными сетевыми картинками: включить их можно только вручную тумблером. Иначе
+// чужой файл сам поднимал бы allowRemoteImages=true и грузил удалённые картинки (маячок)
+// ещё до того, как пользователь это увидел. Собственный сохранённый конфиг (loadCfg)
+// проходит через mergeCfg НАПРЯМУЮ и своё согласие сохраняет.
+function mergeForeign(p) {
+    var c = mergeCfg(p);
+    c.allowRemoteImages = false;
     return c;
 }
 function loadCfg() {

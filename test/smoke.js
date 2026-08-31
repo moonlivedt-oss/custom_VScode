@@ -455,6 +455,29 @@ ok(sandbox.countRemoteImgs({ imgBase: "http://x/", setImg: { "0": { editor: "htt
 ok(sandbox.countRemoteImgs({ setImg: { "0": { editor: "assets/ok.jpg" } } }) === 0 && sandbox.countRemoteImgs(null) === 0,
     "countRemoteImgs: локальные пути и пустой ввод дают 0");
 
+// ---- 17g2. Безопасность: file://ХОСТ (UNC) — сетевой SMB, блокируется как http ----
+ok(sandbox.isRemoteUrl("file://192.0.2.1/share/x.jpg") === true &&
+    sandbox.isRemoteUrl("file://attacker.example/a/pic.jpg") === true &&
+    sandbox.isRemoteUrl("file:\\\\192.0.2.1\\share\\x.jpg") === true &&
+    sandbox.isRemoteUrl("file:///d:/x.jpg") === false &&
+    sandbox.isRemoteUrl("file://localhost/d:/x.jpg") === false,
+    "isRemoteUrl: file://ХОСТ (UNC, в т.ч. через \\) — удалённый; file:/// и localhost — локальные");
+sandbox.cfg.allowRemoteImages = false; sandbox.cfg.imgBase = "";
+ok(sandbox.imgUrl("file://192.0.2.1/share/x.jpg") === "",
+    "imgUrl: file://ХОСТ блокируется без согласия (в сеть/SMB не идём)");
+sandbox.cfg.mode = "0"; sandbox.cfg.setImg = { "0": { editor: "file://192.0.2.1/share/beacon.jpg" } };
+ok(sandbox.setImage(0, "editor") === sandbox.SETS[0].editor,
+    "setImage: file://ХОСТ откатывается на родную картинку набора");
+ok(sandbox.countRemoteImgs({ setImg: { "0": { editor: "file://192.0.2.1/x.jpg" } } }) === 1,
+    "countRemoteImgs: file://ХОСТ теперь учитывается как сетевая ссылка");
+sandbox.cfg.setImg = {};
+
+// ---- 17g3. Чужой конфиг (импорт/пресет) не включает сетевые картинки сам (mergeForeign) ----
+ok(sandbox.mergeForeign({ allowRemoteImages: true, mode: "2" }).allowRemoteImages === false,
+    "mergeForeign: импорт/пресет всегда с выключенными сетевыми картинками");
+ok(sandbox.mergeCfg({ allowRemoteImages: true }).allowRemoteImages === true,
+    "mergeCfg: собственный сохранённый конфиг сохраняет включённые сетевые картинки");
+
 // ---- 17. Детерминизм сборки: build() дважды даёт идентичный артефакт ----
 var B = require(path.join(ROOT, "build.js"));
 ok(B.build(false) === B.build(false), "build.js: повторная сборка даёт идентичный custom-bg.js (детерминизм)");
