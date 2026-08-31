@@ -484,6 +484,22 @@ function makeSetPicker(which, label) {
     return wrap;
 }
 
+// Выбор стиля летящих частиц (cfg.partStyle). Категориальный — селект из PART_STYLES.
+// syncWidgets пересоздаёт частицы под новый стиль (см. ensureParticles).
+function makePartStyleSelect() {
+    var wrap = el("div", ST.row);
+    wrap.appendChild(el("span", mutedLabel(92), "Стиль частиц"));
+    var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
+    var cur = safePartStyle(cfg.partStyle);
+    PART_STYLES.forEach(function (o) {
+        var op = el("option", null, o[1]); op.value = o[0]; if (o[0] === cur) op.selected = true; sel.appendChild(op);
+    });
+    sel.addEventListener("change", function () { cfg.partStyle = safePartStyle(sel.value); apply(); });
+    wrap.appendChild(sel);
+    var d = infoDot(INFO.part_style); if (d) wrap.appendChild(d);
+    return wrap;
+}
+
 // ===== Сворачиваемая секция =====
 function collapsible(parent, title, info) {
     var collapsed = !!(cfg.ui.collapsed && cfg.ui.collapsed[title]);

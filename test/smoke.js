@@ -494,6 +494,85 @@ ok(sandbox.localStorage.getItem(sandbox.CFG_KEY) !== "SENTINEL",
 ok("thumb" in sandbox.probeImage("vscode-file://vscode-app/test/never.jpg"),
     "probeImage: состояние картинки содержит поле thumb (мини-превью чипа)");
 
+// ---- 18. v16: новые эффекты добавляют/убирают свои CSS-правила ----
+sandbox.cfg.mode = "0"; sandbox.cfg.enabled = true;
+// перед проверками сбросим все новые эффекты, затем включаем по одному
+["dimInactive", "reading", "glassCommand", "findAccent", "minimapFade", "indentAccent", "selectionMatch", "stickyGlass"]
+    .forEach(function (k) { sandbox.cfg.fx[k] = false; });
+
+// 18a. Тускнеть неактивные группы
+sandbox.cfg.fx.dimInactive = true;
+contains(build(), ".editor-group-container:not(.active)", "dimInactive: неактивные группы редактора тускнеют");
+sandbox.cfg.fx.dimInactive = false;
+ok(build().indexOf(".editor-group-container:not(.active)") < 0, "dimInactive выкл: правила нет");
+
+// 18b. Режим чтения занижает прозрачность фона редактора (CSS отличается)
+var noRead = build();
+sandbox.cfg.fx.reading = true;
+var withRead = build();
+ok(withRead !== noRead, "reading: включённый режим чтения меняет CSS (гасит фон редактора)");
+sandbox.cfg.fx.reading = false;
+
+// 18c. Стекло палитры команд
+// (.parameter-hints-widget уникален для glassCommand; .quick-input-widget есть и у rounded)
+sandbox.cfg.fx.glassCommand = true;
+contains(build(), ".parameter-hints-widget", "glassCommand: стекло палитры команд/автодополнения");
+sandbox.cfg.fx.glassCommand = false;
+ok(build().indexOf(".parameter-hints-widget") < 0, "glassCommand выкл: правила стекла палитры нет");
+
+// 18d. Акцент поиска
+sandbox.cfg.fx.findAccent = true;
+contains(build(), ".currentFindMatch", "findAccent: подсветка текущего совпадения поиска");
+sandbox.cfg.fx.findAccent = false;
+ok(build().indexOf(".currentFindMatch") < 0, "findAccent выкл: правил поиска нет");
+
+// 18e. Миникарта сквозь фон
+sandbox.cfg.fx.minimapFade = true;
+contains(build(), ".monaco-editor .minimap {", "minimapFade: миникарта полупрозрачная");
+sandbox.cfg.fx.minimapFade = false;
+ok(build().indexOf(".monaco-editor .minimap {") < 0, "minimapFade выкл: правила миникарты нет");
+
+// 18f. Акцент отступов + парной скобки
+sandbox.cfg.fx.indentAccent = true;
+contains(build(), ".bracket-match", "indentAccent: акцент парной скобки");
+sandbox.cfg.fx.indentAccent = false;
+ok(build().indexOf(".bracket-match") < 0, "indentAccent выкл: правил скобки/отступа нет");
+
+// 18g. Совпадения выделенного слова
+sandbox.cfg.fx.selectionMatch = true;
+contains(build(), ".selectionHighlight", "selectionMatch: подсветка совпадений слова");
+sandbox.cfg.fx.selectionMatch = false;
+ok(build().indexOf(".selectionHighlight") < 0, "selectionMatch выкл: правил совпадений нет");
+
+// 18h. Стекло sticky scroll
+sandbox.cfg.fx.stickyGlass = true;
+contains(build(), ".sticky-widget", "stickyGlass: стекло закреплённой прокрутки");
+sandbox.cfg.fx.stickyGlass = false;
+ok(build().indexOf(".sticky-widget") < 0, "stickyGlass выкл: правил sticky нет");
+
+// ---- 19. v16: стиль частиц санитизируется по белому списку ----
+ok(sandbox.safePartStyle("sakura") === "sakura" && sandbox.safePartStyle("dots") === "dots" &&
+    sandbox.safePartStyle("evil<style>") === "dots" && sandbox.safePartStyle(123) === "dots",
+    "safePartStyle: пропускает известные стили, мусор -> dots");
+ok(sandbox.mergeCfg({ partStyle: "snow" }).partStyle === "snow" &&
+    sandbox.mergeCfg({ partStyle: "zzz" }).partStyle === "dots" &&
+    sandbox.mergeCfg({}).partStyle === "dots",
+    "mergeCfg: partStyle санитизируется (известный проходит, мусор/пусто -> dots)");
+ok(sandbox.PART_STYLES.length === 5, "PART_STYLES: 5 стилей частиц (точки/звёзды/снег/сакура/пузыри)");
+sandbox.cfg.partStyle = "snow";
+ok(sandbox.partFalls() === true, "partFalls: снег падает (сверху вниз)");
+sandbox.cfg.partStyle = "stars";
+ok(sandbox.partFalls() === false, "partFalls: звёзды всплывают (снизу вверх)");
+sandbox.cfg.partStyle = "dots";
+
+// ---- 19b. v16: partStyle входит в шаринг образа (SHARE_KEYS) ----
+sandbox.cfg = sandbox.mergeCfg({ mode: "0", partStyle: "sakura" });
+var scode = sandbox.shareEncode();
+sandbox.cfg = sandbox.mergeCfg({ mode: "0", partStyle: "dots" });
+sandbox.applyShareCode(scode);
+ok(sandbox.cfg.partStyle === "sakura", "shareEncode/applyShareCode: стиль частиц переносится кодом образа");
+sandbox.cfg.partStyle = "dots";
+
 // ---- 17. Детерминизм сборки: build() дважды даёт идентичный артефакт ----
 var B = require(path.join(ROOT, "build.js"));
 ok(B.build(false) === B.build(false), "build.js: повторная сборка даёт идентичный custom-bg.js (детерминизм)");

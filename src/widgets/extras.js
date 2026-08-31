@@ -72,7 +72,7 @@ function pomoDone() {
     } catch (e) {}
 }
 
-var part = { canvas: null, ctx: null, raf: 0, list: [] };
+var part = { canvas: null, ctx: null, raf: 0, list: [], style: null };
 // Кол-во частиц: 0 — легитимное значение («частиц нет»), поэтому НЕ используем
 // "partCount || 40" (0 — falsy и молча превращался бы в 40). Откат к 40 только
 // если значение вообще не число (сломанный конфиг).
@@ -81,12 +81,24 @@ function partCount() {
     return typeof n === "number" && isFinite(n) ? Math.round(n) : 40;
 }
 function resizeParticles() { if (part.canvas) { part.canvas.width = window.innerWidth; part.canvas.height = window.innerHeight; } }
+// Стиль частиц (санитизированный). Снег и сакура ПАДАЮТ сверху вниз, остальные всплывают.
+function partStyleNow() { return safePartStyle(cfg.partStyle); }
+function partFalls() { var s = partStyleNow(); return s === "snow" || s === "sakura"; }
 function newPart(anyY) {
-    var W = window.innerWidth, H = window.innerHeight;
+    var W = window.innerWidth, H = window.innerHeight, fall = partFalls();
     // ac — «частица акцентного цвета?». Сам цвет НЕ вшиваем в частицу: он берётся
     // при отрисовке (см. loopParticles), поэтому смена акцента перекрашивает уже
-    // летящие частицы вживую, без пересоздания.
-    return { x: Math.random() * W, y: anyY ? Math.random() * H : H + 8, r: 0.6 + Math.random() * 1.8, sp: 0.12 + Math.random() * 0.45, dr: (Math.random() - 0.5) * 0.3, a: 0.15 + Math.random() * 0.45, ac: Math.random() < 0.5 };
+    // летящие частицы вживую, без пересоздания. y-старт зависит от направления стиля:
+    // падающие рождаются над верхом экрана, всплывающие — под нижним краем.
+    var y = anyY ? Math.random() * H : (fall ? -8 : H + 8);
+    // снег/сакура крупнее и заметнее; лепестки/звёзды медленно вращаются (rot/rs).
+    var big = fall ? 1.4 : 1;
+    return {
+        x: Math.random() * W, y: y, r: (0.6 + Math.random() * 1.8) * big,
+        sp: 0.12 + Math.random() * 0.45, dr: (Math.random() - 0.5) * 0.3,
+        a: 0.15 + Math.random() * 0.45, ac: Math.random() < 0.5,
+        rot: Math.random() * 6.283, rs: (Math.random() - 0.5) * 0.05
+    };
 }
 function initParticles() {
     var n = partCount(); part.list = [];
@@ -96,16 +108,51 @@ function initParticles() {
 function reduceMotion() {
     try { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) { return false; }
 }
+// Отрисовка одной частицы в зависимости от стиля. col — "r,g,b". Форма центрируется на (0,0)
+// после translate/rotate в loopParticles, поэтому здесь координаты локальные (радиус r).
+function drawPart(ctx, style, r, col, a) {
+    ctx.fillStyle = "rgba(" + col + "," + a + ")";
+    ctx.strokeStyle = "rgba(" + col + "," + a + ")";
+    if (style === "stars") {
+        // Искра-звёздочка: четырёхлучевая, лучи вытянуты по осям (тонкие ромбы).
+        var L = r * 2.4, w = r * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(0, -L); ctx.lineTo(w, 0); ctx.lineTo(0, L); ctx.lineTo(-w, 0); ctx.closePath();
+        ctx.moveTo(-L, 0); ctx.lineTo(0, w); ctx.lineTo(L, 0); ctx.lineTo(0, -w); ctx.closePath();
+        ctx.fill();
+    } else if (style === "sakura") {
+        // Лепесток: эллипс со срезом (два дуговых сегмента) — простой мазок-лепесток.
+        ctx.beginPath();
+        if (ctx.ellipse) ctx.ellipse(0, 0, r * 0.8, r * 1.6, 0, 0, 6.283);
+        else ctx.arc(0, 0, r, 0, 6.283);
+        ctx.fill();
+    } else if (style === "bubbles") {
+        // Пузырь: контур + лёгкий блик.
+        ctx.lineWidth = Math.max(0.6, r * 0.35);
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.stroke();
+        ctx.beginPath(); ctx.arc(-r * 0.3, -r * 0.3, r * 0.22, 0, 6.283); ctx.fill();
+    } else {
+        // dots / snow: сплошной кружок (снег — крупнее и светлый, задаётся цветом/размером выше).
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.fill();
+    }
+}
 function loopParticles() {
     if (!part.canvas || !part.ctx) { part.raf = 0; return; }
     if (document.hidden) { part.raf = 0; return; } // окно скрыто/свёрнуто — стоп до возврата (экономия CPU/батареи)
     var ctx = part.ctx, W = part.canvas.width, H = part.canvas.height, i, p;
     var acc = accentRGB(); // считаем акцент один раз за кадр, а не на каждую частицу
+    var style = partStyleNow(), fall = partFalls();
     ctx.clearRect(0, 0, W, H);
     for (i = 0; i < part.list.length; i++) {
-        p = part.list[i]; p.y -= p.sp; p.x += p.dr;
-        if (p.y < -10) { part.list[i] = newPart(false); continue; }
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.283); ctx.fillStyle = "rgba(" + (p.ac ? acc : "255,255,255") + "," + p.a + ")"; ctx.fill();
+        p = part.list[i];
+        if (fall) { p.y += p.sp; p.x += p.dr; if (p.y > H + 10) { part.list[i] = newPart(false); continue; } }
+        else { p.y -= p.sp; p.x += p.dr; if (p.y < -10) { part.list[i] = newPart(false); continue; } }
+        p.rot += p.rs;
+        // Цвет: снег — светлый, сакура — акцент набора, прочие — акцент/белый по флагу ac.
+        var col = style === "snow" ? "235,235,255" : (style === "sakura" ? acc : (p.ac ? acc : "255,255,255"));
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+        drawPart(ctx, style, p.r, col, p.a);
+        ctx.restore();
     }
     part.raf = requestAnimationFrame(loopParticles);
 }
@@ -121,7 +168,10 @@ function ensureParticles() {
             part.canvas = cv; part.ctx = cv.getContext("2d");
             resizeParticles(); initParticles();
         }
-        if (part.list.length !== partCount()) initParticles();
+        // Пересоздаём набор при смене числа ИЛИ стиля частиц (у падающих стилей другое
+        // направление и стартовые координаты — иначе снег «полетел бы» снизу вверх).
+        var st = partStyleNow();
+        if (part.list.length !== partCount() || part.style !== st) { part.style = st; initParticles(); }
         if (!part.raf && !document.hidden) loopParticles(); // (пере)запуск, если стоим и окно видно
     } else {
         if (part.raf) { cancelAnimationFrame(part.raf); part.raf = 0; }

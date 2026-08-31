@@ -167,11 +167,23 @@ function togglePanel(ev) {
     var secFxp = collapsible(p, "Сила эффектов", "Числовые параметры эффектов из списка ниже.");
     PARAMS.forEach(function (d) { secFxp.appendChild(makeParamSlider(d)); });
 
-    // Эффекты (2 колонки)
-    var secFx = collapsible(p, "Эффекты", "Включение/выключение визуальных эффектов. Наведи на пункт — всплывёт пояснение.");
+    // Эффекты (2 колонки). Эффектов уже за 30 — сверху поле поиска, фильтрующее список
+    // по подстроке названия (чистый UI, cfg не трогает). Пусто — показаны все.
+    var secFx = collapsible(p, "Эффекты", "Включение/выключение визуальных эффектов. Наведи на пункт — всплывёт пояснение. Поле поиска фильтрует список по названию.");
+    var fxSearch = el("input", fieldStyle(" padding:4px 7px; font-size:11px; margin-bottom:5px;"));
+    fxSearch.type = "text"; fxSearch.placeholder = "🔍 Фильтр эффектов…"; fxSearch.setAttribute("aria-label", "Фильтр эффектов по названию");
     var grid = el("div", "display:grid; grid-template-columns:1fr 1fr; gap:1px 10px;");
-    FX_LIST.forEach(function (o) { grid.appendChild(makeCheck(o[0], o[1])); });
+    var fxRows = FX_LIST.map(function (o) {
+        var node = makeCheck(o[0], o[1]); grid.appendChild(node);
+        return { node: node, label: o[1].toLowerCase() };
+    });
+    fxSearch.addEventListener("input", function () {
+        var q = fxSearch.value.trim().toLowerCase();
+        fxRows.forEach(function (r) { r.node.hidden = q && r.label.indexOf(q) < 0; });
+    });
+    secFx.appendChild(fxSearch);
     secFx.appendChild(grid);
+    secFx.appendChild(makePartStyleSelect()); // форма летящих частиц (если «Частицы» включены)
 
     // Терминал
     var secTerm = collapsible(p, "Терминал", "Оформление интегрированного терминала: шрифт, лигатуры, свечение, курсор, выделение.");

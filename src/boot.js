@@ -69,6 +69,12 @@ function onHotkey(e) {
             try { toast(cfg.enabled ? "Фон включён" : "Фон выключен"); } catch (er) {}
             if (document.getElementById(PANEL_ID)) refreshPanel();
         }
+        else if (e.code === "KeyR") { // режим чтения: фон редактора почти гаснет ради читаемости кода
+            e.preventDefault();
+            cfg.fx.reading = !cfg.fx.reading; apply();
+            try { toast(cfg.fx.reading ? "Режим чтения включён" : "Режим чтения выключен"); } catch (er) {}
+            if (document.getElementById(PANEL_ID)) refreshPanel();
+        }
     } catch (err) {}
 }
 document.addEventListener("keydown", onHotkey, true);
@@ -179,4 +185,4 @@ try {
 } catch (e) {}
 heal();
 
-console.log("[MoonLight custom-bg] v15 installed (18 sets: 6 gradient + smooth preview + per-zone gradients + per-project + palette + branch strip + parallax + flow + share), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
+console.log("[MoonLight custom-bg] v16 installed (18 sets: 6 gradient + 8 new effects: dim-inactive, reading mode, glass command palette, find accent, minimap fade, indent accent, selection match, sticky glass + particle styles + effects search), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "particles:", cfg.partStyle, "theme:", themeKind());

@@ -120,8 +120,24 @@
             groupBorderMono: false,                         // «Живой контур» одним акцентом (false — радужный перелив)
             paletteSync: false,                             // «живой контур» из палитры фоновой картинки, а не радужный
             parallax: false,                                // фон редактора чуть смещается за курсором (глубина)
-            flow: false                                     // «поток»: при долгом наборе фон плавно уходит сильнее
+            flow: false,                                    // «поток»: при долгом наборе фон плавно уходит сильнее
+            // v16: новая пачка эффектов. Тонкие акцентные (findAccent/indentAccent/selectionMatch/
+            // stickyGlass/glassCommand) включены по умолчанию — они лишь докрашивают уже видимые
+            // элементы под палитру набора и совпадают по духу с уже включённым «стеклом». Заметно
+            // меняющие поведение (dimInactive/minimapFade/reading) — по умолчанию выкл (opt-in).
+            dimInactive: false,                             // тусклее неактивные группы редактора (фокус на активной)
+            reading: false,                                 // режим чтения: фон редактора почти гаснет ради читаемости кода
+            glassCommand: true,                             // матовое стекло палитры команд/автодополнения/подсказок
+            findAccent: true,                               // акцент для виджета поиска/замены и подсветки совпадений
+            minimapFade: false,                             // миникарта полупрозрачная (фон просвечивает сквозь неё)
+            indentAccent: true,                             // акцент активной направляющей отступа и парной скобки
+            selectionMatch: true,                           // подсветка совпадений выделенного слова акцентом
+            stickyGlass: true                               // матовое стекло закреплённой прокрутки (sticky scroll)
         },
+        // Стиль летящих частиц (fx.particles). Категориальный (не числовой) — санитизируется
+        // по белому списку PART_STYLES. dots — прежнее поведение (кружки), остальные меняют
+        // форму/направление отрисовки в loopParticles (см. widgets/extras.js).
+        partStyle: "dots",
         // Только совместимые по метрикам Nerd-шрифты, чтобы не ломать выравнивание терминала
         term: {
             font: "JetBrainsMono NF", ligatures: true, glow: 2, weight: 400,
@@ -150,8 +166,22 @@
         ["particles", "Частицы"], ["pomodoro", "Помидор"],
         ["dimOnType", "Тускнеть при печати"], ["dimOnBlur", "Тускнеть без фокуса"],
         ["groupBorderMono", "Контур: 1 цвет"], ["paletteSync", "Палитра из картинки"],
-        ["parallax", "Параллакс фона"], ["flow", "Поток (глубокий дим)"]
+        ["parallax", "Параллакс фона"], ["flow", "Поток (глубокий дим)"],
+        ["dimInactive", "Тускнеть неактивные"], ["reading", "Режим чтения"],
+        ["glassCommand", "Стекло палитры"], ["findAccent", "Акцент поиска"],
+        ["minimapFade", "Миникарта сквозь"], ["indentAccent", "Акцент отступов"],
+        ["selectionMatch", "Совпадения слова"], ["stickyGlass", "Стекло sticky"]
     ];
+
+    // Стили частиц (fx.particles): ключ + подпись. dots — прежние кружки; stars — искры-звёздочки;
+    // snow — падающие светлые снежинки; sakura — падающие лепестки (цвет акцента); bubbles — контуры-пузыри.
+    var PART_STYLES = [
+        ["dots", "Точки"], ["stars", "Звёзды"], ["snow", "Снег"], ["sakura", "Сакура"], ["bubbles", "Пузыри"]
+    ];
+    function safePartStyle(s) {
+        for (var i = 0; i < PART_STYLES.length; i++) if (PART_STYLES[i][0] === s) return s;
+        return "dots";
+    }
 
     // ключ, подпись, min, max, step, знаков после запятой
     var PARAMS = [
@@ -396,6 +426,8 @@
             }
             // эффекты: только булевы
             if (p.fx) for (k in c.fx) if (typeof p.fx[k] === "boolean") c.fx[k] = p.fx[k];
+            // стиль частиц: только из белого списка PART_STYLES (иначе — дефолт "dots")
+            if (typeof p.partStyle === "string") c.partStyle = safePartStyle(p.partStyle);
             // терминал: шрифт из белого списка, цвета строго #rrggbb, числа зажаты
             if (p.term && typeof p.term === "object") {
                 if (typeof p.term.font === "string") c.term.font = safeFont(p.term.font);
@@ -845,6 +877,9 @@
         // Авто-дим editor по светлоте картинки (если включён): множитель к прозрачности.
         // Для градиента яркость не измерить (нет пикселей) — множитель 1.
         var edDim = (!edIsGrad && cfg.autoDim) ? lumaDimFactor(probeImage(edUrl).luma) : 1;
+        // Режим чтения: постоянно и сильно гасим фон редактора (не как flow — тот по печати),
+        // чтобы код читался максимально чётко; сайдбар/панель/эффекты не трогаем.
+        var readMul = fx.reading ? 0.12 : 1;
         // Трио акцентов для эффектов: основной + два спутника (палитра из картинки редактора
         // при включённой «Палитре из картинки», иначе повороты оттенка). ac2/ac3 — hex.
         var trio = accentTrio(ac, edIsGrad ? null : edUrl), ac2 = trio[1], ac3 = trio[2];
@@ -887,7 +922,7 @@
             ".monaco-editor .overflow-guard > .monaco-scrollable-element::after {",
             "  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;",
             "  background: " + BG_ED + ";",
-            "  opacity: " + (op.editor * switchMul * edDim) + ";", TR, IMGF_ED,
+            "  opacity: " + (op.editor * switchMul * edDim * readMul) + ";", TR, IMGF_ED,
             // Параллакс: смещаем background-position за курсором (переменные ставит boot.js).
             // Longhand после shorthand background перекрывает его позицию. Только картинка
             // (у градиента позиции нет). cover уже с запасом перекрытия — сдвиг в ~8px не оголяет край.
@@ -1077,6 +1112,49 @@
             "}"
         );
 
+        // v16: тусклее неактивные группы редактора — код активной группы держит фокус.
+        // Гасим только текст (view-lines) неактивной группы, чтобы наши оверлеи/эффекты не трогать.
+        if (fx.dimInactive) add(
+            ".editor-group-container:not(.active):not(.empty) .monaco-editor .view-lines {",
+            "  opacity: 0.55; transition: opacity 0.25s ease;",
+            "}"
+        );
+        // v16: матовое стекло палитры команд / автодополнения / подсказок / ховера — берут
+        // цвет темы (var(--vscode-editorWidget-background)) с прозрачностью + размытие + тонкая
+        // акцентная рамка, чтобы попапы не выглядели непрозрачным прямоугольником поверх фона.
+        if (fx.glassCommand) {
+            add(".quick-input-widget, .suggest-widget, .monaco-hover, .parameter-hints-widget, .monaco-editor .suggest-widget {");
+            addSurface("--vscode-editorWidget-background", surfRGB, 0.72);
+            add(blurLines(Math.min(fxp.blur, 12)),
+                "  border: 1px solid rgba(var(--mlbg-accent-rgb),0.25) !important;",
+            "}");
+        }
+        // v16: акцент виджета поиска/замены и подсветки найденных совпадений — под палитру набора.
+        if (fx.findAccent) add(
+            ".editor-widget.find-widget { border: 1px solid rgba(var(--mlbg-accent-rgb),0.4) !important; box-shadow: 0 4px 18px rgba(0,0,0,0.4); }",
+            ".editor-widget.find-widget.replaceToggled { border-color: rgba(var(--mlbg-accent-rgb),0.5) !important; }",
+            ".monaco-editor .findMatch { background: rgba(var(--mlbg-accent-rgb),0.22) !important; }",
+            ".monaco-editor .currentFindMatch { background: rgba(var(--mlbg-accent-rgb),0.42) !important; outline: 1px solid var(--mlbg-accent); border-radius: 2px; }"
+        );
+        // v16: миникарта полупрозрачная — фоновая картинка просвечивает сквозь неё.
+        if (fx.minimapFade) add(".monaco-editor .minimap { opacity: 0.55; transition: opacity 0.2s ease; }",
+            ".monaco-editor .minimap:hover { opacity: 0.9; }");
+        // v16: акцент активной направляющей отступа и парной скобки.
+        if (fx.indentAccent) add(
+            ".monaco-editor .core-guide-indent-active { box-shadow: inset 1px 0 0 0 rgba(var(--mlbg-accent-rgb),0.7) !important; }",
+            ".monaco-editor .bracket-match { border-color: rgba(var(--mlbg-accent-rgb),0.8) !important; background: rgba(var(--mlbg-accent-rgb),0.1) !important; }"
+        );
+        // v16: подсветка всех вхождений выделенного слова акцентом (word occurrences).
+        if (fx.selectionMatch) add(
+            ".monaco-editor .selectionHighlight { background: rgba(var(--mlbg-accent-rgb),0.18) !important; outline: 1px solid rgba(var(--mlbg-accent-rgb),0.4); border-radius: 2px; }"
+        );
+        // v16: матовое стекло закреплённой прокрутки (sticky scroll — приклеенные заголовки).
+        if (fx.stickyGlass) {
+            add(".monaco-editor .sticky-widget, .monaco-editor .sticky-widget .sticky-line-content {");
+            addSurface("--vscode-editorStickyScroll-background", surfRGB, 0.6);
+            add(blurLines(Math.min(fxp.blur, 10)), "}");
+        }
+
         add(switcherCSS());
 
         // Доступность/батарея: при системной «уменьшить движение» гасим CSS-анимации
@@ -1248,6 +1326,15 @@
         fx_paletteSync: "Радужный «живой контур» перекрашивается в палитру, извлечённую из фоновой картинки редактора (два цвета-спутника к основному акценту). Для картиночных наборов; на градиентных берётся поворот оттенка акцента.",
         fx_parallax: "Фоновая картинка редактора едва заметно смещается вслед за курсором мыши, создавая ощущение глубины. Отключается системной настройкой «уменьшить движение».",
         fx_flow: "«Поток»: чем дольше непрерывно печатаешь, тем сильнее гаснет фон редактора (глубже, чем «Тускнеть при печати»), а на паузе для чтения — возвращается. Помогает не отвлекаться в потоке.",
+        fx_dimInactive: "Неактивные группы редактора становятся тусклее, чтобы взгляд держался на активной. Удобно при сплите на несколько колонок.",
+        fx_reading: "Режим чтения: фоновая картинка редактора почти гаснет — код виден максимально чётко, а фон сайдбара и панели остаётся. Горячая клавиша Ctrl+Alt+R.",
+        fx_glassCommand: "Матовое стекло (размытие + подложка темы) для палитры команд, списка автодополнения и всплывающих подсказок, чтобы они не выглядели непрозрачными поверх фона.",
+        fx_findAccent: "Виджет поиска/замены и подсветка найденных совпадений красятся акцентным цветом набора.",
+        fx_minimapFade: "Миникарта (карта кода справа) становится полупрозрачной, и сквозь неё просвечивает фоновая картинка. Выключи, если миникарту трудно читать.",
+        fx_indentAccent: "Активная направляющая отступа и парная скобка подсвечиваются акцентным цветом набора.",
+        fx_selectionMatch: "Все вхождения выделенного слова в редакторе подсвечиваются лёгкой акцентной заливкой с контуром.",
+        fx_stickyGlass: "Матовое стекло для закреплённой прокрутки (sticky scroll — приклеенные сверху заголовки функций/классов), чтобы они читались поверх фона.",
+        part_style: "Форма летящих частиц: точки, звёзды-искры, падающий снег, лепестки сакуры или контуры-пузыри. Снег и сакура падают сверху вниз, остальные всплывают снизу вверх.",
         term_font: "Шрифт терминала. В списке — совместимые по ширине Nerd-шрифты, чтобы не разъезжались колонки и сохранялись иконки oh-my-posh.",
         term_ligatures: "Слитное начертание пар символов (->, =>, != и т.п.).",
         term_cursorGlow: "Ореол-свечение вокруг курсора терминала.",
@@ -1781,6 +1868,22 @@
         return wrap;
     }
 
+    // Выбор стиля летящих частиц (cfg.partStyle). Категориальный — селект из PART_STYLES.
+    // syncWidgets пересоздаёт частицы под новый стиль (см. ensureParticles).
+    function makePartStyleSelect() {
+        var wrap = el("div", ST.row);
+        wrap.appendChild(el("span", mutedLabel(92), "Стиль частиц"));
+        var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
+        var cur = safePartStyle(cfg.partStyle);
+        PART_STYLES.forEach(function (o) {
+            var op = el("option", null, o[1]); op.value = o[0]; if (o[0] === cur) op.selected = true; sel.appendChild(op);
+        });
+        sel.addEventListener("change", function () { cfg.partStyle = safePartStyle(sel.value); apply(); });
+        wrap.appendChild(sel);
+        var d = infoDot(INFO.part_style); if (d) wrap.appendChild(d);
+        return wrap;
+    }
+
     // ===== Сворачиваемая секция =====
     function collapsible(parent, title, info) {
         var collapsed = !!(cfg.ui.collapsed && cfg.ui.collapsed[title]);
@@ -2002,7 +2105,7 @@
     // санитизация, что и импорт), а машинно-зависимое (свои картинки, путь плагина, привязки к
     // проектам) сохраняется от текущего конфига — чужой код их не трогает.
     var SHARE_KEYS = ["mode", "accent", "setAccent", "setName", "baseOp", "setOp",
-        "fx", "fxp", "imgfx", "fit", "term", "slideshow", "autoTime", "autoDim", "enabled"];
+        "fx", "fxp", "imgfx", "fit", "term", "slideshow", "autoTime", "autoDim", "enabled", "partStyle"];
     var SHARE_KEEP = ["ui", "imgBase", "workspaceSets", "autoWorkspace", "ambientBranch", "setImg"]; // не трогаем при применении кода
     // UTF-8-безопасный base64 (в именах наборов бывает кириллица — «сырой» btoa на ней падает).
     function b64enc(s) { try { return btoa(unescape(encodeURIComponent(s))); } catch (e) { return ""; } }
@@ -2293,11 +2396,23 @@
         var secFxp = collapsible(p, "Сила эффектов", "Числовые параметры эффектов из списка ниже.");
         PARAMS.forEach(function (d) { secFxp.appendChild(makeParamSlider(d)); });
 
-        // Эффекты (2 колонки)
-        var secFx = collapsible(p, "Эффекты", "Включение/выключение визуальных эффектов. Наведи на пункт — всплывёт пояснение.");
+        // Эффекты (2 колонки). Эффектов уже за 30 — сверху поле поиска, фильтрующее список
+        // по подстроке названия (чистый UI, cfg не трогает). Пусто — показаны все.
+        var secFx = collapsible(p, "Эффекты", "Включение/выключение визуальных эффектов. Наведи на пункт — всплывёт пояснение. Поле поиска фильтрует список по названию.");
+        var fxSearch = el("input", fieldStyle(" padding:4px 7px; font-size:11px; margin-bottom:5px;"));
+        fxSearch.type = "text"; fxSearch.placeholder = "🔍 Фильтр эффектов…"; fxSearch.setAttribute("aria-label", "Фильтр эффектов по названию");
         var grid = el("div", "display:grid; grid-template-columns:1fr 1fr; gap:1px 10px;");
-        FX_LIST.forEach(function (o) { grid.appendChild(makeCheck(o[0], o[1])); });
+        var fxRows = FX_LIST.map(function (o) {
+            var node = makeCheck(o[0], o[1]); grid.appendChild(node);
+            return { node: node, label: o[1].toLowerCase() };
+        });
+        fxSearch.addEventListener("input", function () {
+            var q = fxSearch.value.trim().toLowerCase();
+            fxRows.forEach(function (r) { r.node.hidden = q && r.label.indexOf(q) < 0; });
+        });
+        secFx.appendChild(fxSearch);
         secFx.appendChild(grid);
+        secFx.appendChild(makePartStyleSelect()); // форма летящих частиц (если «Частицы» включены)
 
         // Терминал
         var secTerm = collapsible(p, "Терминал", "Оформление интегрированного терминала: шрифт, лигатуры, свечение, курсор, выделение.");
@@ -2499,7 +2614,7 @@
         } catch (e) {}
     }
 
-    var part = { canvas: null, ctx: null, raf: 0, list: [] };
+    var part = { canvas: null, ctx: null, raf: 0, list: [], style: null };
     // Кол-во частиц: 0 — легитимное значение («частиц нет»), поэтому НЕ используем
     // "partCount || 40" (0 — falsy и молча превращался бы в 40). Откат к 40 только
     // если значение вообще не число (сломанный конфиг).
@@ -2508,12 +2623,24 @@
         return typeof n === "number" && isFinite(n) ? Math.round(n) : 40;
     }
     function resizeParticles() { if (part.canvas) { part.canvas.width = window.innerWidth; part.canvas.height = window.innerHeight; } }
+    // Стиль частиц (санитизированный). Снег и сакура ПАДАЮТ сверху вниз, остальные всплывают.
+    function partStyleNow() { return safePartStyle(cfg.partStyle); }
+    function partFalls() { var s = partStyleNow(); return s === "snow" || s === "sakura"; }
     function newPart(anyY) {
-        var W = window.innerWidth, H = window.innerHeight;
+        var W = window.innerWidth, H = window.innerHeight, fall = partFalls();
         // ac — «частица акцентного цвета?». Сам цвет НЕ вшиваем в частицу: он берётся
         // при отрисовке (см. loopParticles), поэтому смена акцента перекрашивает уже
-        // летящие частицы вживую, без пересоздания.
-        return { x: Math.random() * W, y: anyY ? Math.random() * H : H + 8, r: 0.6 + Math.random() * 1.8, sp: 0.12 + Math.random() * 0.45, dr: (Math.random() - 0.5) * 0.3, a: 0.15 + Math.random() * 0.45, ac: Math.random() < 0.5 };
+        // летящие частицы вживую, без пересоздания. y-старт зависит от направления стиля:
+        // падающие рождаются над верхом экрана, всплывающие — под нижним краем.
+        var y = anyY ? Math.random() * H : (fall ? -8 : H + 8);
+        // снег/сакура крупнее и заметнее; лепестки/звёзды медленно вращаются (rot/rs).
+        var big = fall ? 1.4 : 1;
+        return {
+            x: Math.random() * W, y: y, r: (0.6 + Math.random() * 1.8) * big,
+            sp: 0.12 + Math.random() * 0.45, dr: (Math.random() - 0.5) * 0.3,
+            a: 0.15 + Math.random() * 0.45, ac: Math.random() < 0.5,
+            rot: Math.random() * 6.283, rs: (Math.random() - 0.5) * 0.05
+        };
     }
     function initParticles() {
         var n = partCount(); part.list = [];
@@ -2523,16 +2650,51 @@
     function reduceMotion() {
         try { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) { return false; }
     }
+    // Отрисовка одной частицы в зависимости от стиля. col — "r,g,b". Форма центрируется на (0,0)
+    // после translate/rotate в loopParticles, поэтому здесь координаты локальные (радиус r).
+    function drawPart(ctx, style, r, col, a) {
+        ctx.fillStyle = "rgba(" + col + "," + a + ")";
+        ctx.strokeStyle = "rgba(" + col + "," + a + ")";
+        if (style === "stars") {
+            // Искра-звёздочка: четырёхлучевая, лучи вытянуты по осям (тонкие ромбы).
+            var L = r * 2.4, w = r * 0.5;
+            ctx.beginPath();
+            ctx.moveTo(0, -L); ctx.lineTo(w, 0); ctx.lineTo(0, L); ctx.lineTo(-w, 0); ctx.closePath();
+            ctx.moveTo(-L, 0); ctx.lineTo(0, w); ctx.lineTo(L, 0); ctx.lineTo(0, -w); ctx.closePath();
+            ctx.fill();
+        } else if (style === "sakura") {
+            // Лепесток: эллипс со срезом (два дуговых сегмента) — простой мазок-лепесток.
+            ctx.beginPath();
+            if (ctx.ellipse) ctx.ellipse(0, 0, r * 0.8, r * 1.6, 0, 0, 6.283);
+            else ctx.arc(0, 0, r, 0, 6.283);
+            ctx.fill();
+        } else if (style === "bubbles") {
+            // Пузырь: контур + лёгкий блик.
+            ctx.lineWidth = Math.max(0.6, r * 0.35);
+            ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.stroke();
+            ctx.beginPath(); ctx.arc(-r * 0.3, -r * 0.3, r * 0.22, 0, 6.283); ctx.fill();
+        } else {
+            // dots / snow: сплошной кружок (снег — крупнее и светлый, задаётся цветом/размером выше).
+            ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.fill();
+        }
+    }
     function loopParticles() {
         if (!part.canvas || !part.ctx) { part.raf = 0; return; }
         if (document.hidden) { part.raf = 0; return; } // окно скрыто/свёрнуто — стоп до возврата (экономия CPU/батареи)
         var ctx = part.ctx, W = part.canvas.width, H = part.canvas.height, i, p;
         var acc = accentRGB(); // считаем акцент один раз за кадр, а не на каждую частицу
+        var style = partStyleNow(), fall = partFalls();
         ctx.clearRect(0, 0, W, H);
         for (i = 0; i < part.list.length; i++) {
-            p = part.list[i]; p.y -= p.sp; p.x += p.dr;
-            if (p.y < -10) { part.list[i] = newPart(false); continue; }
-            ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.283); ctx.fillStyle = "rgba(" + (p.ac ? acc : "255,255,255") + "," + p.a + ")"; ctx.fill();
+            p = part.list[i];
+            if (fall) { p.y += p.sp; p.x += p.dr; if (p.y > H + 10) { part.list[i] = newPart(false); continue; } }
+            else { p.y -= p.sp; p.x += p.dr; if (p.y < -10) { part.list[i] = newPart(false); continue; } }
+            p.rot += p.rs;
+            // Цвет: снег — светлый, сакура — акцент набора, прочие — акцент/белый по флагу ac.
+            var col = style === "snow" ? "235,235,255" : (style === "sakura" ? acc : (p.ac ? acc : "255,255,255"));
+            ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+            drawPart(ctx, style, p.r, col, p.a);
+            ctx.restore();
         }
         part.raf = requestAnimationFrame(loopParticles);
     }
@@ -2548,7 +2710,10 @@
                 part.canvas = cv; part.ctx = cv.getContext("2d");
                 resizeParticles(); initParticles();
             }
-            if (part.list.length !== partCount()) initParticles();
+            // Пересоздаём набор при смене числа ИЛИ стиля частиц (у падающих стилей другое
+            // направление и стартовые координаты — иначе снег «полетел бы» снизу вверх).
+            var st = partStyleNow();
+            if (part.list.length !== partCount() || part.style !== st) { part.style = st; initParticles(); }
             if (!part.raf && !document.hidden) loopParticles(); // (пере)запуск, если стоим и окно видно
         } else {
             if (part.raf) { cancelAnimationFrame(part.raf); part.raf = 0; }
@@ -2693,6 +2858,12 @@
                 try { toast(cfg.enabled ? "Фон включён" : "Фон выключен"); } catch (er) {}
                 if (document.getElementById(PANEL_ID)) refreshPanel();
             }
+            else if (e.code === "KeyR") { // режим чтения: фон редактора почти гаснет ради читаемости кода
+                e.preventDefault();
+                cfg.fx.reading = !cfg.fx.reading; apply();
+                try { toast(cfg.fx.reading ? "Режим чтения включён" : "Режим чтения выключен"); } catch (er) {}
+                if (document.getElementById(PANEL_ID)) refreshPanel();
+            }
         } catch (err) {}
     }
     document.addEventListener("keydown", onHotkey, true);
@@ -2803,6 +2974,6 @@
     } catch (e) {}
     heal();
 
-    console.log("[MoonLight custom-bg] v15 installed (18 sets: 6 gradient + smooth preview + per-zone gradients + per-project + palette + branch strip + parallax + flow + share), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "term:", cfg.term.font, "theme:", themeKind());
+    console.log("[MoonLight custom-bg] v16 installed (18 sets: 6 gradient + 8 new effects: dim-inactive, reading mode, glass command palette, find accent, minimap fade, indent accent, selection match, sticky glass + particle styles + effects search), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "particles:", cfg.partStyle, "theme:", themeKind());
 
 })();

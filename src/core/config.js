@@ -111,8 +111,24 @@ var DEFAULTS = {
         groupBorderMono: false,                         // «Живой контур» одним акцентом (false — радужный перелив)
         paletteSync: false,                             // «живой контур» из палитры фоновой картинки, а не радужный
         parallax: false,                                // фон редактора чуть смещается за курсором (глубина)
-        flow: false                                     // «поток»: при долгом наборе фон плавно уходит сильнее
+        flow: false,                                    // «поток»: при долгом наборе фон плавно уходит сильнее
+        // v16: новая пачка эффектов. Тонкие акцентные (findAccent/indentAccent/selectionMatch/
+        // stickyGlass/glassCommand) включены по умолчанию — они лишь докрашивают уже видимые
+        // элементы под палитру набора и совпадают по духу с уже включённым «стеклом». Заметно
+        // меняющие поведение (dimInactive/minimapFade/reading) — по умолчанию выкл (opt-in).
+        dimInactive: false,                             // тусклее неактивные группы редактора (фокус на активной)
+        reading: false,                                 // режим чтения: фон редактора почти гаснет ради читаемости кода
+        glassCommand: true,                             // матовое стекло палитры команд/автодополнения/подсказок
+        findAccent: true,                               // акцент для виджета поиска/замены и подсветки совпадений
+        minimapFade: false,                             // миникарта полупрозрачная (фон просвечивает сквозь неё)
+        indentAccent: true,                             // акцент активной направляющей отступа и парной скобки
+        selectionMatch: true,                           // подсветка совпадений выделенного слова акцентом
+        stickyGlass: true                               // матовое стекло закреплённой прокрутки (sticky scroll)
     },
+    // Стиль летящих частиц (fx.particles). Категориальный (не числовой) — санитизируется
+    // по белому списку PART_STYLES. dots — прежнее поведение (кружки), остальные меняют
+    // форму/направление отрисовки в loopParticles (см. widgets/extras.js).
+    partStyle: "dots",
     // Только совместимые по метрикам Nerd-шрифты, чтобы не ломать выравнивание терминала
     term: {
         font: "JetBrainsMono NF", ligatures: true, glow: 2, weight: 400,
@@ -141,8 +157,22 @@ var FX_LIST = [
     ["particles", "Частицы"], ["pomodoro", "Помидор"],
     ["dimOnType", "Тускнеть при печати"], ["dimOnBlur", "Тускнеть без фокуса"],
     ["groupBorderMono", "Контур: 1 цвет"], ["paletteSync", "Палитра из картинки"],
-    ["parallax", "Параллакс фона"], ["flow", "Поток (глубокий дим)"]
+    ["parallax", "Параллакс фона"], ["flow", "Поток (глубокий дим)"],
+    ["dimInactive", "Тускнеть неактивные"], ["reading", "Режим чтения"],
+    ["glassCommand", "Стекло палитры"], ["findAccent", "Акцент поиска"],
+    ["minimapFade", "Миникарта сквозь"], ["indentAccent", "Акцент отступов"],
+    ["selectionMatch", "Совпадения слова"], ["stickyGlass", "Стекло sticky"]
 ];
+
+// Стили частиц (fx.particles): ключ + подпись. dots — прежние кружки; stars — искры-звёздочки;
+// snow — падающие светлые снежинки; sakura — падающие лепестки (цвет акцента); bubbles — контуры-пузыри.
+var PART_STYLES = [
+    ["dots", "Точки"], ["stars", "Звёзды"], ["snow", "Снег"], ["sakura", "Сакура"], ["bubbles", "Пузыри"]
+];
+function safePartStyle(s) {
+    for (var i = 0; i < PART_STYLES.length; i++) if (PART_STYLES[i][0] === s) return s;
+    return "dots";
+}
 
 // ключ, подпись, min, max, step, знаков после запятой
 var PARAMS = [
@@ -387,6 +417,8 @@ function mergeCfg(p) {
         }
         // эффекты: только булевы
         if (p.fx) for (k in c.fx) if (typeof p.fx[k] === "boolean") c.fx[k] = p.fx[k];
+        // стиль частиц: только из белого списка PART_STYLES (иначе — дефолт "dots")
+        if (typeof p.partStyle === "string") c.partStyle = safePartStyle(p.partStyle);
         // терминал: шрифт из белого списка, цвета строго #rrggbb, числа зажаты
         if (p.term && typeof p.term === "object") {
             if (typeof p.term.font === "string") c.term.font = safeFont(p.term.font);

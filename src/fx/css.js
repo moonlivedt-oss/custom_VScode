@@ -265,6 +265,9 @@ function buildCSS() {
     // Авто-дим editor по светлоте картинки (если включён): множитель к прозрачности.
     // Для градиента яркость не измерить (нет пикселей) — множитель 1.
     var edDim = (!edIsGrad && cfg.autoDim) ? lumaDimFactor(probeImage(edUrl).luma) : 1;
+    // Режим чтения: постоянно и сильно гасим фон редактора (не как flow — тот по печати),
+    // чтобы код читался максимально чётко; сайдбар/панель/эффекты не трогаем.
+    var readMul = fx.reading ? 0.12 : 1;
     // Трио акцентов для эффектов: основной + два спутника (палитра из картинки редактора
     // при включённой «Палитре из картинки», иначе повороты оттенка). ac2/ac3 — hex.
     var trio = accentTrio(ac, edIsGrad ? null : edUrl), ac2 = trio[1], ac3 = trio[2];
@@ -307,7 +310,7 @@ function buildCSS() {
         ".monaco-editor .overflow-guard > .monaco-scrollable-element::after {",
         "  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;",
         "  background: " + BG_ED + ";",
-        "  opacity: " + (op.editor * switchMul * edDim) + ";", TR, IMGF_ED,
+        "  opacity: " + (op.editor * switchMul * edDim * readMul) + ";", TR, IMGF_ED,
         // Параллакс: смещаем background-position за курсором (переменные ставит boot.js).
         // Longhand после shorthand background перекрывает его позицию. Только картинка
         // (у градиента позиции нет). cover уже с запасом перекрытия — сдвиг в ~8px не оголяет край.
@@ -496,6 +499,49 @@ function buildCSS() {
         "  background: " + (edIsGrad ? gradFor(idx, "editor") : (probeImage(edUrl).ok ? cssUrl(edUrl) + " center / contain no-repeat" : "rgba(var(--mlbg-accent-rgb),0.14)")) + "; opacity: " + (0.12 * switchMul * edDim) + ";", TR, IMGF_ED,
         "}"
     );
+
+    // v16: тусклее неактивные группы редактора — код активной группы держит фокус.
+    // Гасим только текст (view-lines) неактивной группы, чтобы наши оверлеи/эффекты не трогать.
+    if (fx.dimInactive) add(
+        ".editor-group-container:not(.active):not(.empty) .monaco-editor .view-lines {",
+        "  opacity: 0.55; transition: opacity 0.25s ease;",
+        "}"
+    );
+    // v16: матовое стекло палитры команд / автодополнения / подсказок / ховера — берут
+    // цвет темы (var(--vscode-editorWidget-background)) с прозрачностью + размытие + тонкая
+    // акцентная рамка, чтобы попапы не выглядели непрозрачным прямоугольником поверх фона.
+    if (fx.glassCommand) {
+        add(".quick-input-widget, .suggest-widget, .monaco-hover, .parameter-hints-widget, .monaco-editor .suggest-widget {");
+        addSurface("--vscode-editorWidget-background", surfRGB, 0.72);
+        add(blurLines(Math.min(fxp.blur, 12)),
+            "  border: 1px solid rgba(var(--mlbg-accent-rgb),0.25) !important;",
+        "}");
+    }
+    // v16: акцент виджета поиска/замены и подсветки найденных совпадений — под палитру набора.
+    if (fx.findAccent) add(
+        ".editor-widget.find-widget { border: 1px solid rgba(var(--mlbg-accent-rgb),0.4) !important; box-shadow: 0 4px 18px rgba(0,0,0,0.4); }",
+        ".editor-widget.find-widget.replaceToggled { border-color: rgba(var(--mlbg-accent-rgb),0.5) !important; }",
+        ".monaco-editor .findMatch { background: rgba(var(--mlbg-accent-rgb),0.22) !important; }",
+        ".monaco-editor .currentFindMatch { background: rgba(var(--mlbg-accent-rgb),0.42) !important; outline: 1px solid var(--mlbg-accent); border-radius: 2px; }"
+    );
+    // v16: миникарта полупрозрачная — фоновая картинка просвечивает сквозь неё.
+    if (fx.minimapFade) add(".monaco-editor .minimap { opacity: 0.55; transition: opacity 0.2s ease; }",
+        ".monaco-editor .minimap:hover { opacity: 0.9; }");
+    // v16: акцент активной направляющей отступа и парной скобки.
+    if (fx.indentAccent) add(
+        ".monaco-editor .core-guide-indent-active { box-shadow: inset 1px 0 0 0 rgba(var(--mlbg-accent-rgb),0.7) !important; }",
+        ".monaco-editor .bracket-match { border-color: rgba(var(--mlbg-accent-rgb),0.8) !important; background: rgba(var(--mlbg-accent-rgb),0.1) !important; }"
+    );
+    // v16: подсветка всех вхождений выделенного слова акцентом (word occurrences).
+    if (fx.selectionMatch) add(
+        ".monaco-editor .selectionHighlight { background: rgba(var(--mlbg-accent-rgb),0.18) !important; outline: 1px solid rgba(var(--mlbg-accent-rgb),0.4); border-radius: 2px; }"
+    );
+    // v16: матовое стекло закреплённой прокрутки (sticky scroll — приклеенные заголовки).
+    if (fx.stickyGlass) {
+        add(".monaco-editor .sticky-widget, .monaco-editor .sticky-widget .sticky-line-content {");
+        addSurface("--vscode-editorStickyScroll-background", surfRGB, 0.6);
+        add(blurLines(Math.min(fxp.blur, 10)), "}");
+    }
 
     add(switcherCSS());
 
