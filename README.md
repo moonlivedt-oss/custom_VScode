@@ -6,7 +6,7 @@
 
 Наборы фонов → акцент на набор → фильтры по зонам → эффекты → фон под проект → виджеты статусбара
 
-![version](https://img.shields.io/badge/version-v17-blue)
+![version](https://img.shields.io/badge/version-v16-blue)
 ![vscode](https://img.shields.io/badge/VS%20Code-custom--css-007ACC?logo=visualstudiocode&logoColor=white)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![sets](https://img.shields.io/badge/наборов-18-orange)
@@ -231,7 +231,7 @@
 > (`Enable Custom CSS and JS` + перезапуск) — это ограничение самого механизма, не плагина.
 
 **Проверка версии:** `Help → Toggle Developer Tools` → вкладка Console → строка
-`[MoonLight custom-bg] v17 …`.
+`[MoonLight custom-bg] v16 …`.
 
 ---
 
@@ -340,10 +340,10 @@ API для этого в custom-css нет, поэтому парсится DOM.
 Убедись, что путь в `vscode_custom_css.imports` ведёт именно к `custom-bg.js`, custom-css
 включён (**Enable Custom CSS and JS**) и VS Code перезапущен целиком (`File → Exit`, не просто
 закрытие окна). Проверь консоль: `Help → Toggle Developer Tools` → Console → строка
-`[MoonLight custom-bg] v17 …`. Если её нет — скрипт не подгрузился (проверь путь и слэши).
+`[MoonLight custom-bg] v16 …`. Если её нет — скрипт не подгрузился (проверь путь и слэши).
 
 **Как узнать версию.**
-`Help → Toggle Developer Tools` → Console → строка `[MoonLight custom-bg] v17 …`.
+`Help → Toggle Developer Tools` → Console → строка `[MoonLight custom-bg] v16 …`.
 
 **Ничего не помогло / нашёл баг / есть идея.**
 Открой [issue](https://github.com/moonlivedt-oss/custom_VScode/issues) (приложи версию из

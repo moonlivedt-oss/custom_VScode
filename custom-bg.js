@@ -3051,6 +3051,6 @@
     } catch (e) {}
     heal();
 
-    console.log("[MoonLight custom-bg] v17 installed (tabbed panel: Набор/Вид/Терминал/Система + v16 effects: dim-inactive, reading mode, glass command palette, find accent, minimap fade, indent accent, selection match, sticky glass + particle styles + effects search), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "particles:", cfg.partStyle, "theme:", themeKind());
+    console.log("[MoonLight custom-bg] v16 installed (tabbed panel: Набор/Вид/Терминал/Система + 8 new effects: dim-inactive, reading mode, glass command palette, find accent, minimap fade, indent accent, selection match, sticky glass + particle styles + effects search), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "particles:", cfg.partStyle, "theme:", themeKind());
 
 })();
