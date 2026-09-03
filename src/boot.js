@@ -196,8 +196,13 @@ function healSoon() {
     if (_healRaf) return;
     _healRaf = requestAnimationFrame(function () { _healRaf = 0; heal(); });
 }
+// Наблюдаем childList самого <head>: если VS Code выбросит наш <style> (STYLE_ID),
+// список детей head изменится — и heal тут же вернёт стиль, не дожидаясь 3-сек тикера.
+// Раньше наблюдали documentElement: его childList меняется лишь при замене head/body
+// (почти никогда), а удаление <style> ВНУТРИ head он не ловил. Без subtree — дёшево:
+// у head немного детей, они меняются редко (никакой реакции на набор текста в редакторе).
 try {
-    new MutationObserver(healSoon).observe(document.documentElement, { childList: true });
+    new MutationObserver(healSoon).observe(document.head || document.documentElement, { childList: true });
 } catch (e) {}
 heal();
 

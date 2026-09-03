@@ -190,7 +190,10 @@ function restoreBackup() {
 // проектам) сохраняется от текущего конфига — чужой код их не трогает.
 var SHARE_KEYS = ["mode", "accent", "setAccent", "setName", "baseOp", "setOp",
     "fx", "fxp", "imgfx", "fit", "term", "slideshow", "autoTime", "autoDim", "enabled", "partStyle"];
-var SHARE_KEEP = ["ui", "imgBase", "workspaceSets", "autoWorkspace", "ambientBranch", "setImg"]; // не трогаем при применении кода
+// не трогаем при применении кода: машинно-зависимое (свои картинки, путь плагина, привязки к
+// проектам) + согласие на сетевые картинки (allowRemoteImages) — оно личное, как setImg/imgBase;
+// иначе применение чужого кода образа тихо отключало бы собственные удалённые картинки пользователя.
+var SHARE_KEEP = ["ui", "imgBase", "workspaceSets", "autoWorkspace", "ambientBranch", "setImg", "allowRemoteImages"];
 // UTF-8-безопасный base64 (в именах наборов бывает кириллица — «сырой» btoa на ней падает).
 function b64enc(s) { try { return btoa(unescape(encodeURIComponent(s))); } catch (e) { return ""; } }
 function b64dec(s) { try { return decodeURIComponent(escape(atob(s))); } catch (e) { return ""; } }

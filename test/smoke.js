@@ -675,6 +675,19 @@ sandbox.cfg.fx.particles = true;
 var B = require(path.join(ROOT, "build.js"));
 ok(B.build(false) === B.build(false), "build.js: повторная сборка даёт идентичный custom-bg.js (детерминизм)");
 
+// ---- 18. В src/ нет многострочных шаблонных литералов (backtick) ----
+// build.js.indent() сдвигает КАЖДУЮ строку модуля на 4 пробела. Это безопасно, только пока
+// в исходниках нет обратных кавычек: многострочный `...` при сдвиге получил бы лишние пробелы
+// внутри строки (изменив её содержимое) — молчаливая порча артефакта. Ловим появление backtick
+// в src сразу здесь, а не постфактум по странному поведению собранного custom-bg.js.
+var _backtickHits = [];
+B.FILES.forEach(function (rel) {
+    var code = fs.readFileSync(path.join(ROOT, rel), "utf8");
+    if (code.indexOf("`") >= 0) _backtickHits.push(rel);
+});
+ok(_backtickHits.length === 0, "build.js: в src/ нет backtick-литералов, сдвиг отступа безопасен" +
+    (_backtickHits.length ? "  (найдено в: " + _backtickHits.join(", ") + ")" : ""));
+
 // ============================================================
 console.log("\nИтог: " + passed + " ok, " + failed + " fail.");
 process.exit(failed ? 1 : 0);

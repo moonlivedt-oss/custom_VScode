@@ -561,12 +561,15 @@ function buildCSS() {
         ]; }],
         // v18: Спотлайт под курсором — радиальное затемнение экрана с «окном» вокруг мыши.
         // Полноэкранный fixed-оверлей (body::after), центр — --mlbg-mx/my (двигает boot.js за
-        // курсором). Радиус — fxp.spotRadius. Над кодом, но под панелью (z 100000); клики сквозь.
+        // курсором). Радиус — fxp.spotRadius. z-index 9000: ВЫШЕ оверлеев зон (сайдбар/панель —
+        // z:1000), чтобы затемнение накрывало весь воркбенч, но НИЖЕ панели настроек (z:100000)
+        // и верхнего UI (тосты/полоска ветки/попап «?» — z:100001+), чтобы их не гасить. Клики
+        // сквозь (pointer-events:none). Раньше был z:40 — затемнялся только редактор.
         ["spotlight", function () {
             var spotR = clampNum(fxp.spotRadius, 120, 600, 320);
             return [
                 "body::after {",
-                "  content: ''; position: fixed; inset: 0; z-index: 40; pointer-events: none;",
+                "  content: ''; position: fixed; inset: 0; z-index: 9000; pointer-events: none;",
                 "  background: radial-gradient(circle " + (spotR + 220) + "px at var(--mlbg-mx,50%) var(--mlbg-my,50%),",
                 "    transparent 0, transparent " + spotR + "px, rgba(0,0,0,0.45) 100%);",
                 "  transition: background 0.10s linear;",

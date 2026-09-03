@@ -453,7 +453,8 @@ function mergeCfg(p) {
                 var _cn = 0;
                 for (var t2 in p.ui.collapsed) {
                     if (!p.ui.collapsed.hasOwnProperty(t2)) continue;
-                    if (_cn >= 64 || t2.length > 64) break;
+                    if (_cn >= 64) break;           // лимит числа записей — дальше не берём
+                    if (t2.length > 64) continue;   // слишком длинный ключ — пропускаем ЕГО, не обрывая разбор
                     if (typeof p.ui.collapsed[t2] === "boolean") { c.ui.collapsed[t2] = p.ui.collapsed[t2]; _cn++; }
                 }
             }

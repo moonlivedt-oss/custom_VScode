@@ -462,7 +462,8 @@
                     var _cn = 0;
                     for (var t2 in p.ui.collapsed) {
                         if (!p.ui.collapsed.hasOwnProperty(t2)) continue;
-                        if (_cn >= 64 || t2.length > 64) break;
+                        if (_cn >= 64) break;           // лимит числа записей — дальше не берём
+                        if (t2.length > 64) continue;   // слишком длинный ключ — пропускаем ЕГО, не обрывая разбор
                         if (typeof p.ui.collapsed[t2] === "boolean") { c.ui.collapsed[t2] = p.ui.collapsed[t2]; _cn++; }
                     }
                 }
@@ -1188,12 +1189,15 @@
             ]; }],
             // v18: Спотлайт под курсором — радиальное затемнение экрана с «окном» вокруг мыши.
             // Полноэкранный fixed-оверлей (body::after), центр — --mlbg-mx/my (двигает boot.js за
-            // курсором). Радиус — fxp.spotRadius. Над кодом, но под панелью (z 100000); клики сквозь.
+            // курсором). Радиус — fxp.spotRadius. z-index 9000: ВЫШЕ оверлеев зон (сайдбар/панель —
+            // z:1000), чтобы затемнение накрывало весь воркбенч, но НИЖЕ панели настроек (z:100000)
+            // и верхнего UI (тосты/полоска ветки/попап «?» — z:100001+), чтобы их не гасить. Клики
+            // сквозь (pointer-events:none). Раньше был z:40 — затемнялся только редактор.
             ["spotlight", function () {
                 var spotR = clampNum(fxp.spotRadius, 120, 600, 320);
                 return [
                     "body::after {",
-                    "  content: ''; position: fixed; inset: 0; z-index: 40; pointer-events: none;",
+                    "  content: ''; position: fixed; inset: 0; z-index: 9000; pointer-events: none;",
                     "  background: radial-gradient(circle " + (spotR + 220) + "px at var(--mlbg-mx,50%) var(--mlbg-my,50%),",
                     "    transparent 0, transparent " + spotR + "px, rgba(0,0,0,0.45) 100%);",
                     "  transition: background 0.10s linear;",
@@ -2219,7 +2223,10 @@
     // проектам) сохраняется от текущего конфига — чужой код их не трогает.
     var SHARE_KEYS = ["mode", "accent", "setAccent", "setName", "baseOp", "setOp",
         "fx", "fxp", "imgfx", "fit", "term", "slideshow", "autoTime", "autoDim", "enabled", "partStyle"];
-    var SHARE_KEEP = ["ui", "imgBase", "workspaceSets", "autoWorkspace", "ambientBranch", "setImg"]; // не трогаем при применении кода
+    // не трогаем при применении кода: машинно-зависимое (свои картинки, путь плагина, привязки к
+    // проектам) + согласие на сетевые картинки (allowRemoteImages) — оно личное, как setImg/imgBase;
+    // иначе применение чужого кода образа тихо отключало бы собственные удалённые картинки пользователя.
+    var SHARE_KEEP = ["ui", "imgBase", "workspaceSets", "autoWorkspace", "ambientBranch", "setImg", "allowRemoteImages"];
     // UTF-8-безопасный base64 (в именах наборов бывает кириллица — «сырой» btoa на ней падает).
     function b64enc(s) { try { return btoa(unescape(encodeURIComponent(s))); } catch (e) { return ""; } }
     function b64dec(s) { try { return decodeURIComponent(escape(atob(s))); } catch (e) { return ""; } }
@@ -3277,8 +3284,13 @@
         if (_healRaf) return;
         _healRaf = requestAnimationFrame(function () { _healRaf = 0; heal(); });
     }
+    // Наблюдаем childList самого <head>: если VS Code выбросит наш <style> (STYLE_ID),
+    // список детей head изменится — и heal тут же вернёт стиль, не дожидаясь 3-сек тикера.
+    // Раньше наблюдали documentElement: его childList меняется лишь при замене head/body
+    // (почти никогда), а удаление <style> ВНУТРИ head он не ловил. Без subtree — дёшево:
+    // у head немного детей, они меняются редко (никакой реакции на набор текста в редакторе).
     try {
-        new MutationObserver(healSoon).observe(document.documentElement, { childList: true });
+        new MutationObserver(healSoon).observe(document.head || document.documentElement, { childList: true });
     } catch (e) {}
     heal();
 
