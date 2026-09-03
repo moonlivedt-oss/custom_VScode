@@ -39,9 +39,15 @@ function contains(s, sub, msg) { ok(s.indexOf(sub) >= 0, msg + "  (ищем: " +
 // ============================================================
 var noop = function () {};
 function ctxStub() {
+    // Полный набор методов 2D-контекста, которые задействует отрисовка частиц
+    // (loopParticles/drawRound/drawShaped/drawStreak): без них смоук ловил бы ошибку
+    // только через swallow в try/catch. Здесь — чтобы отрисовка реально прогонялась.
     return {
-        fillStyle: "", clearRect: noop, beginPath: noop, arc: noop, fill: noop,
-        fillRect: noop, drawImage: noop, getImageData: function () { return { data: [] }; }
+        fillStyle: "", strokeStyle: "", lineWidth: 1, lineCap: "butt",
+        clearRect: noop, beginPath: noop, arc: noop, ellipse: noop, fill: noop, stroke: noop,
+        fillRect: noop, drawImage: noop, moveTo: noop, lineTo: noop, closePath: noop,
+        save: noop, restore: noop, translate: noop, rotate: noop,
+        getImageData: function () { return { data: [] }; }
     };
 }
 function makeEl(tag) {
@@ -552,6 +558,29 @@ contains(build(), ".sticky-widget", "stickyGlass: стекло закреплё�
 sandbox.cfg.fx.stickyGlass = false;
 ok(build().indexOf(".sticky-widget") < 0, "stickyGlass выкл: правил sticky нет");
 
+// ---- 18i. v18: Aurora / спотлайт / пульс печати добавляют-убирают свои CSS-правила ----
+["aurora", "spotlight", "typingPulse"].forEach(function (k) { sandbox.cfg.fx[k] = false; });
+
+// Aurora: анимированный градиент-слой ::before на прокручиваемом элементе редактора
+sandbox.cfg.fx.aurora = true;
+contains(build(), "@keyframes mlbg-aurora", "aurora: keyframes дрейфа сияния присутствуют");
+contains(build(), "scrollable-element::before", "aurora: слой ::before за кодом редактора");
+sandbox.cfg.fx.aurora = false;
+ok(build().indexOf("mlbg-aurora") < 0, "aurora выкл: правил сияния нет");
+
+// Спотлайт: радиальное затемнение body::after вокруг курсора (--mlbg-mx/my)
+sandbox.cfg.fx.spotlight = true;
+contains(build(), "var(--mlbg-mx", "spotlight: центр затемнения привязан к переменной курсора");
+contains(build(), "body::after", "spotlight: полноэкранный оверлей body::after");
+sandbox.cfg.fx.spotlight = false;
+ok(build().indexOf("var(--mlbg-mx") < 0, "spotlight выкл: оверлея затемнения нет");
+
+// Пульс печати: анимация активной вкладки под классом body.mlbg-typing
+sandbox.cfg.fx.typingPulse = true;
+contains(build(), "@keyframes mlbg-typpulse", "typingPulse: keyframes пульса вкладки присутствуют");
+sandbox.cfg.fx.typingPulse = false;
+ok(build().indexOf("mlbg-typpulse") < 0, "typingPulse выкл: правил пульса нет");
+
 // ---- 19. v16: стиль частиц санитизируется по белому списку ----
 ok(sandbox.safePartStyle("sakura") === "sakura" && sandbox.safePartStyle("dots") === "dots" &&
     sandbox.safePartStyle("evil<style>") === "dots" && sandbox.safePartStyle(123) === "dots",
@@ -560,11 +589,36 @@ ok(sandbox.mergeCfg({ partStyle: "snow" }).partStyle === "snow" &&
     sandbox.mergeCfg({ partStyle: "zzz" }).partStyle === "dots" &&
     sandbox.mergeCfg({}).partStyle === "dots",
     "mergeCfg: partStyle санитизируется (известный проходит, мусор/пусто -> dots)");
-ok(sandbox.PART_STYLES.length === 5, "PART_STYLES: 5 стилей частиц (точки/звёзды/снег/сакура/пузыри)");
+ok(sandbox.PART_STYLES.length === 8, "PART_STYLES: 8 стилей частиц (точки/звёзды/снег/сакура/пузыри/светлячки/дождь/конфетти)");
+ok(sandbox.safePartStyle("firefly") === "firefly" && sandbox.safePartStyle("rain") === "rain" &&
+    sandbox.safePartStyle("confetti") === "confetti", "safePartStyle: новые стили (светлячки/дождь/конфетти) проходят белый список");
 sandbox.cfg.partStyle = "snow";
 ok(sandbox.partFalls() === true, "partFalls: снег падает (сверху вниз)");
+sandbox.cfg.partStyle = "rain";
+ok(sandbox.partFalls() === true, "partFalls: дождь падает (сверху вниз)");
+sandbox.cfg.partStyle = "confetti";
+ok(sandbox.partFalls() === true, "partFalls: конфетти падает (сверху вниз)");
+sandbox.cfg.partStyle = "firefly";
+ok(sandbox.partFalls() === false, "partFalls: светлячки всплывают (снизу вверх)");
 sandbox.cfg.partStyle = "stars";
 ok(sandbox.partFalls() === false, "partFalls: звёзды всплывают (снизу вверх)");
+sandbox.cfg.partStyle = "dots";
+
+// ---- 19a2. v18: отрисовка каждого стиля частиц прогоняется без исключений ----
+// loopParticles рисует все формы; ctxStub теперь полноценный, поэтому ошибка в drawRound/
+// drawShaped/drawStreak всплывёт здесь, а не утонет в try/catch ensureParticles.
+sandbox.cfg.enabled = true; sandbox.cfg.fx.particles = true; sandbox.cfg.fxp.partCount = 12;
+var drawThrew = null, drawStyle = "";
+try {
+    sandbox.PART_STYLES.forEach(function (st) {
+        drawStyle = st[0];
+        sandbox.cfg.partStyle = st[0];
+        sandbox.ensureParticles(); // (пере)создать холст и набор частиц под стиль
+        sandbox.loopParticles();   // один кадр отрисовки всех частиц этого стиля
+    });
+} catch (e) { drawThrew = e; }
+ok(drawThrew === null, "loopParticles: все 8 стилей частиц рисуются без исключений" +
+    (drawThrew ? " (стиль " + drawStyle + ": " + drawThrew.message + ")" : ""));
 sandbox.cfg.partStyle = "dots";
 
 // ---- 19b. v16: partStyle входит в шаринг образа (SHARE_KEYS) ----

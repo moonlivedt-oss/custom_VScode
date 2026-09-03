@@ -81,25 +81,37 @@ function partCount() {
     return typeof n === "number" && isFinite(n) ? Math.round(n) : 40;
 }
 function resizeParticles() { if (part.canvas) { part.canvas.width = window.innerWidth; part.canvas.height = window.innerHeight; } }
-// Стиль частиц (санитизированный). Снег и сакура ПАДАЮТ сверху вниз, остальные всплывают.
+// Стиль частиц (санитизированный). Падают сверху вниз: снег, сакура, дождь, конфетти;
+// остальные (точки, звёзды, пузыри, светлячки) всплывают снизу вверх.
 function partStyleNow() { return safePartStyle(cfg.partStyle); }
-function partFalls() { var s = partStyleNow(); return s === "snow" || s === "sakura"; }
-function newPart(anyY) {
-    var W = window.innerWidth, H = window.innerHeight, fall = partFalls();
-    // ac — «частица акцентного цвета?». Сам цвет НЕ вшиваем в частицу: он берётся
-    // при отрисовке (см. loopParticles), поэтому смена акцента перекрашивает уже
-    // летящие частицы вживую, без пересоздания. y-старт зависит от направления стиля:
-    // падающие рождаются над верхом экрана, всплывающие — под нижним краем.
-    var y = anyY ? Math.random() * H : (fall ? -8 : H + 8);
-    // снег/сакура крупнее и заметнее; лепестки/звёзды медленно вращаются (rot/rs).
-    var big = fall ? 1.4 : 1;
-    return {
-        x: Math.random() * W, y: y, r: (0.6 + Math.random() * 1.8) * big,
-        sp: 0.12 + Math.random() * 0.45, dr: (Math.random() - 0.5) * 0.3,
-        a: 0.15 + Math.random() * 0.45, ac: Math.random() < 0.5,
-        rot: Math.random() * 6.283, rs: (Math.random() - 0.5) * 0.05
-    };
+function partFalls() {
+    var s = partStyleNow();
+    return s === "snow" || s === "sakura" || s === "rain" || s === "confetti";
 }
+// Задать/сбросить поля частицы НА МЕСТЕ (без аллокации нового объекта). Раньше уход за
+// край делал part.list[i] = newPart(...) — по объекту на каждую переработку, то есть
+// заметный мусор для GC при большом числе частиц. Теперь при рождении и при переработке
+// зовём resetPart(p) и переиспользуем ту же ячейку. anyY=true — стартовая раскладка по
+// всему экрану (первый кадр), иначе рождение у края по направлению стиля.
+function resetPart(p, anyY) {
+    var W = window.innerWidth, H = window.innerHeight, fall = partFalls();
+    // ac — «частица акцентного цвета?». Сам цвет НЕ вшиваем в частицу: он берётся при
+    // отрисовке (см. loopParticles), поэтому смена акцента перекрашивает уже летящие
+    // частицы вживую. y-старт: падающие рождаются над верхом, всплывающие — под низом.
+    p.x = Math.random() * W;
+    p.y = anyY ? Math.random() * H : (fall ? -8 : H + 8);
+    var big = fall ? 1.4 : 1;                  // падающие крупнее и заметнее
+    p.r = (0.6 + Math.random() * 1.8) * big;
+    p.sp = 0.12 + Math.random() * 0.45;
+    p.dr = (Math.random() - 0.5) * 0.3;
+    p.a = 0.15 + Math.random() * 0.45;
+    p.ac = Math.random() < 0.5;
+    p.rot = Math.random() * 6.283;             // фаза поворота (звёзды/сакура/конфетти) и пульса (светлячки)
+    p.rs = (Math.random() - 0.5) * 0.05;       // скорость поворота
+    p.ci = (Math.random() * 3) | 0;            // индекс цвета в палитре (конфетти: 0..2)
+    return p;
+}
+function newPart(anyY) { return resetPart({}, anyY); }
 function initParticles() {
     var n = partCount(); part.list = [];
     for (var i = 0; i < n; i++) part.list.push(newPart(true));
@@ -108,11 +120,26 @@ function initParticles() {
 function reduceMotion() {
     try { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) { return false; }
 }
-// Отрисовка одной частицы в зависимости от стиля. col — "r,g,b". Форма центрируется на (0,0)
-// после translate/rotate в loopParticles, поэтому здесь координаты локальные (радиус r).
-function drawPart(ctx, style, r, col, a) {
+// Круглые/точечные стили (dots, snow, firefly, bubbles) — рисуем в АБСОЛЮТНЫХ координатах
+// (cx, cy), без ctx.save/translate/rotate: поворот у круга не виден, а save/restore на каждую
+// частицу каждый кадр — заметный оверхед при большом числе частиц. col — "r,g,b".
+function drawRound(ctx, style, cx, cy, r, col, a) {
     ctx.fillStyle = "rgba(" + col + "," + a + ")";
-    ctx.strokeStyle = "rgba(" + col + "," + a + ")";
+    if (style === "bubbles") {
+        // Пузырь: контур + лёгкий блик.
+        ctx.strokeStyle = "rgba(" + col + "," + a + ")";
+        ctx.lineWidth = Math.max(0.6, r * 0.35);
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.283); ctx.stroke();
+        ctx.beginPath(); ctx.arc(cx - r * 0.3, cy - r * 0.3, r * 0.22, 0, 6.283); ctx.fill();
+    } else {
+        // dots / snow / firefly: сплошной кружок (яркость/цвет заданы выше).
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.283); ctx.fill();
+    }
+}
+// Фигурные стили (stars, sakura, confetti) — центрируются на (0,0) ПОСЛЕ translate/rotate
+// в loopParticles, поэтому здесь координаты локальные (радиус r).
+function drawShaped(ctx, style, r, col, a) {
+    ctx.fillStyle = "rgba(" + col + "," + a + ")";
     if (style === "stars") {
         // Искра-звёздочка: четырёхлучевая, лучи вытянуты по осям (тонкие ромбы).
         var L = r * 2.4, w = r * 0.5;
@@ -121,20 +148,23 @@ function drawPart(ctx, style, r, col, a) {
         ctx.moveTo(-L, 0); ctx.lineTo(0, w); ctx.lineTo(L, 0); ctx.lineTo(0, -w); ctx.closePath();
         ctx.fill();
     } else if (style === "sakura") {
-        // Лепесток: эллипс со срезом (два дуговых сегмента) — простой мазок-лепесток.
+        // Лепесток: вытянутый эллипс — простой мазок-лепесток.
         ctx.beginPath();
         if (ctx.ellipse) ctx.ellipse(0, 0, r * 0.8, r * 1.6, 0, 0, 6.283);
         else ctx.arc(0, 0, r, 0, 6.283);
         ctx.fill();
-    } else if (style === "bubbles") {
-        // Пузырь: контур + лёгкий блик.
-        ctx.lineWidth = Math.max(0.6, r * 0.35);
-        ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.stroke();
-        ctx.beginPath(); ctx.arc(-r * 0.3, -r * 0.3, r * 0.22, 0, 6.283); ctx.fill();
-    } else {
-        // dots / snow: сплошной кружок (снег — крупнее и светлый, задаётся цветом/размером выше).
-        ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.fill();
+    } else if (style === "confetti") {
+        // Конфетти: маленький прямоугольник (вращается через p.rot -> живой «переворот»).
+        var cw = r * 1.9, ch = r * 0.85;
+        ctx.fillRect(-cw / 2, -ch / 2, cw, ch);
     }
+}
+// Струя дождя: линия вдоль локальной оси Y (после поворота по вектору скорости в loopParticles).
+function drawStreak(ctx, r, col, a) {
+    ctx.strokeStyle = "rgba(" + col + "," + a + ")";
+    ctx.lineWidth = Math.max(0.8, r * 0.7);
+    if ("lineCap" in ctx) ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, r * 6); ctx.stroke();
 }
 function loopParticles() {
     if (!part.canvas || !part.ctx) { part.raf = 0; return; }
@@ -142,17 +172,37 @@ function loopParticles() {
     var ctx = part.ctx, W = part.canvas.width, H = part.canvas.height, i, p;
     var acc = accentRGB(); // считаем акцент один раз за кадр, а не на каждую частицу
     var style = partStyleNow(), fall = partFalls();
+    // Конфетти многоцветное: палитра из трио (акцент + два спутника, повороты оттенка) —
+    // считаем «r,g,b»-строки один раз за кадр, частица берёт свой цвет по p.ci.
+    var confPal = null;
+    if (style === "confetti") {
+        var acHex = safeColor(getAccent(), DEFAULTS.accent);
+        confPal = [acc, hexToRgbArr(rotateHue(acHex, 0.33)).join(","), hexToRgbArr(rotateHue(acHex, -0.33)).join(",")];
+    }
+    var round = (style === "dots" || style === "snow" || style === "firefly" || style === "bubbles");
     ctx.clearRect(0, 0, W, H);
     for (i = 0; i < part.list.length; i++) {
         p = part.list[i];
-        if (fall) { p.y += p.sp; p.x += p.dr; if (p.y > H + 10) { part.list[i] = newPart(false); continue; } }
-        else { p.y -= p.sp; p.x += p.dr; if (p.y < -10) { part.list[i] = newPart(false); continue; } }
+        if (fall) { p.y += p.sp; p.x += p.dr; if (p.y > H + 12) { resetPart(p, false); continue; } }
+        else { p.y -= p.sp; p.x += p.dr; if (p.y < -12) { resetPart(p, false); continue; } }
         p.rot += p.rs;
-        // Цвет: снег — светлый, сакура — акцент набора, прочие — акцент/белый по флагу ac.
-        var col = style === "snow" ? "235,235,255" : (style === "sakura" ? acc : (p.ac ? acc : "255,255,255"));
-        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-        drawPart(ctx, style, p.r, col, p.a);
-        ctx.restore();
+        // Цвет и яркость по стилю. Светлячки пульсируют прозрачностью через фазу p.rot.
+        var col, a = p.a;
+        if (style === "snow") col = "235,235,255";
+        else if (style === "sakura") col = acc;
+        else if (style === "confetti") col = confPal[p.ci % 3];
+        else if (style === "firefly") { col = acc; a = p.a * (0.35 + 0.65 * Math.abs(Math.sin(p.rot * 6))); }
+        else col = p.ac ? acc : "255,255,255";
+        if (round) {
+            drawRound(ctx, style, p.x, p.y, p.r, col, a);
+        } else if (style === "rain") {
+            // Поворот струи по вектору скорости (dr, sp): локальная +Y на угол движения.
+            ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(p.sp, p.dr) - Math.PI / 2);
+            drawStreak(ctx, p.r, col, a); ctx.restore();
+        } else {
+            ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+            drawShaped(ctx, style, p.r, col, a); ctx.restore();
+        }
     }
     part.raf = requestAnimationFrame(loopParticles);
 }

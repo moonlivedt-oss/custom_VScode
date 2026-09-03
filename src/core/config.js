@@ -99,7 +99,7 @@ var DEFAULTS = {
     // авто-набор по времени суток: днём — свой набор, ночью — свой. Границы дня
     // настраиваются (from/to, часы 0–23); поддерживается «через полночь» (to < from).
     autoTime: { on: false, day: 0, night: 4, from: 8, to: 20 },
-    fxp: { blur: 8, kbScale: 1.08, kbSpeed: 60, vignette: 0.32, partCount: 40, pomoMin: 25 },
+    fxp: { blur: 8, kbScale: 1.08, kbSpeed: 60, vignette: 0.32, partCount: 40, pomoMin: 25, auroraSpeed: 24, spotRadius: 320 },
     fx: {
         kenburns: true, glassTabs: true, vignette: true, glassSide: true,
         scrim: true, glassStatus: true, activeLine: true, groupRing: true,
@@ -123,7 +123,13 @@ var DEFAULTS = {
         minimapFade: false,                             // миникарта полупрозрачная (фон просвечивает сквозь неё)
         indentAccent: true,                             // акцент активной направляющей отступа и парной скобки
         selectionMatch: true,                           // подсветка совпадений выделенного слова акцентом
-        stickyGlass: true                               // матовое стекло закреплённой прокрутки (sticky scroll)
+        stickyGlass: true,                              // матовое стекло закреплённой прокрутки (sticky scroll)
+        // v18: живой фон + курсорные эффекты. Все три по умолчанию ВЫКЛ (opt-in): заметно
+        // меняют вид/движение и стоят кадров (aurora/typingPulse — CSS-анимации, spotlight —
+        // перерисовка полноэкранного градиента за курсором), поэтому включаются осознанно.
+        aurora: false,                                  // «полярное сияние»: анимированный градиент-акцент за кодом
+        spotlight: false,                               // радиальное затемнение вокруг курсора (фокус на месте правки)
+        typingPulse: false                              // активная вкладка мягко пульсирует акцентом, пока идёт набор
     },
     // Стиль летящих частиц (fx.particles). Категориальный (не числовой) — санитизируется
     // по белому списку PART_STYLES. dots — прежнее поведение (кружки), остальные меняют
@@ -161,13 +167,17 @@ var FX_LIST = [
     ["dimInactive", "Тускнеть неактивные"], ["reading", "Режим чтения"],
     ["glassCommand", "Стекло палитры"], ["findAccent", "Акцент поиска"],
     ["minimapFade", "Миникарта сквозь"], ["indentAccent", "Акцент отступов"],
-    ["selectionMatch", "Совпадения слова"], ["stickyGlass", "Стекло sticky"]
+    ["selectionMatch", "Совпадения слова"], ["stickyGlass", "Стекло sticky"],
+    ["aurora", "Aurora фон"], ["spotlight", "Спотлайт"], ["typingPulse", "Пульс печати"]
 ];
 
 // Стили частиц (fx.particles): ключ + подпись. dots — прежние кружки; stars — искры-звёздочки;
-// snow — падающие светлые снежинки; sakura — падающие лепестки (цвет акцента); bubbles — контуры-пузыри.
+// snow — падающие светлые снежинки; sakura — падающие лепестки (цвет акцента); bubbles — контуры-пузыри;
+// firefly — всплывающие «светлячки» с пульсацией яркости; rain — падающие полосы-струи;
+// confetti — падающие вращающиеся прямоугольники в трёх цветах палитры (acc + два спутника).
 var PART_STYLES = [
-    ["dots", "Точки"], ["stars", "Звёзды"], ["snow", "Снег"], ["sakura", "Сакура"], ["bubbles", "Пузыри"]
+    ["dots", "Точки"], ["stars", "Звёзды"], ["snow", "Снег"], ["sakura", "Сакура"], ["bubbles", "Пузыри"],
+    ["firefly", "Светлячки"], ["rain", "Дождь"], ["confetti", "Конфетти"]
 ];
 function safePartStyle(s) {
     for (var i = 0; i < PART_STYLES.length; i++) if (PART_STYLES[i][0] === s) return s;
@@ -181,7 +191,9 @@ var PARAMS = [
     ["kbSpeed", "Ken Burns сек", 20, 120, 5, 0],
     ["vignette", "Виньетка сила", 0, 0.6, 0.02, 2],
     ["partCount", "Частиц", 0, 120, 5, 0],
-    ["pomoMin", "Помидор, мин", 5, 60, 5, 0]
+    ["pomoMin", "Помидор, мин", 5, 60, 5, 0],
+    ["auroraSpeed", "Aurora сек", 8, 60, 2, 0],
+    ["spotRadius", "Спот радиус", 120, 600, 20, 0]
 ];
 
 // ============================================================

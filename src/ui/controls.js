@@ -23,7 +23,9 @@ function makeToggle(get, onChange, label, info) {
 
 // Слайдер: метка + ползунок + значение + «?». opts:
 //   label, min, max, step, dec (знаков после запятой), get()->число, onInput(v)->записать,
-//   info, labelW (ширина метки, 92), valW (ширина значения, 34), ellipsis (обрезать метку, true).
+//   info, labelW (ширина метки, 92), valW (ширина значения, 34), ellipsis (обрезать метку, true),
+//   def (значение по умолчанию для сброса двойным кликом; число ИЛИ функция ()->число для
+//   контролов, чья зона/цель меняется, напр. фильтры картинки по зонам — см. makeImgFilters).
 // Все слайдеры пишут значение и зовут applyThrottled (коалесинг в один apply за кадр).
 // На возвращённом узле есть _refresh() — пересинхронизировать ползунок/значение с cfg
 // (нужно, когда один набор слайдеров переключается между зонами, см. makeImgFilters).
@@ -38,6 +40,18 @@ function makeSlider(opts) {
     // — единственная запись в localStorage. Раньше saveCfg дёргался на каждый кадр перетаскивания.
     sl.addEventListener("input", function () { var v = parseFloat(sl.value); opts.onInput(v); val.textContent = v.toFixed(opts.dec); applyThrottledLive(); });
     sl.addEventListener("change", function () { try { saveCfg(); } catch (e) {} });
+    // Двойной клик — сброс к значению по умолчанию (def). Одно дискретное действие, поэтому
+    // применяем сразу и сохраняем (apply), а не «живьём». def может быть функцией — для
+    // слайдеров, чья цель меняется (зона фильтров картинки), дефолт тоже зонозависимый.
+    if (opts.def != null) {
+        sl.title = "Двойной клик — сброс к значению по умолчанию";
+        sl.addEventListener("dblclick", function () {
+            var dv = (typeof opts.def === "function") ? opts.def() : opts.def;
+            opts.onInput(dv);
+            sl.value = String(dv); val.textContent = Number(dv).toFixed(opts.dec);
+            apply();
+        });
+    }
     wrap.appendChild(sl); wrap.appendChild(val);
     var d = infoDot(opts.info); if (d) wrap.appendChild(d);
     wrap._refresh = function () { sl.value = String(opts.get()); val.textContent = Number(opts.get()).toFixed(opts.dec); };
@@ -137,8 +151,15 @@ function makeChip(mode, label) {
         var nm = setName(idx); if (nm) c.title = idx + " · " + nm + " (редактор · сайдбар · панель)";
         if (!grad) probeSet(idx, c);
         if (!active) {
-            c.addEventListener("mouseenter", function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; previewSet(idx); });
-            c.addEventListener("mouseleave", function () { c.style.borderColor = "var(--mlp-border-soft,rgba(205,214,244,0.16))"; previewEnd(); });
+            // Превью набора и по мыши (mouseenter/leave), и с клавиатуры (focus/blur) —
+            // паритет доступности: пользователь, идущий по чипам с Tab, тоже «примеряет»
+            // набор, а не выбирает вслепую. previewSet дебаунсит, previewEnd мягко возвращает.
+            var hoverOn = function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; previewSet(idx); };
+            var hoverOff = function () { c.style.borderColor = "var(--mlp-border-soft,rgba(205,214,244,0.16))"; previewEnd(); };
+            c.addEventListener("mouseenter", hoverOn);
+            c.addEventListener("mouseleave", hoverOff);
+            c.addEventListener("focus", hoverOn);
+            c.addEventListener("blur", hoverOff);
         }
     } else if (!active) {
         c.addEventListener("mouseenter", function () { c.style.background = "rgba(var(--mlbg-accent-rgb),0.14)"; });
@@ -190,23 +211,25 @@ function makeSetNameEdit() {
 function makeOpSlider(key, label) {
     return makeSlider({
         label: label, min: 0, max: 0.6, step: 0.01, dec: 2, labelW: 56, valW: 30, ellipsis: false,
-        get: function () { return getOp()[key]; }, onInput: function (v) { setOpValue(key, v); }, info: INFO["op_" + key]
+        get: function () { return getOp()[key]; }, onInput: function (v) { setOpValue(key, v); }, info: INFO["op_" + key],
+        def: DEFAULTS.baseOp[key]
     });
 }
 function makeParamSlider(def) {
     var key = def[0];
     return makeSlider({
         label: def[1], min: def[2], max: def[3], step: def[4], dec: def[5],
-        get: function () { return cfg.fxp[key]; }, onInput: function (v) { cfg.fxp[key] = v; }, info: INFO["fxp_" + key]
+        get: function () { return cfg.fxp[key]; }, onInput: function (v) { cfg.fxp[key] = v; }, info: INFO["fxp_" + key],
+        def: DEFAULTS.fxp[key]
     });
 }
 function makeCheck(key, label) {
     return makeToggle(function () { return cfg.fx[key]; }, function (v) {
         cfg.fx[key] = v; apply();
-        // «Частицы»/«Помидор» управляют показом зависимых контролов (стиль/число частиц,
-        // длительность помидора) — пересобираем панель, чтобы они появились/исчезли.
-        // refreshPanel сохраняет вкладку/прокрутку/фокус (см. panel.js).
-        if (key === "particles" || key === "pomodoro") { try { refreshPanel(); } catch (e) {} }
+        // Тумблеры с зависимыми контролами (число/стиль частиц, длительность помидора,
+        // скорость Aurora, радиус спотлайта) — пересобираем панель, чтобы соответствующий
+        // слайдер силы появился/исчез. refreshPanel сохраняет вкладку/прокрутку/фокус (panel.js).
+        if (key === "particles" || key === "pomodoro" || key === "aurora" || key === "spotlight") { try { refreshPanel(); } catch (e) {} }
     }, label, INFO["fx_" + key]);
 }
 
@@ -229,7 +252,8 @@ function makeTermCheck(key, label) {
 function makeTermSlider(key, label, min, max, step, dec) {
     return makeSlider({
         label: label, min: min, max: max, step: step, dec: dec, labelW: 56, ellipsis: false,
-        get: function () { return cfg.term[key]; }, onInput: function (v) { cfg.term[key] = v; }, info: INFO["term_" + key]
+        get: function () { return cfg.term[key]; }, onInput: function (v) { cfg.term[key] = v; }, info: INFO["term_" + key],
+        def: DEFAULTS.term[key]
     });
 }
 function makeTermColor(key, label) {
@@ -254,11 +278,12 @@ function makeTermColor(key, label) {
 }
 
 // ==== Контролы для картинки / слайдшоу (работают с произвольным разделом cfg) ====
-// Универсальный слайдер над obj[key] — используется для cfg.imgfx и cfg.slideshow.
-function makeObjSlider(obj, key, label, min, max, step, dec, info) {
+// Универсальный слайдер над obj[key] — используется для cfg.slideshow и cfg.autoTime.
+// def (необязателен) — значение сброса по двойному клику (обычно из DEFAULTS).
+function makeObjSlider(obj, key, label, min, max, step, dec, info, def) {
     return makeSlider({
         label: label, min: min, max: max, step: step, dec: dec,
-        get: function () { return obj[key]; }, onInput: function (v) { obj[key] = v; }, info: info
+        get: function () { return obj[key]; }, onInput: function (v) { obj[key] = v; }, info: info, def: def
     });
 }
 function makeAccentColor() {
@@ -369,7 +394,9 @@ function makeImgFilters() {
         var key = d[0];
         var w = makeSlider({
             label: d[1], min: d[2], max: d[3], step: d[4], dec: d[5],
-            get: function () { return cfg.imgfx[cur][key]; }, onInput: function (v) { cfg.imgfx[cur][key] = v; }, info: d[6]
+            get: function () { return cfg.imgfx[cur][key]; }, onInput: function (v) { cfg.imgfx[cur][key] = v; }, info: d[6],
+            // дефолт зонозависимый: сбрасываем к DEFAULTS для ТЕКУЩЕЙ выбранной зоны (cur)
+            def: function () { return DEFAULTS.imgfx[cur][key]; }
         });
         box.appendChild(w);
         return w._refresh;

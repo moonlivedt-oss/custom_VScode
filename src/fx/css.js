@@ -271,6 +271,8 @@ function buildCSS() {
     // Трио акцентов для эффектов: основной + два спутника (палитра из картинки редактора
     // при включённой «Палитре из картинки», иначе повороты оттенка). ac2/ac3 — hex.
     var trio = accentTrio(ac, edIsGrad ? null : edUrl), ac2 = trio[1], ac3 = trio[2];
+    // rgb-формы спутников ("r,g,b") — для rgba() в градиентах Aurora (там нужен альфа-канал).
+    var ac2RGB = hexToRgbArr(ac2).join(","), ac3RGB = hexToRgbArr(ac3).join(",");
     var out = [];
     function add() { for (var i = 0; i < arguments.length; i++) out.push(arguments[i]); }
     var TR = "  transition: opacity 0.5s ease;";
@@ -278,11 +280,15 @@ function buildCSS() {
     // прозрачностью (color-mix), плюс запасная строка rgba() под старые движки без
     // color-mix. Порядок важен: сначала fallback, затем color-mix (если поддержан —
     // побеждает как более поздняя валидная декларация; если нет — остаётся rgba).
-    // rgb — тема-зависимая запасная база "r,g,b"; a — прозрачность 0..1.
-    function addSurface(cssVar, rgb, a) {
+    // База rgba — тема-зависимая surfRGB; a — прозрачность 0..1. ВОЗВРАЩАЕТ пару строк
+    // (а не пишет в out): блоки эффектов собираются в таблицу FX_BLOCKS и сами складывают
+    // свои строки, поэтому примитивам поверхности/размытия удобнее отдавать строки.
+    function surfaceLines(cssVar, a) {
         var pct = Math.round(a * 100);
-        add("  background-color: rgba(" + rgb + "," + a + ") !important;");
-        add("  background-color: color-mix(in srgb, var(" + cssVar + ") " + pct + "%, transparent) !important;");
+        return [
+            "  background-color: rgba(" + surfRGB + "," + a + ") !important;",
+            "  background-color: color-mix(in srgb, var(" + cssVar + ") " + pct + "%, transparent) !important;"
+        ];
     }
     function blurLines(px) { return "  backdrop-filter: blur(" + px + "px); -webkit-backdrop-filter: blur(" + px + "px);"; }
 
@@ -414,143 +420,192 @@ function buildCSS() {
     if (tcw <= 0) add(CUR_SEL + " { opacity: 0 !important; box-shadow: none !important; }");
     else if (tcw !== 1 || tch !== 1) add(CUR_SEL + " { display: inline-block !important; transform: scale(" + tcw + "," + tch + "); transform-origin: center; }");
 
-    // ЭФФЕКТЫ
-    if (fx.activityBg) add(
-        ".part.activitybar::after {",
-        "  content: ''; position: absolute; inset: 0; z-index: 1000; pointer-events: none;",
-        "  background: " + BG_SB + "; opacity: " + (0.10 * switchMul) + ";", TR, IMGF_SB,
-        "}"
-    );
-    if (fx.rounded) add(
-        ".monaco-menu .monaco-action-bar, .quick-input-widget, .monaco-hover, .suggest-widget,",
-        ".editor-widget.find-widget, .notifications-toasts .notification-toast {",
-        "  border-radius: 10px !important; overflow: hidden;",
-        "}"
-    );
-    if (fx.tabAccent) add(".tabs-container > .tab.active { box-shadow: inset 0 -2px 0 0 var(--mlbg-accent); }");
-    if (fx.vignette) add(".part.editor .editor-container { box-shadow: inset 0 0 140px 30px rgba(0,0,0," + fxp.vignette + "); }");
-    if (fx.scrim) add(".monaco-editor .view-lines { text-shadow: 0 0 3px rgba(" + scrimRGB + ",0.85); }");
-    if (fx.glassTabs) {
-        add(".part.editor > .content .editor-group-container > .title {");
-        addSurface("--vscode-editorGroupHeader-tabsBackground", surfRGB, 0.55);
-        add(blurLines(fxp.blur), "}");
-    }
-    if (fx.glassSide) {
+    // ЭФФЕКТЫ (таблица). Каждый простой эффект — строка [ключ fx, fn -> массив CSS-строк].
+    // fn замыкает все локальные переменные buildCSS (палитра, surfRGB, fxp, BG_/IMGF_-зоны,
+    // surfaceLines/blurLines и т.д.), поэтому таблица определена ЗДЕСЬ, после их вычисления.
+    // Порядок строк = порядок вывода (важен для каскада), поэтому и порядок записей сохранён
+    // как был. Добавить эффект теперь = одна запись в таблице (+ тумблер в FX_LIST/DEFAULTS.fx),
+    // а не ещё один if-блок в теле функции. Эффекты, вплетённые в яркость/оверлеи редактора
+    // (kenburns, dimOnType/flow, reading, параллакс), остаются выше — они не самостоятельные
+    // добавки, а модификаторы уже собранных правил.
+    var FX_BLOCKS = [
+        ["activityBg", function () { return [
+            ".part.activitybar::after {",
+            "  content: ''; position: absolute; inset: 0; z-index: 1000; pointer-events: none;",
+            "  background: " + BG_SB + "; opacity: " + (0.10 * switchMul) + ";", TR, IMGF_SB,
+            "}"
+        ]; }],
+        ["rounded", function () { return [
+            ".monaco-menu .monaco-action-bar, .quick-input-widget, .monaco-hover, .suggest-widget,",
+            ".editor-widget.find-widget, .notifications-toasts .notification-toast {",
+            "  border-radius: 10px !important; overflow: hidden;",
+            "}"
+        ]; }],
+        ["tabAccent", function () { return [".tabs-container > .tab.active { box-shadow: inset 0 -2px 0 0 var(--mlbg-accent); }"]; }],
+        ["vignette", function () { return [".part.editor .editor-container { box-shadow: inset 0 0 140px 30px rgba(0,0,0," + fxp.vignette + "); }"]; }],
+        ["scrim", function () { return [".monaco-editor .view-lines { text-shadow: 0 0 3px rgba(" + scrimRGB + ",0.85); }"]; }],
+        ["glassTabs", function () { return [".part.editor > .content .editor-group-container > .title {"]
+            .concat(surfaceLines("--vscode-editorGroupHeader-tabsBackground", 0.55))
+            .concat([blurLines(fxp.blur), "}"]); }],
         // сайдбар и панель берут СВОИ переменные фона темы (раньше делили одну константу)
-        add(".part.sidebar {");
-        addSurface("--vscode-sideBar-background", surfRGB, 0.60);
-        add(blurLines(fxp.blur), "}");
-        add(".part.panel {");
-        addSurface("--vscode-panel-background", surfRGB, 0.60);
-        add(blurLines(fxp.blur), "}");
-    }
-    if (fx.scrollbar) add(
-        ".monaco-scrollable-element > .scrollbar > .slider { background: rgba(var(--mlbg-accent-rgb),0.30) !important; border-radius: 8px; }",
-        ".monaco-scrollable-element > .scrollbar > .slider:hover { background: rgba(var(--mlbg-accent-rgb),0.55) !important; }"
-    );
-    if (fx.groupRing) add(".editor-group-container.active { box-shadow: inset 0 0 0 1px rgba(var(--mlbg-accent-rgb),0.28), inset 0 0 24px rgba(var(--mlbg-accent-rgb),0.08); }");
-    if (fx.activeLine) add(
-        ".monaco-editor .view-overlays .current-line {",
-        "  background: rgba(var(--mlbg-accent-rgb),0.06) !important; box-shadow: inset 2px 0 0 0 rgba(var(--mlbg-accent-rgb),0.55);",
-        "}"
-    );
-    if (fx.glassStatus) {
-        add(".part.statusbar {");
-        addSurface("--vscode-statusBar-background", surfRGB, 0.55);
-        add(blurLines(Math.min(fxp.blur, 8)), "}");
-    }
-    if (fx.cursorGlow) add(
-        ".monaco-editor .cursors-layer > .cursor { box-shadow: 0 0 8px 2px rgba(var(--mlbg-accent-rgb),0.85); border-radius: 1px; }"
-    );
-    if (fx.selection) add(
-        ".monaco-editor .view-overlays .selected-text {",
-        // оба стопа — акцент набора (разная прозрачность даёт глубину градиента),
-        // раньше второй стоп был зашит синим и не следовал за палитрой набора
-        "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.32), rgba(var(--mlbg-accent-rgb),0.16)) !important; border-radius: 2px;",
-        "}"
-    );
-    if (fx.groupBorder) add(
-        ".editor-group-container.active::before {",
-        "  content:''; position:absolute; inset:0; z-index:6; pointer-events:none; padding:2px; border-radius:4px;",
-        // По умолчанию — радужный перелив; groupBorderMono даёт «дыхание» одним акцентом.
-        "  background:" + (fx.groupBorderMono
-            ? "linear-gradient(120deg,var(--mlbg-accent),rgba(var(--mlbg-accent-rgb),0.25),var(--mlbg-accent))"
-            : (fx.paletteSync
-                ? "linear-gradient(120deg,var(--mlbg-accent)," + ac2 + "," + ac3 + ",var(--mlbg-accent))"
-                : "linear-gradient(120deg,var(--mlbg-accent),#89b4fa,#a6e3a1,var(--mlbg-accent))")) + "; background-size:300% 300%;",
-        "  animation: mlbg-flow 8s linear infinite;",
-        "  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor;",
-        "  mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite:exclude;",
-        "}",
-        "@keyframes mlbg-flow { 0%{background-position:0% 50%} 100%{background-position:300% 50%} }"
-    );
-    if (fx.titlebar) add(
-        ".part.titlebar, .titlebar {",
-        // подложка титлбара — цвет темы var(--vscode-titleBar-activeBackground) с запасной
-        // тема-зависимой константой; поверх — акцентный градиент, гаснущий к прозрачному.
-        "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.30), rgba(var(--mlbg-accent-rgb),0.14) 45%, rgba(" + surfRGB + ",0) 78%), var(--vscode-titleBar-activeBackground, " + titleSolid + ") !important;",
-        "}"
-    );
-    if (fx.splash) add(
-        ".editor-group-container.empty { position: relative; }",
-        ".editor-group-container.empty::after {",
-        "  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;",
+        ["glassSide", function () { return [".part.sidebar {"]
+            .concat(surfaceLines("--vscode-sideBar-background", 0.60))
+            .concat([blurLines(fxp.blur), "}", ".part.panel {"])
+            .concat(surfaceLines("--vscode-panel-background", 0.60))
+            .concat([blurLines(fxp.blur), "}"]); }],
+        ["scrollbar", function () { return [
+            ".monaco-scrollable-element > .scrollbar > .slider { background: rgba(var(--mlbg-accent-rgb),0.30) !important; border-radius: 8px; }",
+            ".monaco-scrollable-element > .scrollbar > .slider:hover { background: rgba(var(--mlbg-accent-rgb),0.55) !important; }"
+        ]; }],
+        ["groupRing", function () { return [".editor-group-container.active { box-shadow: inset 0 0 0 1px rgba(var(--mlbg-accent-rgb),0.28), inset 0 0 24px rgba(var(--mlbg-accent-rgb),0.08); }"]; }],
+        ["activeLine", function () { return [
+            ".monaco-editor .view-overlays .current-line {",
+            "  background: rgba(var(--mlbg-accent-rgb),0.06) !important; box-shadow: inset 2px 0 0 0 rgba(var(--mlbg-accent-rgb),0.55);",
+            "}"
+        ]; }],
+        ["glassStatus", function () { return [".part.statusbar {"]
+            .concat(surfaceLines("--vscode-statusBar-background", 0.55))
+            .concat([blurLines(Math.min(fxp.blur, 8)), "}"]); }],
+        ["cursorGlow", function () { return [
+            ".monaco-editor .cursors-layer > .cursor { box-shadow: 0 0 8px 2px rgba(var(--mlbg-accent-rgb),0.85); border-radius: 1px; }"
+        ]; }],
+        // оба стопа — акцент набора (разная прозрачность даёт глубину градиента)
+        ["selection", function () { return [
+            ".monaco-editor .view-overlays .selected-text {",
+            "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.32), rgba(var(--mlbg-accent-rgb),0.16)) !important; border-radius: 2px;",
+            "}"
+        ]; }],
+        // по умолчанию — радужный перелив; groupBorderMono — одним акцентом; paletteSync — палитрой картинки
+        ["groupBorder", function () { return [
+            ".editor-group-container.active::before {",
+            "  content:''; position:absolute; inset:0; z-index:6; pointer-events:none; padding:2px; border-radius:4px;",
+            "  background:" + (fx.groupBorderMono
+                ? "linear-gradient(120deg,var(--mlbg-accent),rgba(var(--mlbg-accent-rgb),0.25),var(--mlbg-accent))"
+                : (fx.paletteSync
+                    ? "linear-gradient(120deg,var(--mlbg-accent)," + ac2 + "," + ac3 + ",var(--mlbg-accent))"
+                    : "linear-gradient(120deg,var(--mlbg-accent),#89b4fa,#a6e3a1,var(--mlbg-accent))")) + "; background-size:300% 300%;",
+            "  animation: mlbg-flow 8s linear infinite;",
+            "  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor;",
+            "  mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite:exclude;",
+            "}",
+            "@keyframes mlbg-flow { 0%{background-position:0% 50%} 100%{background-position:300% 50%} }"
+        ]; }],
+        // подложка титлбара — цвет темы + акцентный градиент, гаснущий к прозрачному
+        ["titlebar", function () { return [
+            ".part.titlebar, .titlebar {",
+            "  background: linear-gradient(90deg, rgba(var(--mlbg-accent-rgb),0.30), rgba(var(--mlbg-accent-rgb),0.14) 45%, rgba(" + surfRGB + ",0) 78%), var(--vscode-titleBar-activeBackground, " + titleSolid + ") !important;",
+            "}"
+        ]; }],
         // заставка = картинка редактора, всегда «contain»; градиент -> сам градиент; 404 -> акцентная подложка
-        "  background: " + (edIsGrad ? gradFor(idx, "editor") : (probeImage(edUrl).ok ? cssUrl(edUrl) + " center / contain no-repeat" : "rgba(var(--mlbg-accent-rgb),0.14)")) + "; opacity: " + (0.12 * switchMul * edDim) + ";", TR, IMGF_ED,
-        "}"
-    );
-
-    // v16: тусклее неактивные группы редактора — код активной группы держит фокус.
-    // Гасим только текст (view-lines) неактивной группы, чтобы наши оверлеи/эффекты не трогать.
-    if (fx.dimInactive) add(
-        ".editor-group-container:not(.active):not(.empty) .monaco-editor .view-lines {",
-        "  opacity: 0.55; transition: opacity 0.25s ease;",
-        "}"
-    );
-    // v16: матовое стекло палитры команд / автодополнения / подсказок / ховера — берут
-    // цвет темы (var(--vscode-editorWidget-background)) с прозрачностью + размытие + тонкая
-    // акцентная рамка, чтобы попапы не выглядели непрозрачным прямоугольником поверх фона.
-    if (fx.glassCommand) {
-        add(".quick-input-widget, .suggest-widget, .monaco-hover, .parameter-hints-widget, .monaco-editor .suggest-widget {");
-        addSurface("--vscode-editorWidget-background", surfRGB, 0.72);
-        add(blurLines(Math.min(fxp.blur, 12)),
-            "  border: 1px solid rgba(var(--mlbg-accent-rgb),0.25) !important;",
-        "}");
-    }
-    // v16: акцент виджета поиска/замены и подсветки найденных совпадений — под палитру набора.
-    if (fx.findAccent) add(
-        ".editor-widget.find-widget { border: 1px solid rgba(var(--mlbg-accent-rgb),0.4) !important; box-shadow: 0 4px 18px rgba(0,0,0,0.4); }",
-        ".editor-widget.find-widget.replaceToggled { border-color: rgba(var(--mlbg-accent-rgb),0.5) !important; }",
-        ".monaco-editor .findMatch { background: rgba(var(--mlbg-accent-rgb),0.22) !important; }",
-        ".monaco-editor .currentFindMatch { background: rgba(var(--mlbg-accent-rgb),0.42) !important; outline: 1px solid var(--mlbg-accent); border-radius: 2px; }"
-    );
-    // v16: миникарта полупрозрачная — фоновая картинка просвечивает сквозь неё.
-    if (fx.minimapFade) add(".monaco-editor .minimap { opacity: 0.55; transition: opacity 0.2s ease; }",
-        ".monaco-editor .minimap:hover { opacity: 0.9; }");
-    // v16: акцент активной направляющей отступа и парной скобки.
-    if (fx.indentAccent) add(
-        ".monaco-editor .core-guide-indent-active { box-shadow: inset 1px 0 0 0 rgba(var(--mlbg-accent-rgb),0.7) !important; }",
-        ".monaco-editor .bracket-match { border-color: rgba(var(--mlbg-accent-rgb),0.8) !important; background: rgba(var(--mlbg-accent-rgb),0.1) !important; }"
-    );
-    // v16: подсветка всех вхождений выделенного слова акцентом (word occurrences).
-    if (fx.selectionMatch) add(
-        ".monaco-editor .selectionHighlight { background: rgba(var(--mlbg-accent-rgb),0.18) !important; outline: 1px solid rgba(var(--mlbg-accent-rgb),0.4); border-radius: 2px; }"
-    );
-    // v16: матовое стекло закреплённой прокрутки (sticky scroll — приклеенные заголовки).
-    if (fx.stickyGlass) {
-        add(".monaco-editor .sticky-widget, .monaco-editor .sticky-widget .sticky-line-content {");
-        addSurface("--vscode-editorStickyScroll-background", surfRGB, 0.6);
-        add(blurLines(Math.min(fxp.blur, 10)), "}");
+        ["splash", function () { return [
+            ".editor-group-container.empty { position: relative; }",
+            ".editor-group-container.empty::after {",
+            "  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;",
+            "  background: " + (edIsGrad ? gradFor(idx, "editor") : (probeImage(edUrl).ok ? cssUrl(edUrl) + " center / contain no-repeat" : "rgba(var(--mlbg-accent-rgb),0.14)")) + "; opacity: " + (0.12 * switchMul * edDim) + ";", TR, IMGF_ED,
+            "}"
+        ]; }],
+        // v16: тусклее неактивные группы — гасим только текст (view-lines), не оверлеи/эффекты
+        ["dimInactive", function () { return [
+            ".editor-group-container:not(.active):not(.empty) .monaco-editor .view-lines {",
+            "  opacity: 0.55; transition: opacity 0.25s ease;",
+            "}"
+        ]; }],
+        // v16: стекло палитры команд/автодополнения/подсказок + тонкая акцентная рамка
+        ["glassCommand", function () { return [".quick-input-widget, .suggest-widget, .monaco-hover, .parameter-hints-widget, .monaco-editor .suggest-widget {"]
+            .concat(surfaceLines("--vscode-editorWidget-background", 0.72))
+            .concat([blurLines(Math.min(fxp.blur, 12)), "  border: 1px solid rgba(var(--mlbg-accent-rgb),0.25) !important;", "}"]); }],
+        // v16: акцент виджета поиска/замены и подсветки совпадений — под палитру набора
+        ["findAccent", function () { return [
+            ".editor-widget.find-widget { border: 1px solid rgba(var(--mlbg-accent-rgb),0.4) !important; box-shadow: 0 4px 18px rgba(0,0,0,0.4); }",
+            ".editor-widget.find-widget.replaceToggled { border-color: rgba(var(--mlbg-accent-rgb),0.5) !important; }",
+            ".monaco-editor .findMatch { background: rgba(var(--mlbg-accent-rgb),0.22) !important; }",
+            ".monaco-editor .currentFindMatch { background: rgba(var(--mlbg-accent-rgb),0.42) !important; outline: 1px solid var(--mlbg-accent); border-radius: 2px; }"
+        ]; }],
+        // v16: миникарта полупрозрачная — фон просвечивает сквозь неё
+        ["minimapFade", function () { return [
+            ".monaco-editor .minimap { opacity: 0.55; transition: opacity 0.2s ease; }",
+            ".monaco-editor .minimap:hover { opacity: 0.9; }"
+        ]; }],
+        // v16: акцент активной направляющей отступа и парной скобки
+        ["indentAccent", function () { return [
+            ".monaco-editor .core-guide-indent-active { box-shadow: inset 1px 0 0 0 rgba(var(--mlbg-accent-rgb),0.7) !important; }",
+            ".monaco-editor .bracket-match { border-color: rgba(var(--mlbg-accent-rgb),0.8) !important; background: rgba(var(--mlbg-accent-rgb),0.1) !important; }"
+        ]; }],
+        // v16: подсветка всех вхождений выделенного слова акцентом
+        ["selectionMatch", function () { return [
+            ".monaco-editor .selectionHighlight { background: rgba(var(--mlbg-accent-rgb),0.18) !important; outline: 1px solid rgba(var(--mlbg-accent-rgb),0.4); border-radius: 2px; }"
+        ]; }],
+        // v16: стекло закреплённой прокрутки (sticky scroll — приклеенные заголовки)
+        ["stickyGlass", function () { return [".monaco-editor .sticky-widget, .monaco-editor .sticky-widget .sticky-line-content {"]
+            .concat(surfaceLines("--vscode-editorStickyScroll-background", 0.6))
+            .concat([blurLines(Math.min(fxp.blur, 10)), "}"]); }],
+        // v18: Aurora — «полярное сияние» за кодом. Слой ::before на прокручиваемом элементе
+        // редактора (рядом с фоновой картинкой ::after): три размытых радиальных пятна в палитре
+        // набора медленно дрейфуют (translate+scale — только композитинг). Под кодом (z-index:0),
+        // читаемости не мешает; на паузе движения гасится reduced-motion (ниже).
+        ["aurora", function () { return [
+            ".monaco-editor .overflow-guard > .monaco-scrollable-element::before {",
+            "  content: ''; position: absolute; inset: -25%; z-index: 0; pointer-events: none;",
+            "  background:",
+            "    radial-gradient(45% 45% at 25% 30%, rgba(" + acRGB + ",0.55), transparent 60%),",
+            "    radial-gradient(40% 50% at 78% 38%, rgba(" + ac2RGB + ",0.50), transparent 62%),",
+            "    radial-gradient(50% 45% at 55% 82%, rgba(" + ac3RGB + ",0.45), transparent 62%);",
+            "  filter: blur(34px); opacity: 0.40; will-change: transform;",
+            "  animation: mlbg-aurora " + fxp.auroraSpeed + "s ease-in-out infinite alternate;",
+            "}",
+            "@keyframes mlbg-aurora {",
+            "  0%   { transform: translate3d(-4%,-3%,0) scale(1.05); }",
+            "  50%  { transform: translate3d(3%,2%,0)   scale(1.18); }",
+            "  100% { transform: translate3d(4%,4%,0)   scale(1.08); }",
+            "}"
+        ]; }],
+        // v18: Спотлайт под курсором — радиальное затемнение экрана с «окном» вокруг мыши.
+        // Полноэкранный fixed-оверлей (body::after), центр — --mlbg-mx/my (двигает boot.js за
+        // курсором). Радиус — fxp.spotRadius. Над кодом, но под панелью (z 100000); клики сквозь.
+        ["spotlight", function () {
+            var spotR = clampNum(fxp.spotRadius, 120, 600, 320);
+            return [
+                "body::after {",
+                "  content: ''; position: fixed; inset: 0; z-index: 40; pointer-events: none;",
+                "  background: radial-gradient(circle " + (spotR + 220) + "px at var(--mlbg-mx,50%) var(--mlbg-my,50%),",
+                "    transparent 0, transparent " + spotR + "px, rgba(0,0,0,0.45) 100%);",
+                "  transition: background 0.10s linear;",
+                "}"
+            ];
+        }],
+        // v18: Пульс вкладки при печати — активная вкладка «дышит» акцентом, пока идёт набор
+        // (класс body.mlbg-typing навешивает boot.js); на паузе класс снимается, анимация стоит.
+        ["typingPulse", function () { return [
+            "body.mlbg-typing .tabs-container > .tab.active {",
+            "  animation: mlbg-typpulse 1.1s ease-in-out infinite;",
+            "}",
+            "@keyframes mlbg-typpulse {",
+            "  0%,100% { box-shadow: inset 0 -2px 0 0 var(--mlbg-accent); }",
+            "  50%     { box-shadow: inset 0 -2px 0 0 var(--mlbg-accent), 0 0 12px 0 rgba(var(--mlbg-accent-rgb),0.65); }",
+            "}"
+        ]; }]
+    ];
+    for (var bi = 0; bi < FX_BLOCKS.length; bi++) {
+        if (fx[FX_BLOCKS[bi][0]]) add.apply(null, FX_BLOCKS[bi][1]());
     }
 
     add(switcherCSS());
 
     // Доступность/батарея: при системной «уменьшить движение» гасим CSS-анимации
-    // (Ken Burns, живая рамка). Частицы (canvas/JS) выключаются отдельно в ensureParticles.
+    // (Ken Burns, живая рамка, Aurora, пульс печати). Частицы (canvas/JS) выключаются
+    // отдельно в ensureParticles. Спотлайт — не авто-анимация (следует за курсором по
+    // явному желанию пользователя), поэтому его тут не трогаем. Селекторы Aurora/пульса
+    // добавляем в список ТОЛЬКО когда эффект включён — иначе их правила всё равно нет,
+    // а лишний селектор зря «маячил» бы в CSS (и путал бы точечные проверки).
+    var rmSel = [
+        "  .monaco-editor .overflow-guard > .monaco-scrollable-element::after",
+        "  .editor-group-container.active::before"
+    ];
+    if (fx.aurora) rmSel.push("  .monaco-editor .overflow-guard > .monaco-scrollable-element::before");
+    if (fx.typingPulse) rmSel.push("  body.mlbg-typing .tabs-container > .tab.active");
     add(
         "@media (prefers-reduced-motion: reduce) {",
-        "  .monaco-editor .overflow-guard > .monaco-scrollable-element::after,",
-        "  .editor-group-container.active::before { animation: none !important; }",
+        rmSel.join(",\n") + " { animation: none !important; }",
         "}"
     );
     return out.join("\n");

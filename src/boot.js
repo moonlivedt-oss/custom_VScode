@@ -37,8 +37,11 @@ setInterval(function () {
         // Частицы уже останавливаются отдельно (loopParticles видит document.hidden).
         if (document.hidden) return;
         _tick++;
-        ensureStatusBar(); ensureClock(); ensurePomodoro(); ensureBranchStrip(); // дешёвые проверки наличия
+        ensureStatusBar(); ensureClock(); ensurePomodoro(); // дешёвые проверки наличия
         tickClock(); tickPomo(); timeTick(); slideTick();   // обновления по времени
+        // Индикатор git-ветки НЕ трогаем ежесекундно: gitBranch() лазит по DOM
+        // (querySelector+closest+textContent+regex), а ветка меняется редко — обновляем
+        // его в heal раз в 3с (ensureBranchStrip там же). Экономия на постоянном чтении DOM.
         if (_tick % 3 === 0) heal();                         // самолечение раз в 3с
     } catch (e) {}
 }, 1000);
@@ -88,11 +91,12 @@ document.addEventListener("keydown", onHotkey, true);
 var _typingTimer = 0, _flowCount = 0;
 function onEditorType(e) {
     try {
-        if (!cfg.enabled || (!cfg.fx.dimOnType && !cfg.fx.flow)) return;
+        if (!cfg.enabled || (!cfg.fx.dimOnType && !cfg.fx.flow && !cfg.fx.typingPulse)) return;
         var t = e.target;
         if (!t || !t.classList || !t.classList.contains("inputarea")) return;
         var cl = document.body && document.body.classList;
-        if (cl && cfg.fx.dimOnType) cl.add("mlbg-typing");
+        // Класс mlbg-typing нужен и приглушению фона (dimOnType), и пульсу вкладки (typingPulse).
+        if (cl && (cfg.fx.dimOnType || cfg.fx.typingPulse)) cl.add("mlbg-typing");
         if (cl && cfg.fx.flow) {
             _flowCount++;
             if (_flowCount >= 12) cl.add("mlbg-flowing"); // ~12 нажатий подряд без паузы -> «поток»
@@ -106,24 +110,36 @@ function onEditorType(e) {
 }
 document.addEventListener("input", onEditorType, true);
 
-// ===== Параллакс фона по курсору (fx.parallax) =====
-// Двигаем CSS-переменные --mlbg-par-x/y на <html> вслед за мышью; CSS (buildCSS) смещает
-// background-position оверлея редактора, создавая глубину. Коалесим в один кадр (rAF).
-// Уважаем «уменьшить движение» и не работаем при скрытом окне/выключенном фоне.
-var _parRaf = 0, _parX = 0, _parY = 0;
+// ===== Курсорные эффекты: параллакс фона (fx.parallax) + спотлайт (fx.spotlight) =====
+// Один обработчик mousemove на оба эффекта (меньше слушателей, один rAF-кадр на оба).
+// Параллакс двигает --mlbg-par-x/y (CSS смещает background-position оверлея редактора,
+// создавая глубину) — уважает «уменьшить движение». Спотлайт двигает --mlbg-mx/my (центр
+// радиального затемнения в body::after) — это не авто-анимация, а слежение за курсором по
+// явному желанию, поэтому reduced-motion его не гасит. Оба коалесцируем в один кадр (rAF).
+var _mfxRaf = 0, _parX = 0, _parY = 0, _spotX = 0, _spotY = 0;
 function _reduceMotion() { try { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) { return false; } }
-function onParallax(e) {
-    if (!cfg.enabled || !cfg.fx.parallax || document.hidden || _reduceMotion()) return;
-    var w = window.innerWidth || 1, h = window.innerHeight || 1;
-    _parX = (0.5 - e.clientX / w) * 16; // ±8px «навстречу» курсору — ощущение глубины
-    _parY = (0.5 - e.clientY / h) * 16;
-    if (_parRaf) return;
-    _parRaf = requestAnimationFrame(function () {
-        _parRaf = 0;
-        try { var s = document.documentElement.style; s.setProperty("--mlbg-par-x", _parX.toFixed(1) + "px"); s.setProperty("--mlbg-par-y", _parY.toFixed(1) + "px"); } catch (er) {}
+function onMouseFx(e) {
+    if (!cfg.enabled || document.hidden) return;
+    var par = cfg.fx.parallax && !_reduceMotion();
+    var spot = cfg.fx.spotlight;
+    if (!par && !spot) return; // ни один курсорный эффект не включён — ничего не считаем
+    if (par) {
+        var w = window.innerWidth || 1, h = window.innerHeight || 1;
+        _parX = (0.5 - e.clientX / w) * 16; // ±8px «навстречу» курсору — ощущение глубины
+        _parY = (0.5 - e.clientY / h) * 16;
+    }
+    if (spot) { _spotX = e.clientX; _spotY = e.clientY; }
+    if (_mfxRaf) return;
+    _mfxRaf = requestAnimationFrame(function () {
+        _mfxRaf = 0;
+        try {
+            var s = document.documentElement.style;
+            if (par) { s.setProperty("--mlbg-par-x", _parX.toFixed(1) + "px"); s.setProperty("--mlbg-par-y", _parY.toFixed(1) + "px"); }
+            if (spot) { s.setProperty("--mlbg-mx", _spotX + "px"); s.setProperty("--mlbg-my", _spotY + "px"); }
+        } catch (er) {}
     });
 }
-document.addEventListener("mousemove", onParallax, true);
+document.addEventListener("mousemove", onMouseFx, true);
 
 // ===== Индикатор git-ветки (ambientBranch) =====
 // Тонкая полоска у верхнего края окна: на main/master — красноватая (ты на основной ветке),
@@ -185,4 +201,4 @@ try {
 } catch (e) {}
 heal();
 
-console.log("[MoonLight custom-bg] v16 installed (tabbed panel: Набор/Вид/Терминал/Система + 8 new effects: dim-inactive, reading mode, glass command palette, find accent, minimap fade, indent accent, selection match, sticky glass + particle styles + effects search), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "particles:", cfg.partStyle, "theme:", themeKind());
+console.log("[MoonLight custom-bg] v18 installed (tabbed panel: Набор/Вид/Терминал/Система; v18 fx: aurora living background, cursor spotlight, typing pulse + particle styles firefly/rain/confetti + particle perf: in-place recycle, no per-particle save/restore for round styles), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "particles:", cfg.partStyle, "theme:", themeKind());
