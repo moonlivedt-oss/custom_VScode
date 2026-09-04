@@ -542,6 +542,43 @@
         return null;
     }
 
+    // ===== Санитайзер наборов (защита рантайма от сломанной РУЧНОЙ правки массива SETS) =====
+    // Частый сценарий: пользователь лезет в исходник, добавляет/меняет набор и ошибается —
+    // битый цвет, grad не массивом, лишний proc, пропущенное поле. Без страховки одна опечатка
+    // роняла бы весь фон. Нормализуем КАЖДУЮ запись (имя/акцент/тип) и гарантируем непустой
+    // валидный массив: неисправимые записи отбрасываются, а если валидных не осталось —
+    // подставляем один безопасный градиентный набор. Дубликат белого списка proc — намеренно
+    // локальный (config не знает про css.js); поля-строки картинок оставляем как есть (их
+    // разрешение и проверка сети — уже в imgAllowed/imgUrl).
+    var PROC_KINDS = { stars: 1, waves: 1, noise: 1 };
+    function sanitizeSets(list) {
+        var out = [];
+        if (Array.isArray(list)) {
+            for (var i = 0; i < list.length; i++) {
+                var s = list[i];
+                if (!s || typeof s !== "object") continue;
+                var e = {};
+                e.name = (typeof s.name === "string" && s.name) ? s.name.slice(0, 60) : ("Набор " + out.length);
+                e.accent = isColor(s.accent) ? s.accent : DEFAULTS.accent;
+                if (Array.isArray(s.grad)) { var g = []; for (var k = 0; k < s.grad.length; k++) if (isColor(s.grad[k])) g.push(s.grad[k]); if (g.length >= 2) e.grad = g; }
+                if (typeof s.proc === "string" && PROC_KINDS[s.proc]) { e.proc = s.proc; e.base = isColor(s.base) ? s.base : "#181825"; }
+                if (typeof s.editor === "string" && s.editor) e.editor = s.editor;
+                if (typeof s.sidebar === "string" && s.sidebar) e.sidebar = s.sidebar;
+                if (typeof s.panel === "string" && s.panel) e.panel = s.panel;
+                out.push(e);
+            }
+        }
+        if (!out.length) out.push({ name: "По умолчанию", grad: ["#1e1e2e", "#89b4fa", "#94e2d5"], accent: "#89b4fa" });
+        return out;
+    }
+    // Сколько записей отбросил санитайзер (битые) — показываем в диагностике, чтобы правку было
+    // видно, а не «молча пропал набор».
+    var SETS_DROPPED = (function () {
+        var before = Array.isArray(SETS) ? SETS.length : 0;
+        SETS = sanitizeSets(SETS);
+        return Math.max(0, before - SETS.length);
+    })();
+
     var cfg = loadCfg();
 
     // ===================== src/core/state.js =====================
@@ -1405,13 +1442,35 @@
     // (VS Code перестроил DOM). Иначе периодический heal() каждые 3 с — это дешёвая проверка
     // getElementById без пересборки ~5 КБ строки.
     var STYLE_ID = "moonlight-custom-bg";
-    var _styleRev = 0, _appliedRev = -1;
+    var _styleRev = 0, _appliedRev = -1, _buildErrLogged = false;
     function bumpStyle() { _styleRev++; }
-    function ensureStyle() {
+    // Безопасный минимум CSS, если основная сборка упала (обычно из-за сломанной ручной правки
+    // исходника): только акцент-переменная и стили кнопки BG/фокуса. Кнопка остаётся видимой, а
+    // панель — открываемой, где есть «Сбросить к дефолту» и диагностика, чтобы восстановиться,
+    // а не остаться с наглухо сломанным редактором. Сам fallback тоже под try — если и он не
+    // собрался, отдаём голую переменную акцента.
+    function safeFallbackCSS() {
         try {
-            var el = document.getElementById(STYLE_ID);
+            var ac = safeColor((typeof getAccent === "function" ? getAccent() : null), DEFAULTS.accent);
+            return ":root { --mlbg-accent: " + ac + "; --mlbg-accent-rgb: " + accentRGB() + "; }\n" + switcherCSS();
+        } catch (e) { return ":root { --mlbg-accent: " + DEFAULTS.accent + "; }"; }
+    }
+    function ensureStyle() {
+        var el = null;
+        try {
+            el = document.getElementById(STYLE_ID);
             if (el && el.textContent && _appliedRev === _styleRev) return; // ничего не менялось, стиль на месте
-            var css = buildCSS();
+            var css;
+            try { css = buildCSS(); }
+            catch (buildErr) {
+                // Сборка CSS упала — не оставляем редактор без кнопки/панели: ставим безопасный
+                // минимум и ОДИН раз громко пишем в консоль (чтобы «копавшийся» увидел причину).
+                if (!_buildErrLogged) {
+                    _buildErrLogged = true;
+                    try { console.error("[MoonLight custom-bg] Сборка CSS упала — включён безопасный режим (видна только кнопка BG). Проверьте правки в src/ или откройте панель → Система → «Сбросить к дефолту».", buildErr); } catch (e2) {}
+                }
+                css = safeFallbackCSS();
+            }
             if (!el) { el = document.createElement("style"); el.id = STYLE_ID; document.head.appendChild(el); }
             if (el.textContent !== css) el.textContent = css;
             _appliedRev = _styleRev;
@@ -2548,7 +2607,7 @@
             if (r.bad) bad++;
             add("Картинка · " + ["редактор", "сайдбар", "панель"][i], r.s);
         });
-        add("Всего наборов", SETS.length + "");
+        add("Всего наборов", SETS.length + (SETS_DROPPED > 0 ? "  (отброшено битых: " + SETS_DROPPED + " — проверь правки SETS)" : ""));
         // Подсказка, если картинки набора не грузятся — почти всегда виноват путь.
         if (bad && styleFound) lines.push("", "Похоже, картинки набора не находятся. Проверь «Папка плагина» ниже: путь должен вести к папке с assets/. После правки фон появляется сразу.");
         return { lines: lines, ok: bad === 0, text: "MoonLight custom-bg — диагностика\n" + lines.join("\n") };

@@ -533,4 +533,41 @@ function readBackup() {
     return null;
 }
 
+// ===== Санитайзер наборов (защита рантайма от сломанной РУЧНОЙ правки массива SETS) =====
+// Частый сценарий: пользователь лезет в исходник, добавляет/меняет набор и ошибается —
+// битый цвет, grad не массивом, лишний proc, пропущенное поле. Без страховки одна опечатка
+// роняла бы весь фон. Нормализуем КАЖДУЮ запись (имя/акцент/тип) и гарантируем непустой
+// валидный массив: неисправимые записи отбрасываются, а если валидных не осталось —
+// подставляем один безопасный градиентный набор. Дубликат белого списка proc — намеренно
+// локальный (config не знает про css.js); поля-строки картинок оставляем как есть (их
+// разрешение и проверка сети — уже в imgAllowed/imgUrl).
+var PROC_KINDS = { stars: 1, waves: 1, noise: 1 };
+function sanitizeSets(list) {
+    var out = [];
+    if (Array.isArray(list)) {
+        for (var i = 0; i < list.length; i++) {
+            var s = list[i];
+            if (!s || typeof s !== "object") continue;
+            var e = {};
+            e.name = (typeof s.name === "string" && s.name) ? s.name.slice(0, 60) : ("Набор " + out.length);
+            e.accent = isColor(s.accent) ? s.accent : DEFAULTS.accent;
+            if (Array.isArray(s.grad)) { var g = []; for (var k = 0; k < s.grad.length; k++) if (isColor(s.grad[k])) g.push(s.grad[k]); if (g.length >= 2) e.grad = g; }
+            if (typeof s.proc === "string" && PROC_KINDS[s.proc]) { e.proc = s.proc; e.base = isColor(s.base) ? s.base : "#181825"; }
+            if (typeof s.editor === "string" && s.editor) e.editor = s.editor;
+            if (typeof s.sidebar === "string" && s.sidebar) e.sidebar = s.sidebar;
+            if (typeof s.panel === "string" && s.panel) e.panel = s.panel;
+            out.push(e);
+        }
+    }
+    if (!out.length) out.push({ name: "По умолчанию", grad: ["#1e1e2e", "#89b4fa", "#94e2d5"], accent: "#89b4fa" });
+    return out;
+}
+// Сколько записей отбросил санитайзер (битые) — показываем в диагностике, чтобы правку было
+// видно, а не «молча пропал набор».
+var SETS_DROPPED = (function () {
+    var before = Array.isArray(SETS) ? SETS.length : 0;
+    SETS = sanitizeSets(SETS);
+    return Math.max(0, before - SETS.length);
+})();
+
 var cfg = loadCfg();

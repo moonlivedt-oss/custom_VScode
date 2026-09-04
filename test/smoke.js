@@ -383,6 +383,28 @@ sandbox.cfg.mode = String(procIdx);
 ok(build().indexOf("url('") < 0, "процедурный набор (без canvas): картинок (url) в CSS нет — только градиент");
 sandbox.cfg.mode = "0";
 
+// ---- 17a3. Защита рантайма: санитайзер SETS + безопасный fallback CSS ----
+// Сломанная ручная правка массива SETS не должна ронять фон: не-объекты отбрасываются,
+// объекты нормализуются, а пустой/мусорный вход даёт один безопасный набор.
+var ss = sandbox.sanitizeSets([
+    null, "строка", 42,                                     // не-объекты -> отброшены
+    { name: "Плохой акцент", accent: "red" },               // битый акцент -> дефолт
+    { grad: "нельзя" },                                     // grad не массив -> убран
+    { proc: "evil", base: "zzz" },                          // proc вне белого списка -> убран
+    { name: "Ок", grad: ["#111111", "#222222"], accent: "#333333" }
+]);
+ok(ss.length === 4, "sanitizeSets: не-объекты отброшены, объекты нормализованы (4 из 7)");
+ok(ss[0].accent === sandbox.DEFAULTS.accent, "sanitizeSets: битый акцент -> дефолтный");
+ok(!("grad" in ss[1]), "sanitizeSets: grad не-массивом убран");
+ok(!("proc" in ss[2]), "sanitizeSets: proc вне белого списка убран");
+ok(ss[3].grad.length === 2 && ss[3].accent === "#333333", "sanitizeSets: валидный набор сохранён как есть");
+ok(sandbox.sanitizeSets([]).length === 1 && sandbox.sanitizeSets("nope").length === 1,
+    "sanitizeSets: из пустого/мусорного входа — один безопасный набор");
+// Безопасный минимум CSS (когда buildCSS падает) — как минимум переменная акцента и кнопка.
+var fb = sandbox.safeFallbackCSS();
+ok(typeof fb === "string" && fb.indexOf("--mlbg-accent") >= 0,
+    "safeFallbackCSS: содержит переменную акцента (кнопка/панель переживут сбой сборки)");
+
 // ---- 17a3. Превью при наведении: previewMode перебивает cfg.mode/фон по проекту ----
 sandbox.cfg.mode = "0"; sandbox.previewMode = 3;
 ok(sandbox.activeIndex() === 3, "previewMode: активным считается примеряемый набор");

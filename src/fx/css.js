@@ -744,13 +744,35 @@ function buildCSS() {
 // (VS Code перестроил DOM). Иначе периодический heal() каждые 3 с — это дешёвая проверка
 // getElementById без пересборки ~5 КБ строки.
 var STYLE_ID = "moonlight-custom-bg";
-var _styleRev = 0, _appliedRev = -1;
+var _styleRev = 0, _appliedRev = -1, _buildErrLogged = false;
 function bumpStyle() { _styleRev++; }
-function ensureStyle() {
+// Безопасный минимум CSS, если основная сборка упала (обычно из-за сломанной ручной правки
+// исходника): только акцент-переменная и стили кнопки BG/фокуса. Кнопка остаётся видимой, а
+// панель — открываемой, где есть «Сбросить к дефолту» и диагностика, чтобы восстановиться,
+// а не остаться с наглухо сломанным редактором. Сам fallback тоже под try — если и он не
+// собрался, отдаём голую переменную акцента.
+function safeFallbackCSS() {
     try {
-        var el = document.getElementById(STYLE_ID);
+        var ac = safeColor((typeof getAccent === "function" ? getAccent() : null), DEFAULTS.accent);
+        return ":root { --mlbg-accent: " + ac + "; --mlbg-accent-rgb: " + accentRGB() + "; }\n" + switcherCSS();
+    } catch (e) { return ":root { --mlbg-accent: " + DEFAULTS.accent + "; }"; }
+}
+function ensureStyle() {
+    var el = null;
+    try {
+        el = document.getElementById(STYLE_ID);
         if (el && el.textContent && _appliedRev === _styleRev) return; // ничего не менялось, стиль на месте
-        var css = buildCSS();
+        var css;
+        try { css = buildCSS(); }
+        catch (buildErr) {
+            // Сборка CSS упала — не оставляем редактор без кнопки/панели: ставим безопасный
+            // минимум и ОДИН раз громко пишем в консоль (чтобы «копавшийся» увидел причину).
+            if (!_buildErrLogged) {
+                _buildErrLogged = true;
+                try { console.error("[MoonLight custom-bg] Сборка CSS упала — включён безопасный режим (видна только кнопка BG). Проверьте правки в src/ или откройте панель → Система → «Сбросить к дефолту».", buildErr); } catch (e2) {}
+            }
+            css = safeFallbackCSS();
+        }
         if (!el) { el = document.createElement("style"); el.id = STYLE_ID; document.head.appendChild(el); }
         if (el.textContent !== css) el.textContent = css;
         _appliedRev = _styleRev;
