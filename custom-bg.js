@@ -502,7 +502,13 @@
         } catch (e) {}
         return clone(DEFAULTS);
     }
-    function saveCfg() { try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {} }
+    function saveCfg() {
+        try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {}
+        // Единая точка сохранения конфига — здесь же отмечаем изменение для истории Undo/Redo
+        // (scheduleHistory определён в io.js; поднят по области IIFE). При старте (loadCfg) не
+        // зовётся, поэтому лишнего шага истории на загрузке нет.
+        try { scheduleHistory(); } catch (e) {}
+    }
 
     // ===== Резерв конфига (защита от неудачной замены) =====
     // Перед рискованным ПОЛНЫМ замещением cfg (импорт файла, сброс к дефолту, применение
@@ -2019,20 +2025,30 @@
         var idot = infoDot(info); if (idot) head.appendChild(idot);
         var body = el("div", "padding:6px 3px 2px;");
         body.style.display = collapsed ? "none" : "block";
-        head.addEventListener("mouseenter", function () { head.style.background = "rgba(var(--mlbg-accent-rgb),0.16)"; });
-        head.addEventListener("mouseleave", function () { head.style.background = "rgba(var(--mlbg-accent-rgb),0.08)"; });
-        head.addEventListener("click", function () {
-            var show = body.style.display === "none";
+        // Единая смена состояния секции (используется и кликом, и разворотом из поиска по панели).
+        function setOpen(show) {
             body.style.display = show ? "block" : "none";
             chev.style.transform = show ? "rotate(90deg)" : "rotate(0deg)";
             head.setAttribute("aria-expanded", show ? "true" : "false");
             if (!cfg.ui.collapsed) cfg.ui.collapsed = {};
             cfg.ui.collapsed[title] = !show; saveCfg();
-        });
+        }
+        head.addEventListener("mouseenter", function () { head.style.background = "rgba(var(--mlbg-accent-rgb),0.16)"; });
+        head.addEventListener("mouseleave", function () { head.style.background = "rgba(var(--mlbg-accent-rgb),0.08)"; });
+        head.addEventListener("click", function () { setOpen(body.style.display === "none"); });
         keyActivate(head, title);
         head.setAttribute("aria-expanded", collapsed ? "false" : "true");
         wrap.appendChild(head); wrap.appendChild(body);
         parent.appendChild(wrap);
+        // Регистрируем секцию для поиска по панели (panelSections живёт в panel.js и обнуляется
+        // в начале togglePanel). Храним, к какой вкладке-родителю секция принадлежит, её head для
+        // прокрутки/подсветки и expand() для разворота. typeof-страховка — collapsible может быть
+        // вызван и вне панели (тогда индекса просто нет).
+        try {
+            if (typeof panelSections !== "undefined" && panelSections && panelSections.push) {
+                panelSections.push({ title: title, parent: parent, head: head, expand: function () { setOpen(true); } });
+            }
+        } catch (e) {}
         return body;
     }
 
@@ -2282,6 +2298,69 @@
         return box;
     }
 
+    // ===== История изменений (Undo / Redo) =====
+    // Лёгкий сессионный стек снимков cfg (в памяти, не localStorage — это удобство сессии,
+    // как panelTab/fxFilter). Снимок делаем по «осевшему» изменению: любое сохранение конфига
+    // (saveCfg — единая точка и для apply, и для applyFade) дёргает scheduleHistory, а тот
+    // с небольшой задержкой фиксирует состояние. Дребезг слайдера при перетаскивании в историю
+    // не идёт (applyNoSave не сохраняет), поэтому одно движение ползунка = один шаг отмены.
+    // Авто-смены набора (слайдшоу / по времени) в историю НЕ пишутся: _histSuppress лишь
+    // сдвигает базовую точку, не создавая шага (иначе Undo откатывал бы тик слайдшоу).
+    var _histUndo = [], _histRedo = [], _histLast = null, _histTimer = 0, _histSuppress = 0;
+    var HIST_MAX = 50;
+    function _histNow() { try { return JSON.stringify(cfg); } catch (e) { return null; } }
+    function scheduleHistory() {
+        var snap = _histNow();
+        if (snap === null) return;
+        if (_histLast === null || _histSuppress) { _histLast = snap; return; } // база / авто-смена — без шага
+        if (_histTimer) { clearTimeout(_histTimer); _histTimer = 0; }
+        _histTimer = setTimeout(commitHistory, 450);
+    }
+    function commitHistory() {
+        _histTimer = 0;
+        var snap = _histNow();
+        if (snap === null || snap === _histLast) return; // ничего не изменилось с прошлой фиксации
+        _histUndo.push(_histLast);
+        if (_histUndo.length > HIST_MAX) _histUndo.shift();
+        _histRedo.length = 0; // новая ветка правок — «повторить» сбрасывается
+        _histLast = snap;
+    }
+    function canUndo() { return _histUndo.length > 0; }
+    function canRedo() { return _histRedo.length > 0; }
+    // Восстановить снимок: через ту же санитизацию, что и импорт (defense-in-depth), и подавляя
+    // запись собственного apply() в историю (иначе восстановление плодило бы новый шаг).
+    function _histApply(json) {
+        cfg = mergeCfg(safeParse(json));
+        _histLast = _histNow();
+        if (_histTimer) { clearTimeout(_histTimer); _histTimer = 0; }
+        _histSuppress++;
+        try { apply(); } finally { _histSuppress--; }
+        try { if (document.getElementById(PANEL_ID)) refreshPanel(); } catch (e) {}
+    }
+    function undo() {
+        if (_histTimer) commitHistory();          // зафиксировать «осевшее» изменение перед отменой
+        if (!_histUndo.length) { toast("Нечего отменять", false); return; }
+        _histRedo.push(_histLast);
+        _histApply(_histUndo.pop());
+        toast("Отменено");
+    }
+    function redo() {
+        if (!_histRedo.length) { toast("Нечего повторить", false); return; }
+        _histUndo.push(_histLast);
+        _histApply(_histRedo.pop());
+        toast("Повторено");
+    }
+    // Кнопки «Отменить / Повторить» для вкладки «Система». Всегда активны: если стек пуст,
+    // действие мягко сообщает тостом (проще, чем держать их вид в актуальном состоянии без
+    // пересборки панели на каждый шаг). Хоткеи — Ctrl+Alt+Z / Ctrl+Alt+Y (boot.js).
+    function makeHistoryUI() {
+        var row = el("div", "display:flex; gap:8px; margin-top:8px;");
+        var uB = makeIoBtn("↶ Отменить"); uB.addEventListener("click", function () { undo(); });
+        var rB = makeIoBtn("↷ Повторить"); rB.addEventListener("click", function () { redo(); });
+        row.appendChild(uB); row.appendChild(rB);
+        return row;
+    }
+
     // ===== Диагностика установки =====
     // Главная боль custom-css плагинов — «поставил, а фон не появился»: чаще всего не задан путь
     // к картинкам (перенос папки) либо не перезапущен VS Code. Собираем короткий отчёт о том, что
@@ -2347,6 +2426,11 @@
         keyActivate(b, text);
         return b;
     }
+
+    // Базовая точка истории = состояние на момент загрузки (cfg уже создан в config.js).
+    // Без этого первое же изменение стало бы «базой» и не попало бы в Undo. saveCfg на старте
+    // не вызывается, поэтому инициализируем явно здесь.
+    try { _histLast = JSON.stringify(cfg); } catch (e) {}
 
     // ===================== src/ui/statusbar.js =====================
     // ===== Кнопка статусбара =====
@@ -2418,6 +2502,10 @@
     // поле cfg: переживает refreshPanel (пересборку панели таймерами/действиями) в пределах
     // сессии, но не тянет за собой миграцию схемы конфига. Индекс валидируется при выборе.
     var panelTab = 0;
+    // Индекс секций для поиска по панели: collapsible() регистрирует сюда каждую свою секцию
+    // ({title, parent-вкладка, head, expand}). Обнуляется в начале togglePanel (панель строится
+    // заново), наполняется по мере создания секций, читается обработчиком поиска над баром вкладок.
+    var panelSections = [];
     // Состояние фильтра секции «Эффекты» (текст поиска + «только включённые»). Тоже модульное,
     // как panelTab: переживает refreshPanel в пределах сессии, поэтому фоновая пересборка панели
     // (слайдшоу/по времени) не сбрасывает набранный фильтр под руками пользователя.
@@ -2520,6 +2608,7 @@
         ev.stopPropagation();
         if (document.getElementById(PANEL_ID)) { closePanel(); return; }
 
+        panelSections = []; // индекс секций для поиска — заново под текущую сборку панели
         panelPrevFocus = document.activeElement; // куда вернуть фокус при закрытии
         var p = el("div", null);
         p.id = PANEL_ID;
@@ -2656,6 +2745,81 @@
             pane.hidden = (ti !== panelTab);
             tabPanes.push(pane);
         });
+        // ===== Поиск по панели (над баром вкладок) =====
+        // Быстрый переход к любой секции на любой вкладке: набери часть названия («терм», «пресет»,
+        // «виньет») — в выпадающем списке появятся совпадения (секции + отдельные эффекты). Выбор
+        // переключает вкладку, разворачивает секцию и подсвечивает её; для эффекта дополнительно
+        // проставляется фильтр внутри секции «Эффекты». Индекс — panelSections (наполняется ниже).
+        var searchWrap = el("div", "position:relative; margin:4px 0 2px;");
+        var searchInp = el("input", fieldStyle(" padding:5px 8px; font-size:11px;"));
+        searchInp.type = "text"; searchInp.placeholder = "Поиск настроек…"; searchInp.maxLength = 40;
+        searchInp.setAttribute("aria-label", "Поиск по панели настроек");
+        var searchRes = el("div",
+            "position:absolute; left:0; right:0; top:100%; z-index:6; margin-top:2px; max-height:240px; overflow-y:auto;" +
+            "background:var(--mlp-bg,rgba(24,24,37,0.99)); border:1px solid rgba(var(--mlbg-accent-rgb),0.35); border-radius:8px;" +
+            "box-shadow:0 10px 28px rgba(0,0,0,0.5);");
+        searchRes.hidden = true;
+        searchWrap.appendChild(searchInp); searchWrap.appendChild(searchRes);
+        function flashSection(head) {
+            try {
+                if (head.scrollIntoView) head.scrollIntoView({ block: "nearest" });
+                var prev = head.style.boxShadow;
+                head.style.boxShadow = "0 0 0 2px var(--mlbg-accent)";
+                setTimeout(function () { try { head.style.boxShadow = prev; } catch (e) {} }, 1200);
+            } catch (e) {}
+        }
+        function goSection(entry, fxTerm) {
+            var ti = tabPanes.indexOf(entry.parent);
+            if (ti >= 0) selectTab(ti);
+            try { entry.expand(); } catch (e) {}
+            searchRes.hidden = true; searchInp.value = "";
+            // Для эффекта — проставляем фильтр внутри секции «Эффекты» и пересобираем панель.
+            if (fxTerm) { fxFilterQ = fxTerm; fxOnlyOn = false; try { refreshPanel(); } catch (e) {} return; }
+            flashSection(entry.head);
+        }
+        function sectionByTitle(t) {
+            for (var si = 0; si < panelSections.length; si++) if (panelSections[si].title === t) return panelSections[si];
+            return null;
+        }
+        function runSearch() {
+            var q = (searchInp.value || "").trim().toLowerCase();
+            searchRes.textContent = "";
+            if (!q) { searchRes.hidden = true; return; }
+            var rows = [], seen = {};
+            panelSections.forEach(function (s) { // секции по названию
+                if (s.title.toLowerCase().indexOf(q) >= 0 && !seen["s:" + s.title]) {
+                    seen["s:" + s.title] = 1;
+                    var ti = tabPanes.indexOf(s.parent);
+                    rows.push({ label: s.title, sub: ti >= 0 ? TABS[ti] : "", act: (function (sec) { return function () { goSection(sec); }; })(s) });
+                }
+            });
+            var fxSec = sectionByTitle("Эффекты"); // отдельные эффекты -> секция «Эффекты» с фильтром
+            if (fxSec) FX_LIST.forEach(function (o) {
+                if (o[1].toLowerCase().indexOf(q) >= 0 && !seen["f:" + o[0]]) {
+                    seen["f:" + o[0]] = 1;
+                    rows.push({ label: "Эффект: " + o[1], sub: "Вид", act: (function (term) { return function () { goSection(fxSec, term); }; })(o[1].toLowerCase()) });
+                }
+            });
+            searchRes.hidden = false;
+            if (!rows.length) { searchRes.appendChild(el("div", "padding:7px 9px; font-size:11px; color:var(--mlp-faint,#6c7086);", "Ничего не найдено")); return; }
+            rows.slice(0, 10).forEach(function (r) {
+                var row = el("div", "display:flex; align-items:center; gap:8px; padding:6px 9px; cursor:pointer; font-size:11px;");
+                row.appendChild(el("span", "flex:1 1 auto; color:var(--mlp-fg,#cdd6f4);", r.label));
+                if (r.sub) row.appendChild(el("span", "flex:0 0 auto; font-size:10px; color:var(--mlbg-accent);", r.sub));
+                row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.14)"; });
+                row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
+                row.addEventListener("click", r.act);
+                keyActivate(row, r.label);
+                searchRes.appendChild(row);
+            });
+        }
+        searchInp.addEventListener("input", runSearch);
+        searchInp.addEventListener("keydown", function (e) {
+            if (e.key === "Escape" && searchInp.value) { e.stopPropagation(); searchInp.value = ""; searchRes.hidden = true; }
+            else if (e.key === "Enter") { var first = searchRes.firstChild; if (first && first.click) { e.preventDefault(); first.click(); } }
+        });
+        p.appendChild(searchWrap);
+
         p.appendChild(tabBar);
         tabPanes.forEach(function (pane) { p.appendChild(pane); });
         var tSet = tabPanes[0], tView = tabPanes[1], tTerm = tabPanes[2], tSys = tabPanes[3];
@@ -2732,7 +2896,9 @@
             ["Ctrl+Alt+.", "Следующий набор"],
             ["Ctrl+Alt+,", "Предыдущий набор"],
             ["Ctrl+Alt+0", "Фон и эффекты вкл / выкл"],
-            ["Ctrl+Alt+R", "Режим чтения вкл / выкл"]
+            ["Ctrl+Alt+R", "Режим чтения вкл / выкл"],
+            ["Ctrl+Alt+Z", "Отменить изменение вида"],
+            ["Ctrl+Alt+Y", "Повторить отменённое"]
         ].forEach(function (k) {
             var row = el("div", "display:flex; align-items:center; gap:8px; padding:2px 3px;");
             row.appendChild(el("kbd", "flex:0 0 92px; font-family:var(--vscode-editor-font-family,monospace); font-size:10px; text-align:center; padding:2px 4px; border-radius:5px; background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3); color:var(--mlbg-accent);", k[0]));
@@ -2760,6 +2926,11 @@
         var impB = makeIoBtn("Импорт"); impB.addEventListener("click", function () { importCfg(); });
         io.appendChild(expB); io.appendChild(impB);
         tSys.appendChild(io);
+
+        // История изменений вида (Undo / Redo) в пределах сессии. Отдельно от авто-резерва ниже:
+        // резерв — откат одной крупной замены (импорт/сброс/пресет), а история — пошаговая отмена
+        // правок панели. Хоткеи: Ctrl+Alt+Z / Ctrl+Alt+Y.
+        tSys.appendChild(makeHistoryUI());
 
         // Восстановление из авто-резерва: появляется, когда резерв есть (после импорта/сброса/
         // пресета). Возвращает конфиг, бывший до последней такой замены (можно нажать повторно).
@@ -3142,7 +3313,8 @@
         if (typeof want !== "number" || want < 0 || want >= SETS.length) return;
         var ws = String(want);
         if (cfg.mode === ws) return; // уже нужный набор
-        cfg.mode = ws; applyFade();
+        // Авто-смена по времени — не шаг истории Undo (сдвигаем базу через _histSuppress).
+        cfg.mode = ws; _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
         if (document.getElementById(PANEL_ID)) refreshPanel();
     }
 
@@ -3158,7 +3330,8 @@
         // повтора), а не превращаем mode в фиксированный. Иначе слайдшоу молча гасило random.
         if (cfg.mode === "random") sessionRandomIndex = pickRandom();
         else cfg.mode = String((activeIndex() + 1) % SETS.length); // следующий набор по кругу
-        applyFade();
+        // Тик слайдшоу — не шаг истории Undo (сдвигаем базу через _histSuppress).
+        _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
         preloadNext();                                          // подготовить следующий заранее
         if (document.getElementById(PANEL_ID)) refreshPanel(); // подсветить активный чип в открытой панели
     }
@@ -3250,6 +3423,8 @@
                 try { toast(cfg.fx.reading ? "Режим чтения включён" : "Режим чтения выключен"); } catch (er) {}
                 if (document.getElementById(PANEL_ID)) refreshPanel();
             }
+            else if (e.code === "KeyZ") { e.preventDefault(); try { undo(); } catch (er) {} } // отменить изменение вида
+            else if (e.code === "KeyY") { e.preventDefault(); try { redo(); } catch (er) {} } // повторить отменённое
         } catch (err) {}
     }
     document.addEventListener("keydown", onHotkey, true);

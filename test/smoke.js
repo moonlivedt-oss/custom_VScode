@@ -649,6 +649,12 @@ var panelThrew = null;
 try { sandbox.togglePanel({ stopPropagation: function () {} }); }
 catch (e) { panelThrew = e; }
 ok(panelThrew === null, "togglePanel: панель со вкладками строится без исключений" + (panelThrew ? " (" + panelThrew.message + ")" : ""));
+// Индекс поиска по панели: collapsible регистрирует секции в panelSections при сборке.
+ok(Array.isArray(sandbox.panelSections) && sandbox.panelSections.length >= 8,
+    "поиск: секции панели зарегистрированы в panelSections (" + (sandbox.panelSections ? sandbox.panelSections.length : "нет") + ")");
+var _secTitles = (sandbox.panelSections || []).map(function (s) { return s.title; });
+ok(_secTitles.indexOf("Эффекты") >= 0 && _secTitles.indexOf("Пресеты") >= 0 && _secTitles.indexOf("Диагностика") >= 0,
+    "поиск: индекс содержит ключевые секции (Эффекты / Пресеты / Диагностика)");
 // панель добавлена в body и это наш диалог (id === PANEL_ID)
 var builtPanel = null;
 for (var bi = 0; bi < sandbox.document.body.children.length; bi++) {
@@ -698,6 +704,31 @@ B.FILES.forEach(function (rel) {
 });
 ok(_backtickHits.length === 0, "build.js: в src/ нет backtick-литералов, сдвиг отступа безопасен" +
     (_backtickHits.length ? "  (найдено в: " + _backtickHits.join(", ") + ")" : ""));
+
+// ---- 18z. История Undo/Redo: шаг фиксируется, undo/redo восстанавливают снимки ----
+// commitHistory вызываем напрямую (в тесте не ждём дебаунс-таймер scheduleHistory).
+// Проверяем, что после правки есть что отменять, undo возвращает прежнее значение,
+// а redo — новое; и что авто-смена под _histSuppress не создаёт шага истории.
+sandbox.cfg = sandbox.mergeCfg({ mode: "0", accent: "#111111" });
+sandbox._histUndo.length = 0; sandbox._histRedo.length = 0;
+sandbox._histLast = JSON.stringify(sandbox.cfg);   // база = текущее состояние
+sandbox.cfg.accent = "#222222";                    // пользовательская правка
+sandbox.commitHistory();
+ok(sandbox.canUndo() === true, "история: после изменения появляется шаг отмены");
+sandbox.undo();
+ok(sandbox.cfg.accent === "#111111", "undo: акцент вернулся к прежнему (#111111)");
+ok(sandbox.canRedo() === true, "история: после undo доступно redo");
+sandbox.redo();
+ok(sandbox.cfg.accent === "#222222", "redo: акцент снова #222222");
+// Авто-смена (эмуляция слайдшоу): под _histSuppress шаг истории НЕ добавляется.
+var _uLen = sandbox._histUndo.length;
+sandbox._histSuppress++;
+sandbox.cfg.mode = "3"; sandbox.saveCfg();
+sandbox._histSuppress--;
+sandbox.commitHistory();
+ok(sandbox._histUndo.length === _uLen, "история: авто-смена под _histSuppress не создаёт шага отмены");
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" }); // вернуть дефолт для последующих тестов
+sandbox._histUndo.length = 0; sandbox._histRedo.length = 0; sandbox._histLast = JSON.stringify(sandbox.cfg);
 
 // ---- 18a. Диагностика установки: отчёт собирается и содержит ключевые поля ----
 // diagnostics() только читает состояние (ничего не меняет) и отдаёт { lines, ok, text }.

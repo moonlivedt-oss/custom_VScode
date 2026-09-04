@@ -78,6 +78,8 @@ function onHotkey(e) {
             try { toast(cfg.fx.reading ? "Режим чтения включён" : "Режим чтения выключен"); } catch (er) {}
             if (document.getElementById(PANEL_ID)) refreshPanel();
         }
+        else if (e.code === "KeyZ") { e.preventDefault(); try { undo(); } catch (er) {} } // отменить изменение вида
+        else if (e.code === "KeyY") { e.preventDefault(); try { redo(); } catch (er) {} } // повторить отменённое
     } catch (err) {}
 }
 document.addEventListener("keydown", onHotkey, true);

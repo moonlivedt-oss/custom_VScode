@@ -493,7 +493,13 @@ function loadCfg() {
     } catch (e) {}
     return clone(DEFAULTS);
 }
-function saveCfg() { try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {} }
+function saveCfg() {
+    try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {}
+    // Единая точка сохранения конфига — здесь же отмечаем изменение для истории Undo/Redo
+    // (scheduleHistory определён в io.js; поднят по области IIFE). При старте (loadCfg) не
+    // зовётся, поэтому лишнего шага истории на загрузке нет.
+    try { scheduleHistory(); } catch (e) {}
+}
 
 // ===== Резерв конфига (защита от неудачной замены) =====
 // Перед рискованным ПОЛНЫМ замещением cfg (импорт файла, сброс к дефолту, применение

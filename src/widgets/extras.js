@@ -282,7 +282,8 @@ function timeTick() {
     if (typeof want !== "number" || want < 0 || want >= SETS.length) return;
     var ws = String(want);
     if (cfg.mode === ws) return; // уже нужный набор
-    cfg.mode = ws; applyFade();
+    // Авто-смена по времени — не шаг истории Undo (сдвигаем базу через _histSuppress).
+    cfg.mode = ws; _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
     if (document.getElementById(PANEL_ID)) refreshPanel();
 }
 
@@ -298,7 +299,8 @@ function slideTick() {
     // повтора), а не превращаем mode в фиксированный. Иначе слайдшоу молча гасило random.
     if (cfg.mode === "random") sessionRandomIndex = pickRandom();
     else cfg.mode = String((activeIndex() + 1) % SETS.length); // следующий набор по кругу
-    applyFade();
+    // Тик слайдшоу — не шаг истории Undo (сдвигаем базу через _histSuppress).
+    _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
     preloadNext();                                          // подготовить следующий заранее
     if (document.getElementById(PANEL_ID)) refreshPanel(); // подсветить активный чип в открытой панели
 }

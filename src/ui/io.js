@@ -243,6 +243,69 @@ function makeShareUI() {
     return box;
 }
 
+// ===== История изменений (Undo / Redo) =====
+// Лёгкий сессионный стек снимков cfg (в памяти, не localStorage — это удобство сессии,
+// как panelTab/fxFilter). Снимок делаем по «осевшему» изменению: любое сохранение конфига
+// (saveCfg — единая точка и для apply, и для applyFade) дёргает scheduleHistory, а тот
+// с небольшой задержкой фиксирует состояние. Дребезг слайдера при перетаскивании в историю
+// не идёт (applyNoSave не сохраняет), поэтому одно движение ползунка = один шаг отмены.
+// Авто-смены набора (слайдшоу / по времени) в историю НЕ пишутся: _histSuppress лишь
+// сдвигает базовую точку, не создавая шага (иначе Undo откатывал бы тик слайдшоу).
+var _histUndo = [], _histRedo = [], _histLast = null, _histTimer = 0, _histSuppress = 0;
+var HIST_MAX = 50;
+function _histNow() { try { return JSON.stringify(cfg); } catch (e) { return null; } }
+function scheduleHistory() {
+    var snap = _histNow();
+    if (snap === null) return;
+    if (_histLast === null || _histSuppress) { _histLast = snap; return; } // база / авто-смена — без шага
+    if (_histTimer) { clearTimeout(_histTimer); _histTimer = 0; }
+    _histTimer = setTimeout(commitHistory, 450);
+}
+function commitHistory() {
+    _histTimer = 0;
+    var snap = _histNow();
+    if (snap === null || snap === _histLast) return; // ничего не изменилось с прошлой фиксации
+    _histUndo.push(_histLast);
+    if (_histUndo.length > HIST_MAX) _histUndo.shift();
+    _histRedo.length = 0; // новая ветка правок — «повторить» сбрасывается
+    _histLast = snap;
+}
+function canUndo() { return _histUndo.length > 0; }
+function canRedo() { return _histRedo.length > 0; }
+// Восстановить снимок: через ту же санитизацию, что и импорт (defense-in-depth), и подавляя
+// запись собственного apply() в историю (иначе восстановление плодило бы новый шаг).
+function _histApply(json) {
+    cfg = mergeCfg(safeParse(json));
+    _histLast = _histNow();
+    if (_histTimer) { clearTimeout(_histTimer); _histTimer = 0; }
+    _histSuppress++;
+    try { apply(); } finally { _histSuppress--; }
+    try { if (document.getElementById(PANEL_ID)) refreshPanel(); } catch (e) {}
+}
+function undo() {
+    if (_histTimer) commitHistory();          // зафиксировать «осевшее» изменение перед отменой
+    if (!_histUndo.length) { toast("Нечего отменять", false); return; }
+    _histRedo.push(_histLast);
+    _histApply(_histUndo.pop());
+    toast("Отменено");
+}
+function redo() {
+    if (!_histRedo.length) { toast("Нечего повторить", false); return; }
+    _histUndo.push(_histLast);
+    _histApply(_histRedo.pop());
+    toast("Повторено");
+}
+// Кнопки «Отменить / Повторить» для вкладки «Система». Всегда активны: если стек пуст,
+// действие мягко сообщает тостом (проще, чем держать их вид в актуальном состоянии без
+// пересборки панели на каждый шаг). Хоткеи — Ctrl+Alt+Z / Ctrl+Alt+Y (boot.js).
+function makeHistoryUI() {
+    var row = el("div", "display:flex; gap:8px; margin-top:8px;");
+    var uB = makeIoBtn("↶ Отменить"); uB.addEventListener("click", function () { undo(); });
+    var rB = makeIoBtn("↷ Повторить"); rB.addEventListener("click", function () { redo(); });
+    row.appendChild(uB); row.appendChild(rB);
+    return row;
+}
+
 // ===== Диагностика установки =====
 // Главная боль custom-css плагинов — «поставил, а фон не появился»: чаще всего не задан путь
 // к картинкам (перенос папки) либо не перезапущен VS Code. Собираем короткий отчёт о том, что
@@ -308,3 +371,8 @@ function makeIoBtn(text) {
     keyActivate(b, text);
     return b;
 }
+
+// Базовая точка истории = состояние на момент загрузки (cfg уже создан в config.js).
+// Без этого первое же изменение стало бы «базой» и не попало бы в Undo. saveCfg на старте
+// не вызывается, поэтому инициализируем явно здесь.
+try { _histLast = JSON.stringify(cfg); } catch (e) {}

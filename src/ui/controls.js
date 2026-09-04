@@ -550,19 +550,29 @@ function collapsible(parent, title, info) {
     var idot = infoDot(info); if (idot) head.appendChild(idot);
     var body = el("div", "padding:6px 3px 2px;");
     body.style.display = collapsed ? "none" : "block";
-    head.addEventListener("mouseenter", function () { head.style.background = "rgba(var(--mlbg-accent-rgb),0.16)"; });
-    head.addEventListener("mouseleave", function () { head.style.background = "rgba(var(--mlbg-accent-rgb),0.08)"; });
-    head.addEventListener("click", function () {
-        var show = body.style.display === "none";
+    // Единая смена состояния секции (используется и кликом, и разворотом из поиска по панели).
+    function setOpen(show) {
         body.style.display = show ? "block" : "none";
         chev.style.transform = show ? "rotate(90deg)" : "rotate(0deg)";
         head.setAttribute("aria-expanded", show ? "true" : "false");
         if (!cfg.ui.collapsed) cfg.ui.collapsed = {};
         cfg.ui.collapsed[title] = !show; saveCfg();
-    });
+    }
+    head.addEventListener("mouseenter", function () { head.style.background = "rgba(var(--mlbg-accent-rgb),0.16)"; });
+    head.addEventListener("mouseleave", function () { head.style.background = "rgba(var(--mlbg-accent-rgb),0.08)"; });
+    head.addEventListener("click", function () { setOpen(body.style.display === "none"); });
     keyActivate(head, title);
     head.setAttribute("aria-expanded", collapsed ? "false" : "true");
     wrap.appendChild(head); wrap.appendChild(body);
     parent.appendChild(wrap);
+    // Регистрируем секцию для поиска по панели (panelSections живёт в panel.js и обнуляется
+    // в начале togglePanel). Храним, к какой вкладке-родителю секция принадлежит, её head для
+    // прокрутки/подсветки и expand() для разворота. typeof-страховка — collapsible может быть
+    // вызван и вне панели (тогда индекса просто нет).
+    try {
+        if (typeof panelSections !== "undefined" && panelSections && panelSections.push) {
+            panelSections.push({ title: title, parent: parent, head: head, expand: function () { setOpen(true); } });
+        }
+    } catch (e) {}
     return body;
 }
