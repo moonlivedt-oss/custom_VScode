@@ -81,9 +81,24 @@ function partCount() {
     return typeof n === "number" && isFinite(n) ? Math.round(n) : 40;
 }
 function resizeParticles() { if (part.canvas) { part.canvas.width = window.innerWidth; part.canvas.height = window.innerHeight; } }
-// Стиль частиц (санитизированный). Падают сверху вниз: снег, сакура, дождь, конфетти;
-// остальные (точки, звёзды, пузыри, светлячки) всплывают снизу вверх.
-function partStyleNow() { return safePartStyle(cfg.partStyle); }
+// Сезонный авто-стиль: если выбран "seasonal", форма подбирается по месяцу — зима (дек/янв/фев)
+// снег, весна (мар/апр/май) сакура, лето (июн/июл/авг) светлячки, осень (сен/окт/ноя) дождь.
+// Возвращает ВСЕГДА конкретный стиль из белого списка (никогда "seasonal"), поэтому вся
+// отрисовка (partFalls/loopParticles) работает с ним как с обычным стилем.
+function seasonStyle() {
+    var m; try { m = new Date().getMonth(); } catch (e) { m = 0; } // 0..11
+    if (m === 11 || m === 0 || m === 1) return "snow";
+    if (m >= 2 && m <= 4) return "sakura";
+    if (m >= 5 && m <= 7) return "firefly";
+    return "rain"; // 8..10 — осень
+}
+// Стиль частиц (санитизированный). "seasonal" разворачивается в сезонный стиль. Падают
+// сверху вниз: снег, сакура, дождь, конфетти; остальные (точки, звёзды, пузыри, светлячки)
+// всплывают снизу вверх.
+function partStyleNow() {
+    var s = safePartStyle(cfg.partStyle);
+    return s === "seasonal" ? seasonStyle() : s;
+}
 function partFalls() {
     var s = partStyleNow();
     return s === "snow" || s === "sakura" || s === "rain" || s === "confetti";

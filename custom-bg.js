@@ -81,6 +81,10 @@
     // CFG_VERSION — версия схемы конфига. Растёт, когда меняется структура DEFAULTS так,
     // что старый сохранённый конфиг нужно осознанно доработать (см. migrateCfg).
     var CFG_VERSION = 1;
+    // APP_VERSION — отображаемая версия релиза (единый номер v14, v15, …), она же в package.json.
+    // Держим здесь одной строкой, чтобы баннер в консоли (boot.js) и диагностика (io.js) брали
+    // её из одного места, а не хардкодили порознь. При релизе меняется тут + в package.json.
+    var APP_VERSION = "v18";
     var DEFAULTS = {
         version: CFG_VERSION,
         enabled: true,                                      // мастер-выключатель: false — фон и эффекты выключены, настройки сохранены
@@ -184,9 +188,11 @@
     // snow — падающие светлые снежинки; sakura — падающие лепестки (цвет акцента); bubbles — контуры-пузыри;
     // firefly — всплывающие «светлячки» с пульсацией яркости; rain — падающие полосы-струи;
     // confetti — падающие вращающиеся прямоугольники в трёх цветах палитры (acc + два спутника).
+    // seasonal — не отдельная форма, а АВТО-выбор по времени года: зима — снег, весна — сакура,
+    // лето — светлячки, осень — дождь (разрешается в конкретный стиль в seasonStyle/partStyleNow).
     var PART_STYLES = [
         ["dots", "Точки"], ["stars", "Звёзды"], ["snow", "Снег"], ["sakura", "Сакура"], ["bubbles", "Пузыри"],
-        ["firefly", "Светлячки"], ["rain", "Дождь"], ["confetti", "Конфетти"]
+        ["firefly", "Светлячки"], ["rain", "Дождь"], ["confetti", "Конфетти"], ["seasonal", "Сезон (авто)"]
     ];
     function safePartStyle(s) {
         for (var i = 0; i < PART_STYLES.length; i++) if (PART_STYLES[i][0] === s) return s;
@@ -1413,7 +1419,7 @@
         fx_aurora: "«Полярное сияние»: за кодом медленно дрейфует размытый градиент из палитры набора (акцент и два его спутника). Лежит под текстом — читаемости не мешает. Скорость — ползунком «Aurora сек». Отключается системной настройкой «уменьшить движение».",
         fx_spotlight: "Экран мягко затемняется по краям, а вокруг курсора остаётся светлое «окно» — взгляд держится на месте правки. Радиус окна — ползунком «Спот радиус». Затемнение следует за мышью.",
         fx_typingPulse: "Пока печатаешь, активная вкладка мягко пульсирует акцентным свечением; на паузе — затихает. Отключается системной настройкой «уменьшить движение».",
-        part_style: "Форма летящих частиц: точки, звёзды-искры, снег, лепестки сакуры, контуры-пузыри, светлячки (пульсируют яркостью), дождь (струи) или конфетти (цветные прямоугольники). Снег, сакура, дождь и конфетти падают сверху вниз, остальные всплывают снизу вверх.",
+        part_style: "Форма летящих частиц: точки, звёзды-искры, снег, лепестки сакуры, контуры-пузыри, светлячки (пульсируют яркостью), дождь (струи) или конфетти (цветные прямоугольники). Снег, сакура, дождь и конфетти падают сверху вниз, остальные всплывают снизу вверх. «Сезон (авто)» сам подбирает форму по времени года: зима — снег, весна — сакура, лето — светлячки, осень — дождь.",
         term_font: "Шрифт терминала. В списке — совместимые по ширине Nerd-шрифты, чтобы не разъезжались колонки и сохранялись иконки oh-my-posh.",
         term_ligatures: "Слитное начертание пар символов (->, =>, != и т.п.).",
         term_cursorGlow: "Ореол-свечение вокруг курсора терминала.",
@@ -2276,6 +2282,63 @@
         return box;
     }
 
+    // ===== Диагностика установки =====
+    // Главная боль custom-css плагинов — «поставил, а фон не появился»: чаще всего не задан путь
+    // к картинкам (перенос папки) либо не перезапущен VS Code. Собираем короткий отчёт о том, что
+    // плагин видит о себе: версия, тема, активный набор, папка картинок, загрузились ли картинки
+    // активного набора, найден ли наш <style> и кнопка BG. Ничего не меняет — только читает
+    // состояние. Возвращает { lines, ok, text }: ok=false, если есть явная проблема.
+    function _zoneDiag(idx, zone) {
+        if (isGrad(idx, zone)) return { s: "градиент (без картинки)", bad: false };
+        var url = zoneUrl(idx, zone);
+        if (!url) return { s: "путь не задан", bad: false }; // зона без своей картинки — это не ошибка
+        var st = probeImage(url);
+        if (!st.resolved) return { s: "загружается…", bad: false };
+        return st.ok ? { s: "загружена", bad: false } : { s: "НЕ загружена (проверь путь)", bad: true };
+    }
+    function diagnostics() {
+        var idx = activeIndex(), lines = [], bad = 0;
+        function add(k, v) { lines.push(k + ": " + v); }
+        add("Версия", APP_VERSION + " (схема конфига v" + CFG_VERSION + ")");
+        add("Тема", themeKind());
+        add("Фон включён", cfg.enabled ? "да" : "нет (мастер-выключатель)");
+        add("Активный набор", idx + " · " + (setName(idx) || "?") + (isGradSet(idx) ? " (градиент)" : " (фото)"));
+        var base = imgBase();
+        add("Папка картинок", (base || "(путь не определён)") + (cfg.imgBase ? "  [задана вручную]" : "  [авто]"));
+        add("Сетевые картинки", cfg.allowRemoteImages ? "разрешены" : "выключены");
+        var styleFound = !!document.getElementById(STYLE_ID);
+        add("Стиль в DOM", styleFound ? "найден (custom-css активен)" : "НЕ найден");
+        if (!styleFound) bad++;
+        add("Кнопка BG", document.getElementById(SB_ID) ? "найдена" : "нет (статусбар ещё не готов?)");
+        ["editor", "sidebar", "panel"].forEach(function (z, i) {
+            var r = _zoneDiag(idx, z);
+            if (r.bad) bad++;
+            add("Картинка · " + ["редактор", "сайдбар", "панель"][i], r.s);
+        });
+        add("Всего наборов", SETS.length + "");
+        // Подсказка, если картинки набора не грузятся — почти всегда виноват путь.
+        if (bad && styleFound) lines.push("", "Похоже, картинки набора не находятся. Проверь «Папка плагина» ниже: путь должен вести к папке с assets/. После правки фон появляется сразу.");
+        return { lines: lines, ok: bad === 0, text: "MoonLight custom-bg — диагностика\n" + lines.join("\n") };
+    }
+    // UI секции «Диагностика»: кнопка «Проверить» заполняет блок-отчёт и копирует его в буфер
+    // (удобно вложить в issue). Отчёт остаётся на экране, чтобы прочитать без буфера обмена.
+    function makeDiagnosticsUI() {
+        var box = el("div", null);
+        var out = el("pre", "margin:6px 0 0; padding:8px 9px; border-radius:8px; white-space:pre-wrap; word-break:break-word; font-family:var(--vscode-editor-font-family,monospace); font-size:10.5px; line-height:1.5; color:var(--mlp-muted,#a6adc8); background:rgba(var(--mlbg-accent-rgb),0.06); border:1px solid var(--mlp-border-faint,rgba(205,214,244,0.12)); max-height:220px; overflow:auto;");
+        out.hidden = true;
+        out.setAttribute("role", "status"); out.setAttribute("aria-live", "polite"); out.tabIndex = 0;
+        var runB = makeIoBtn("Проверить установку");
+        runB.addEventListener("click", function () {
+            var d = diagnostics();
+            out.textContent = d.text; out.hidden = false;
+            var copied = copyText(d.text);
+            toast(d.ok ? (copied ? "Всё в порядке · отчёт скопирован" : "Всё в порядке")
+                       : "Есть проблемы · отчёт скопирован для issue", d.ok);
+        });
+        box.appendChild(runB); box.appendChild(out);
+        return box;
+    }
+
     // Кнопка экспорта/импорта (одинаковый вид, разный обработчик навешивается снаружи).
     function makeIoBtn(text) {
         var b = el("div", "flex:1 1 0; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", text);
@@ -2655,6 +2718,12 @@
         secTerm.appendChild(makeTermColor("selColor", "Выделение"));
 
         // ===== Вкладка «Система»: служебное (переносимость, сохранённые образы, данные) =====
+        // Диагностика установки — первой: если фон «не появился», сюда заглядывают в первую
+        // очередь. Кнопка собирает отчёт (версия, тема, набор, пути картинок, найден ли стиль)
+        // и копирует его в буфер — удобно приложить к issue. Ничего не меняет.
+        var secDiag = collapsible(tSys, "Диагностика", "Проверка установки: что плагин видит о себе (версия, тема, набор, папка и загрузка картинок, активен ли custom-css). Отчёт копируется в буфер для issue. Загляни сюда, если фон не появился.");
+        secDiag.appendChild(makeDiagnosticsUI());
+
         // Горячие клавиши: сами хоткеи заданы в boot.js (onHotkey) — здесь только напоминание,
         // чтобы их можно было узнать, не заглядывая в код/README. Свёрнуто по умолчанию.
         var secKeys = collapsible(tSys, "Горячие клавиши", "Быстрые действия без открытия панели. Работают на любой раскладке (RU/EN).");
@@ -2872,9 +2941,24 @@
         return typeof n === "number" && isFinite(n) ? Math.round(n) : 40;
     }
     function resizeParticles() { if (part.canvas) { part.canvas.width = window.innerWidth; part.canvas.height = window.innerHeight; } }
-    // Стиль частиц (санитизированный). Падают сверху вниз: снег, сакура, дождь, конфетти;
-    // остальные (точки, звёзды, пузыри, светлячки) всплывают снизу вверх.
-    function partStyleNow() { return safePartStyle(cfg.partStyle); }
+    // Сезонный авто-стиль: если выбран "seasonal", форма подбирается по месяцу — зима (дек/янв/фев)
+    // снег, весна (мар/апр/май) сакура, лето (июн/июл/авг) светлячки, осень (сен/окт/ноя) дождь.
+    // Возвращает ВСЕГДА конкретный стиль из белого списка (никогда "seasonal"), поэтому вся
+    // отрисовка (partFalls/loopParticles) работает с ним как с обычным стилем.
+    function seasonStyle() {
+        var m; try { m = new Date().getMonth(); } catch (e) { m = 0; } // 0..11
+        if (m === 11 || m === 0 || m === 1) return "snow";
+        if (m >= 2 && m <= 4) return "sakura";
+        if (m >= 5 && m <= 7) return "firefly";
+        return "rain"; // 8..10 — осень
+    }
+    // Стиль частиц (санитизированный). "seasonal" разворачивается в сезонный стиль. Падают
+    // сверху вниз: снег, сакура, дождь, конфетти; остальные (точки, звёзды, пузыри, светлячки)
+    // всплывают снизу вверх.
+    function partStyleNow() {
+        var s = safePartStyle(cfg.partStyle);
+        return s === "seasonal" ? seasonStyle() : s;
+    }
     function partFalls() {
         var s = partStyleNow();
         return s === "snow" || s === "sakura" || s === "rain" || s === "confetti";
@@ -3294,6 +3378,6 @@
     } catch (e) {}
     heal();
 
-    console.log("[MoonLight custom-bg] v18 installed (tabbed panel: Набор/Вид/Терминал/Система; v18 fx: aurora living background, cursor spotlight, typing pulse + particle styles firefly/rain/confetti + particle perf: in-place recycle, no per-particle save/restore for round styles), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "particles:", cfg.partStyle, "theme:", themeKind());
+    console.log("[MoonLight custom-bg] " + APP_VERSION + " installed (tabbed panel: Набор/Вид/Терминал/Система; v18 fx: aurora living background, cursor spotlight, typing pulse + particle styles firefly/rain/confetti + particle perf: in-place recycle, no per-particle save/restore for round styles), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "particles:", cfg.partStyle, "theme:", themeKind());
 
 })();

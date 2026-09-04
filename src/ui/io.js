@@ -243,6 +243,63 @@ function makeShareUI() {
     return box;
 }
 
+// ===== Диагностика установки =====
+// Главная боль custom-css плагинов — «поставил, а фон не появился»: чаще всего не задан путь
+// к картинкам (перенос папки) либо не перезапущен VS Code. Собираем короткий отчёт о том, что
+// плагин видит о себе: версия, тема, активный набор, папка картинок, загрузились ли картинки
+// активного набора, найден ли наш <style> и кнопка BG. Ничего не меняет — только читает
+// состояние. Возвращает { lines, ok, text }: ok=false, если есть явная проблема.
+function _zoneDiag(idx, zone) {
+    if (isGrad(idx, zone)) return { s: "градиент (без картинки)", bad: false };
+    var url = zoneUrl(idx, zone);
+    if (!url) return { s: "путь не задан", bad: false }; // зона без своей картинки — это не ошибка
+    var st = probeImage(url);
+    if (!st.resolved) return { s: "загружается…", bad: false };
+    return st.ok ? { s: "загружена", bad: false } : { s: "НЕ загружена (проверь путь)", bad: true };
+}
+function diagnostics() {
+    var idx = activeIndex(), lines = [], bad = 0;
+    function add(k, v) { lines.push(k + ": " + v); }
+    add("Версия", APP_VERSION + " (схема конфига v" + CFG_VERSION + ")");
+    add("Тема", themeKind());
+    add("Фон включён", cfg.enabled ? "да" : "нет (мастер-выключатель)");
+    add("Активный набор", idx + " · " + (setName(idx) || "?") + (isGradSet(idx) ? " (градиент)" : " (фото)"));
+    var base = imgBase();
+    add("Папка картинок", (base || "(путь не определён)") + (cfg.imgBase ? "  [задана вручную]" : "  [авто]"));
+    add("Сетевые картинки", cfg.allowRemoteImages ? "разрешены" : "выключены");
+    var styleFound = !!document.getElementById(STYLE_ID);
+    add("Стиль в DOM", styleFound ? "найден (custom-css активен)" : "НЕ найден");
+    if (!styleFound) bad++;
+    add("Кнопка BG", document.getElementById(SB_ID) ? "найдена" : "нет (статусбар ещё не готов?)");
+    ["editor", "sidebar", "panel"].forEach(function (z, i) {
+        var r = _zoneDiag(idx, z);
+        if (r.bad) bad++;
+        add("Картинка · " + ["редактор", "сайдбар", "панель"][i], r.s);
+    });
+    add("Всего наборов", SETS.length + "");
+    // Подсказка, если картинки набора не грузятся — почти всегда виноват путь.
+    if (bad && styleFound) lines.push("", "Похоже, картинки набора не находятся. Проверь «Папка плагина» ниже: путь должен вести к папке с assets/. После правки фон появляется сразу.");
+    return { lines: lines, ok: bad === 0, text: "MoonLight custom-bg — диагностика\n" + lines.join("\n") };
+}
+// UI секции «Диагностика»: кнопка «Проверить» заполняет блок-отчёт и копирует его в буфер
+// (удобно вложить в issue). Отчёт остаётся на экране, чтобы прочитать без буфера обмена.
+function makeDiagnosticsUI() {
+    var box = el("div", null);
+    var out = el("pre", "margin:6px 0 0; padding:8px 9px; border-radius:8px; white-space:pre-wrap; word-break:break-word; font-family:var(--vscode-editor-font-family,monospace); font-size:10.5px; line-height:1.5; color:var(--mlp-muted,#a6adc8); background:rgba(var(--mlbg-accent-rgb),0.06); border:1px solid var(--mlp-border-faint,rgba(205,214,244,0.12)); max-height:220px; overflow:auto;");
+    out.hidden = true;
+    out.setAttribute("role", "status"); out.setAttribute("aria-live", "polite"); out.tabIndex = 0;
+    var runB = makeIoBtn("Проверить установку");
+    runB.addEventListener("click", function () {
+        var d = diagnostics();
+        out.textContent = d.text; out.hidden = false;
+        var copied = copyText(d.text);
+        toast(d.ok ? (copied ? "Всё в порядке · отчёт скопирован" : "Всё в порядке")
+                   : "Есть проблемы · отчёт скопирован для issue", d.ok);
+    });
+    box.appendChild(runB); box.appendChild(out);
+    return box;
+}
+
 // Кнопка экспорта/импорта (одинаковый вид, разный обработчик навешивается снаружи).
 function makeIoBtn(text) {
     var b = el("div", "flex:1 1 0; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", text);

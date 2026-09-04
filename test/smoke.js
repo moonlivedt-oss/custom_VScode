@@ -589,9 +589,20 @@ ok(sandbox.mergeCfg({ partStyle: "snow" }).partStyle === "snow" &&
     sandbox.mergeCfg({ partStyle: "zzz" }).partStyle === "dots" &&
     sandbox.mergeCfg({}).partStyle === "dots",
     "mergeCfg: partStyle санитизируется (известный проходит, мусор/пусто -> dots)");
-ok(sandbox.PART_STYLES.length === 8, "PART_STYLES: 8 стилей частиц (точки/звёзды/снег/сакура/пузыри/светлячки/дождь/конфетти)");
+ok(sandbox.PART_STYLES.length === 9, "PART_STYLES: 9 стилей частиц (8 форм + «Сезон (авто)»)");
 ok(sandbox.safePartStyle("firefly") === "firefly" && sandbox.safePartStyle("rain") === "rain" &&
     sandbox.safePartStyle("confetti") === "confetti", "safePartStyle: новые стили (светлячки/дождь/конфетти) проходят белый список");
+// «Сезон (авто)»: хранится как "seasonal", но partStyleNow разворачивает его в конкретную
+// форму по месяцу (никогда не отдаёт "seasonal" в отрисовку). seasonStyle сам возвращает
+// один из четырёх сезонных стилей, и он обязан быть в белом списке PART_STYLES.
+ok(sandbox.safePartStyle("seasonal") === "seasonal", "safePartStyle: «seasonal» проходит белый список (это выбираемая опция)");
+var _seasonPart = ["snow", "sakura", "firefly", "rain"];
+ok(_seasonPart.indexOf(sandbox.seasonStyle()) >= 0, "seasonStyle: возвращает сезонный стиль (снег/сакура/светлячки/дождь)");
+var _savedPart = sandbox.cfg.partStyle;
+sandbox.cfg.partStyle = "seasonal";
+ok(sandbox.partStyleNow() === sandbox.seasonStyle() && sandbox.partStyleNow() !== "seasonal",
+    "partStyleNow: «seasonal» разворачивается в конкретный сезонный стиль, а не отдаёт «seasonal»");
+sandbox.cfg.partStyle = _savedPart;
 sandbox.cfg.partStyle = "snow";
 ok(sandbox.partFalls() === true, "partFalls: снег падает (сверху вниз)");
 sandbox.cfg.partStyle = "rain";
@@ -617,7 +628,7 @@ try {
         sandbox.loopParticles();   // один кадр отрисовки всех частиц этого стиля
     });
 } catch (e) { drawThrew = e; }
-ok(drawThrew === null, "loopParticles: все 8 стилей частиц рисуются без исключений" +
+ok(drawThrew === null, "loopParticles: все стили частиц (включая «Сезон») рисуются без исключений" +
     (drawThrew ? " (стиль " + drawStyle + ": " + drawThrew.message + ")" : ""));
 sandbox.cfg.partStyle = "dots";
 
@@ -687,6 +698,55 @@ B.FILES.forEach(function (rel) {
 });
 ok(_backtickHits.length === 0, "build.js: в src/ нет backtick-литералов, сдвиг отступа безопасен" +
     (_backtickHits.length ? "  (найдено в: " + _backtickHits.join(", ") + ")" : ""));
+
+// ---- 18a. Диагностика установки: отчёт собирается и содержит ключевые поля ----
+// diagnostics() только читает состояние (ничего не меняет) и отдаёт { lines, ok, text }.
+// Проверяем, что отчёт непустой, содержит опорные поля и булев флаг ok, и не бросает.
+var _diagThrew = null, diag = null;
+try { diag = sandbox.diagnostics(); } catch (e) { _diagThrew = e; }
+ok(_diagThrew === null && diag && typeof diag.text === "string" &&
+    diag.text.indexOf("диагностика") >= 0 && diag.text.indexOf("Версия") >= 0 &&
+    diag.text.indexOf("Всего наборов") >= 0 && typeof diag.ok === "boolean" && Array.isArray(diag.lines),
+    "diagnostics: собирает отчёт (версия/набор/итог + флаг ok), не бросает");
+
+// ---- 19. Линтер инвариантов конфига (рассинхрон таблиц UI и DEFAULTS) ----
+// Тумблеры/слайдеры/стили частиц описаны ДВАЖДЫ: раз в таблице для UI (FX_LIST / PARAMS /
+// PART_STYLES) и раз в дефолтах (DEFAULTS.fx / DEFAULTS.fxp / DEFAULTS.partStyle). Легко
+// добавить эффект в один список и забыть про другой — тогда тумблер либо не имеет дефолта
+// (читается undefined), либо дефолт есть, но контрола в панели нет. Эти проверки ловят
+// расхождение сразу при добавлении, а не по «странному поведению» уже в редакторе.
+var fxListKeys = sandbox.FX_LIST.map(function (o) { return o[0]; });
+var fxDefKeys = Object.keys(sandbox.DEFAULTS.fx);
+var fxNoDefault = fxListKeys.filter(function (k) { return typeof sandbox.DEFAULTS.fx[k] !== "boolean"; });
+ok(fxNoDefault.length === 0, "линтер: у каждого эффекта из FX_LIST есть булев дефолт в DEFAULTS.fx" +
+    (fxNoDefault.length ? "  (без дефолта: " + fxNoDefault.join(", ") + ")" : ""));
+var fxNoControl = fxDefKeys.filter(function (k) { return fxListKeys.indexOf(k) < 0; });
+ok(fxNoControl.length === 0, "линтер: у каждого дефолта DEFAULTS.fx есть тумблер в FX_LIST" +
+    (fxNoControl.length ? "  (без контрола: " + fxNoControl.join(", ") + ")" : ""));
+
+var paramKeys = sandbox.PARAMS.map(function (o) { return o[0]; });
+var fxpDefKeys = Object.keys(sandbox.DEFAULTS.fxp);
+var pNoDefault = paramKeys.filter(function (k) { return typeof sandbox.DEFAULTS.fxp[k] !== "number"; });
+ok(pNoDefault.length === 0, "линтер: у каждого слайдера PARAMS есть числовой дефолт в DEFAULTS.fxp" +
+    (pNoDefault.length ? "  (без дефолта: " + pNoDefault.join(", ") + ")" : ""));
+var pNoControl = fxpDefKeys.filter(function (k) { return paramKeys.indexOf(k) < 0; });
+ok(pNoControl.length === 0, "линтер: у каждого дефолта DEFAULTS.fxp есть слайдер в PARAMS" +
+    (pNoControl.length ? "  (без контрола: " + pNoControl.join(", ") + ")" : ""));
+
+// Каждая пара PARAMS корректна: min < max, step > 0, число знаков — целое >= 0, а дефолт
+// из DEFAULTS.fxp попадает в диапазон (иначе clampNum молча его подрежет при первом заходе).
+var badParam = sandbox.PARAMS.filter(function (o) {
+    var min = o[2], max = o[3], step = o[4], dec = o[5], def = sandbox.DEFAULTS.fxp[o[0]];
+    return !(min < max) || !(step > 0) || !(dec >= 0 && dec === Math.round(dec)) || def < min || def > max;
+});
+ok(badParam.length === 0, "линтер: у слайдеров PARAMS корректны min<max, step>0, знаки>=0 и дефолт в диапазоне" +
+    (badParam.length ? "  (проблемные: " + badParam.map(function (o) { return o[0]; }).join(", ") + ")" : ""));
+
+// Дефолтный стиль частиц обязан быть в белом списке PART_STYLES — иначе safePartStyle
+// молча вернёт "dots", а сохранённый выбор пользователя выглядел бы «сбрасывающимся».
+var partKeys = sandbox.PART_STYLES.map(function (o) { return o[0]; });
+ok(partKeys.indexOf(sandbox.DEFAULTS.partStyle) >= 0,
+    "линтер: DEFAULTS.partStyle входит в белый список PART_STYLES (" + sandbox.DEFAULTS.partStyle + ")");
 
 // ============================================================
 console.log("\nИтог: " + passed + " ok, " + failed + " fail.");
