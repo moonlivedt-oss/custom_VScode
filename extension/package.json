@@ -1,0 +1,19 @@
+{
+  "name": "moonlight-custom-bg-setup",
+  "displayName": "MoonLight custom-bg (авто-настройка)",
+  "description": "Автоматически прописывает MoonLight custom-bg в vscode_custom_css.imports и подсказывает включить Custom CSS. Сам фон рисует be5invis.vscode-custom-css.",
+  "version": "0.1.0",
+  "publisher": "moonlivedt",
+  "license": "MIT",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Other"],
+  "extensionDependencies": ["be5invis.vscode-custom-css"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "moonlightBg.setup", "title": "MoonLight BG: прописать импорт в настройки" },
+      { "command": "moonlightBg.remove", "title": "MoonLight BG: убрать импорт из настроек" }
+    ]
+  }
+}

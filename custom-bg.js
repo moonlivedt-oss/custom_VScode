@@ -66,7 +66,14 @@
         { name: "Неон",   grad: ["#11111b", "#cba6f7", "#f5c2e7"], accent: "#cba6f7" }, // 14
         { name: "Мох",    grad: ["#181825", "#a6e3a1", "#94e2d5"], accent: "#a6e3a1" }, // 15
         { name: "Сакура", grad: ["#1e1e2e", "#f5c2e7", "#eba0ac"], accent: "#f5c2e7" }, // 16
-        { name: "Янтарь", grad: ["#1e1e2e", "#fab387", "#f9e2af"], accent: "#fab387" }  // 17
+        { name: "Янтарь", grad: ["#1e1e2e", "#fab387", "#f9e2af"], accent: "#fab387" }, // 17
+        // ===== Процедурные наборы (proc) — текстура рисуется на canvas в data-URL, БЕЗ картинок =====
+        // Как grad, но не плоский градиент, а сгенерированная текстура (см. procTexture в css.js):
+        // stars — звёздное поле, waves — волны-дюны, noise — плёночный грейн с искрами. base —
+        // цвет подложки, accent — акцент интерфейса и цвет деталей текстуры. Ноль ассетов.
+        { name: "Звёздное поле", proc: "stars", base: "#0b0b16", accent: "#89b4fa" }, // 18
+        { name: "Дюны",          proc: "waves", base: "#1e1e2e", accent: "#fab387" }, // 19
+        { name: "Грейн",         proc: "noise", base: "#11111b", accent: "#a6e3a1" }  // 20
     ];
     // Короткое имя набора по индексу (для статусбара/тултипов). Приоритет — имя,
     // заданное пользователем в панели (cfg.setName[idx]), затем «родное» имя из SETS,
@@ -112,7 +119,7 @@
         // авто-набор по времени суток: днём — свой набор, ночью — свой. Границы дня
         // настраиваются (from/to, часы 0–23); поддерживается «через полночь» (to < from).
         autoTime: { on: false, day: 0, night: 4, from: 8, to: 20 },
-        fxp: { blur: 8, kbScale: 1.08, kbSpeed: 60, vignette: 0.32, partCount: 40, pomoMin: 25, auroraSpeed: 24, spotRadius: 320 },
+        fxp: { blur: 8, kbScale: 1.08, kbSpeed: 60, vignette: 0.32, partCount: 40, pomoMin: 25, auroraSpeed: 24, spotRadius: 320, tintStrength: 0.18 },
         fx: {
             kenburns: true, glassTabs: true, vignette: true, glassSide: true,
             scrim: true, glassStatus: true, activeLine: true, groupRing: true,
@@ -142,7 +149,14 @@
             // перерисовка полноэкранного градиента за курсором), поэтому включаются осознанно.
             aurora: false,                                  // «полярное сияние»: анимированный градиент-акцент за кодом
             spotlight: false,                               // радиальное затемнение вокруг курсора (фокус на месте правки)
-            typingPulse: false                              // активная вкладка мягко пульсирует акцентом, пока идёт набор
+            typingPulse: false,                             // активная вкладка мягко пульсирует акцентом, пока идёт набор
+            // v19: тон/читаемость/реакция на ошибки. Все opt-in (заметно меняют вид или стоят
+            // чтения DOM). tint — полноэкранная тонировка воркбенча в акцент (duotone); legible —
+            // мягкая тень глифов кода для читаемости поверх картинки (НЕ трогает метрики Monaco,
+            // поэтому курсор не сдвигается); errorReact — мягкая красная реакция при ошибках в коде.
+            tint: false,                                    // тонировать весь воркбенч акцентом (mix-blend overlay)
+            legible: false,                                 // тень глифов кода ради читаемости над фоном (без сдвига курсора)
+            errorReact: false                               // мягкая красная подсветка статусбара, когда в коде есть ошибки
         },
         // Стиль летящих частиц (fx.particles). Категориальный (не числовой) — санитизируется
         // по белому списку PART_STYLES. dots — прежнее поведение (кружки), остальные меняют
@@ -181,7 +195,8 @@
         ["glassCommand", "Стекло палитры"], ["findAccent", "Акцент поиска"],
         ["minimapFade", "Миникарта сквозь"], ["indentAccent", "Акцент отступов"],
         ["selectionMatch", "Совпадения слова"], ["stickyGlass", "Стекло sticky"],
-        ["aurora", "Aurora фон"], ["spotlight", "Спотлайт"], ["typingPulse", "Пульс печати"]
+        ["aurora", "Aurora фон"], ["spotlight", "Спотлайт"], ["typingPulse", "Пульс печати"],
+        ["tint", "Тон акцентом"], ["legible", "Читаемость кода"], ["errorReact", "Реакция на ошибки"]
     ];
 
     // Стили частиц (fx.particles): ключ + подпись. dots — прежние кружки; stars — искры-звёздочки;
@@ -208,7 +223,8 @@
         ["partCount", "Частиц", 0, 120, 5, 0],
         ["pomoMin", "Помидор, мин", 5, 60, 5, 0],
         ["auroraSpeed", "Aurora сек", 8, 60, 2, 0],
-        ["spotRadius", "Спот радиус", 120, 600, 20, 0]
+        ["spotRadius", "Спот радиус", 120, 600, 20, 0],
+        ["tintStrength", "Тон сила", 0, 0.6, 0.02, 2]
     ];
 
     // ============================================================
@@ -542,11 +558,16 @@
     // "<файл> — <папка> — Visual Studio Code" (разделитель — тире с пробелами, у несохранённого
     // файла спереди маркер). API папки в custom-css нет, поэтому парсим document.title:
     // срезаем хвост " — Visual Studio Code" и берём последний сегмент (имя папки-проекта).
+    // Хвост заголовка окна — имя приложения. Поддерживаем не только «Visual Studio Code», но и
+    // популярные форки (Cursor, VSCodium, Windsurf, Code - OSS): у них тот же движок и та же
+    // разметка, меняется лишь подпись в конце заголовка. Срезаем любой из этих хвостов, чтобы
+    // «фон по проекту» работал и в форках. Порядок не важен — совпадает первый подходящий.
+    var APP_TITLE_RE = /\s*[—\-]\s*(?:Visual Studio Code|Code - OSS|VSCodium|Cursor|Windsurf)\s*$/i;
     function workspaceName() {
         try {
             var t = (document.title || "").trim();
             if (!t) return "";
-            t = t.replace(/\s*[—\-]\s*Visual Studio Code\s*$/i, "").trim();
+            t = t.replace(APP_TITLE_RE, "").trim();
             var parts = t.split(/\s+[—\-]\s+/); // сегменты, разделённые тире с пробелами
             var name = parts.length ? parts[parts.length - 1] : t;
             return name.replace(/[●•*]/g, "").trim().slice(0, 120); // убрать маркер несохранённого
@@ -805,6 +826,92 @@
         return "linear-gradient(135deg, " + pal.join(", ") + ")";
     }
 
+    // ===== Процедурные наборы (proc) =====
+    // Как grad, но не плоский градиент: текстура («звёздное поле» / «волны-дюны» / «шум-грейн»)
+    // рисуется на canvas в data-URL — ни единого ассета. Рисуем один раз на набор (кэш _procCache),
+    // результат — фон для ВСЕХ зон набора (цельный вид). Если canvas/toDataURL недоступны
+    // (нестандартная среда, node-смоук), procTexture вернёт null и зона откатится на градиент
+    // из палитры набора (procFallback), поэтому набор всегда что-то показывает.
+    function isProcSet(idx) { var s = SETS[idx]; return !!(s && s.proc); }
+    function isProc(idx, zone) { return isProcSet(idx) && !hasUserImg(idx, zone); }
+    // Осветлить/затемнить hex на долю t (t>0 к белому, t<0 к чёрному).
+    function shadeHex(hex, t) {
+        var c = hexToRgbArr(hex), to = t >= 0 ? 255 : 0, k = Math.abs(t);
+        function f(v) { var x = Math.round(v + (to - v) * k); return (x < 16 ? "0" : "") + x.toString(16); }
+        return "#" + f(c[0]) + f(c[1]) + f(c[2]);
+    }
+    var _procCache = {};
+    function _procStars(cx, W, H, acc) {
+        var i, n = 150;
+        for (i = 0; i < n; i++) {
+            var x = Math.random() * W, y = Math.random() * H, r = Math.random() * 1.4 + 0.2;
+            var useAcc = Math.random() < 0.35, a = 0.25 + Math.random() * 0.6;
+            cx.fillStyle = useAcc ? "rgba(" + acc + "," + a + ")" : "rgba(235,235,255," + a + ")";
+            cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();
+        }
+    }
+    function _procWaves(cx, W, H, acc) {
+        var layer, x;
+        for (layer = 0; layer < 6; layer++) {
+            var yBase = H * (0.25 + layer * 0.12), amp = 10 + layer * 5, a = 0.05 + layer * 0.03;
+            cx.strokeStyle = "rgba(" + acc + "," + a + ")"; cx.lineWidth = 1.5;
+            cx.beginPath();
+            for (x = 0; x <= W; x += 8) {
+                var y = yBase + Math.sin((x / W) * 6.283 * (1 + layer * 0.3) + layer) * amp;
+                if (x === 0) cx.moveTo(x, y); else cx.lineTo(x, y);
+            }
+            cx.stroke();
+        }
+    }
+    function _procNoise(cx, W, H, acc) {
+        var i, n = 1400;
+        for (i = 0; i < n; i++) {
+            var x = Math.random() * W, y = Math.random() * H, a = Math.random() * 0.06;
+            cx.fillStyle = Math.random() < 0.5 ? "rgba(255,255,255," + a + ")" : "rgba(0,0,0," + (a * 1.4) + ")";
+            cx.fillRect(x, y, 1.5, 1.5);
+        }
+        // редкие акцентные искры поверх грейна
+        for (i = 0; i < 40; i++) {
+            cx.fillStyle = "rgba(" + acc + "," + (0.1 + Math.random() * 0.25) + ")";
+            cx.fillRect(Math.random() * W, Math.random() * H, 2, 2);
+        }
+    }
+    function procTexture(idx) {
+        var s = SETS[idx]; if (!s || !s.proc) return null;
+        var base = isColor(s.base) ? s.base : "#181825", accHex = safeColor(s.accent, DEFAULTS.accent);
+        var key = s.proc + "|" + base + "|" + accHex;
+        if (Object.prototype.hasOwnProperty.call(_procCache, key)) return _procCache[key];
+        var url = null;
+        try {
+            var W = 480, H = 300, cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+            var cx = cv.getContext && cv.getContext("2d");
+            if (!cx || !cv.toDataURL) { _procCache[key] = null; return null; }
+            var g = cx.createLinearGradient(0, 0, W, H);
+            g.addColorStop(0, base); g.addColorStop(1, shadeHex(base, 0.14));
+            cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+            var acc = hexToRgbArr(accHex).join(",");
+            if (s.proc === "stars") _procStars(cx, W, H, acc);
+            else if (s.proc === "waves") _procWaves(cx, W, H, acc);
+            else _procNoise(cx, W, H, acc);
+            url = cv.toDataURL("image/jpeg", 0.82);
+        } catch (e) { url = null; }
+        _procCache[key] = url;
+        return url;
+    }
+    // Запасной градиент проц-набора (когда текстуру не удалось нарисовать): из base и акцента.
+    function procFallback(idx, zone) {
+        var s = SETS[idx], base = (s && isColor(s.base)) ? s.base : "#181825";
+        var acc = safeColor(s && s.accent, DEFAULTS.accent), pal = [base, shadeHex(acc, -0.2)];
+        if (zone === "sidebar") return "linear-gradient(160deg, " + pal.slice().reverse().join(", ") + ")";
+        if (zone === "panel")   return "radial-gradient(120% 120% at 100% 100%, " + pal.join(", ") + ")";
+        return "linear-gradient(135deg, " + pal.join(", ") + ")";
+    }
+    // Готовый CSS-фон проц-зоны: текстура (data-URL, cover) или запасной градиент.
+    function procBg(idx, zone) {
+        var url = procTexture(idx);
+        return url ? (cssUrl(url) + " center / cover no-repeat") : procFallback(idx, zone);
+    }
+
     // Коэффициент занижения яркости editor по средней светлоте картинки: тёмные/средние —
     // как есть (1.0), почти белые — до ~0.4, чтобы код не «слепило». Плавно между.
     function lumaDimFactor(luma) {
@@ -895,10 +1002,13 @@
         // Фон зоны: генеративный набор -> градиент (SETS zone-ключ), иначе картинка (zoneBg).
         // zone — ключ SETS ("editor"|"sidebar"|"panel"); fitZone — ключ cfg.fit ("side" у сайдбара).
         function bgFor(zone, fitZone, position) {
+            if (isProc(idx, zone)) return procBg(idx, zone);
             return isGrad(idx, zone) ? gradFor(idx, zone) : zoneBg(zoneUrl(idx, zone), fitZone, position);
         }
         var edUrl = zoneUrl(idx, "editor");
-        var edIsGrad = isGrad(idx, "editor");
+        // «Не фото» редактора: градиент ИЛИ процедурная текстура — у обоих нет измеримой светлоты
+        // и своего URL-фото, поэтому авто-дим и трио-акцент из картинки для них выключаются.
+        var edIsGrad = isGrad(idx, "editor") || isProc(idx, "editor");
         var BG_ED = bgFor("editor", "editor", "center");
         var BG_SB = bgFor("sidebar", "side", "center bottom");
         var BG_PN = bgFor("panel", "panel", "right bottom");
@@ -1226,6 +1336,40 @@
                 "  0%,100% { box-shadow: inset 0 -2px 0 0 var(--mlbg-accent); }",
                 "  50%     { box-shadow: inset 0 -2px 0 0 var(--mlbg-accent), 0 0 12px 0 rgba(var(--mlbg-accent-rgb),0.65); }",
                 "}"
+            ]; }],
+            // v19: Тон акцентом — полноэкранная тонировка воркбенча в цвет набора. Fixed-оверлей
+            // (body::before — свободен: спотлайт занимает body::after) с mix-blend-mode:overlay,
+            // поэтому это светофильтр, а не мутная плёнка. z-index 8000: над оверлеями зон (z:1000),
+            // под спотлайтом (9000), панелью (100000) и верхним UI. Клики сквозь.
+            ["tint", function () {
+                var a = clampNum(fxp.tintStrength, 0, 0.6, 0.18);
+                return [
+                    "body::before {",
+                    "  content:''; position:fixed; inset:0; z-index:8000; pointer-events:none;",
+                    "  background: var(--mlbg-accent); opacity:" + a + "; mix-blend-mode: overlay;",
+                    "}"
+                ];
+            }],
+            // v19: Читаемость кода — мягкая тень под глифами, чтобы текст читался поверх яркой
+            // картинки. text-shadow НЕ влияет на ширину символов, поэтому метрики Monaco целы и
+            // курсор/выделение не сдвигаются (в отличие от подмены font-family — так делать нельзя).
+            // shadowRGB тема-зависимая: тёмный ореол на тёмной теме, светлый — на светлой.
+            ["legible", function () { return [
+                ".monaco-editor .view-line span { text-shadow: 0 1px 2px rgba(" + shadowRGB + ",0.6); }",
+                ".monaco-editor { -webkit-font-smoothing: antialiased; }"
+            ]; }],
+            // v19: Реакция на ошибки — когда JS видит ошибки в коде (счётчик у иконки ошибок в
+            // статусбаре, class body.mlbg-errors ставит heal в boot.js), статусбар мягко пульсирует
+            // красным. Правило есть только при включённом эффекте, а класс — только при errorReact,
+            // поэтому лишнего чтения DOM/подсветки без эффекта нет.
+            ["errorReact", function () { return [
+                "body.mlbg-errors .monaco-workbench .part.statusbar {",
+                "  animation: mlbg-errpulse 1.6s ease-in-out infinite;",
+                "}",
+                "@keyframes mlbg-errpulse {",
+                "  0%,100% { box-shadow: inset 0 2px 0 0 rgba(243,139,168,0.5); }",
+                "  50%     { box-shadow: inset 0 2px 0 0 rgba(243,139,168,0.95), 0 0 16px 0 rgba(243,139,168,0.4); }",
+                "}"
             ]; }]
         ];
         for (var bi = 0; bi < FX_BLOCKS.length; bi++) {
@@ -1246,6 +1390,7 @@
         ];
         if (fx.aurora) rmSel.push("  .monaco-editor .overflow-guard > .monaco-scrollable-element::before");
         if (fx.typingPulse) rmSel.push("  body.mlbg-typing .tabs-container > .tab.active");
+        if (fx.errorReact) rmSel.push("  body.mlbg-errors .monaco-workbench .part.statusbar");
         add(
             "@media (prefers-reduced-motion: reduce) {",
             rmSel.join(",\n") + " { animation: none !important; }",
@@ -1388,6 +1533,7 @@
         fxp_pomoMin: "Длительность одного помидора (таймера), минуты.",
         fxp_auroraSpeed: "Длительность одного цикла дрейфа «Aurora», секунды. Больше — спокойнее и медленнее.",
         fxp_spotRadius: "Радиус светлого «окна» спотлайта вокруг курсора, px. Меньше — уже луч и сильнее затемнение по краям.",
+        fxp_tintStrength: "Сила тонировки воркбенча акцентом (эффект «Тон акцентом»). 0 — нет, больше — насыщеннее.",
         fx_kenburns: "Медленный плавный зум фоновой картинки редактора.",
         fx_glassTabs: "Полупрозрачный матовый фон полосы вкладок.",
         fx_vignette: "Затемнение по краям области редактора.",
@@ -1425,6 +1571,9 @@
         fx_aurora: "«Полярное сияние»: за кодом медленно дрейфует размытый градиент из палитры набора (акцент и два его спутника). Лежит под текстом — читаемости не мешает. Скорость — ползунком «Aurora сек». Отключается системной настройкой «уменьшить движение».",
         fx_spotlight: "Экран мягко затемняется по краям, а вокруг курсора остаётся светлое «окно» — взгляд держится на месте правки. Радиус окна — ползунком «Спот радиус». Затемнение следует за мышью.",
         fx_typingPulse: "Пока печатаешь, активная вкладка мягко пульсирует акцентным свечением; на паузе — затихает. Отключается системной настройкой «уменьшить движение».",
+        fx_tint: "Полупрозрачная тонировка всего воркбенча в цвет акцента набора (режим наложения overlay — как светофильтр). Сила — ползунком «Тон сила». Клики проходят сквозь.",
+        fx_legible: "Мягкая тень под глифами кода, чтобы текст читался поверх яркой картинки. Не меняет ширину символов (метрики Monaco не трогаются), поэтому курсор и выделение не сдвигаются.",
+        fx_errorReact: "Когда в коде есть ошибки (счётчик у иконки ошибок в статусбаре > 0), статусбар мягко подсвечивается красным. Ветку/счётчик читаем из DOM статусбара, как и индикатор git-ветки.",
         part_style: "Форма летящих частиц: точки, звёзды-искры, снег, лепестки сакуры, контуры-пузыри, светлячки (пульсируют яркостью), дождь (струи) или конфетти (цветные прямоугольники). Снег, сакура, дождь и конфетти падают сверху вниз, остальные всплывают снизу вверх. «Сезон (авто)» сам подбирает форму по времени года: зима — снег, весна — сакура, лето — светлячки, осень — дождь.",
         term_font: "Шрифт терминала. В списке — совместимые по ширине Nerd-шрифты, чтобы не разъезжались колонки и сохранялись иконки oh-my-posh.",
         term_ligatures: "Слитное начертание пар символов (->, =>, != и т.п.).",
@@ -1598,7 +1747,10 @@
             // Мини-триптих: три вертикальные полоски с превью зон (редактор / сайдбар / панель),
             // чтобы собирать наборы на глаз. Полоски — фон chip как запасной вариант (editor).
             // Генеративный набор — рисуем полоски градиентом (нет картинок и 404-проверки).
-            var grad = isGradSet(idx);
+            var grad = isGradSet(idx), proc = isProcSet(idx);
+            // Процедурный набор: одна текстура на все зоны — красим ей и чип, и полоски (или
+            // запасным градиентом, если текстуру не удалось нарисовать).
+            var procCss = proc ? (function () { var u = procTexture(idx); return u ? cssUrl(u) + " center / cover no-repeat" : procFallback(idx, "editor"); })() : null;
             var ZK = ["editor", "sidebar", "panel"];
             // Чип 48×32 не должен держать полноразмерный JPEG фоновым слоем (100–250 КБ × зоны ×
             // наборы = мегабайты, и всё заново при каждой пересборке панели). Кладём акцентный
@@ -1610,21 +1762,23 @@
                 node.style.backgroundPosition = "center"; node.style.backgroundSize = "cover";
                 onImage(url, function (st) { if (st && st.thumb) node.style.backgroundImage = cssUrl(st.thumb); });
             }
-            if (grad) c.style.background = gradFor(idx, "editor");
+            if (proc) c.style.background = procCss;
+            else if (grad) c.style.background = gradFor(idx, "editor");
             else paintZone(c, "editor");
             for (var zi = 0; zi < 3; zi++) {
                 var strip = el("div",
                     "position:absolute; top:0; bottom:0; width:33.34%; left:" + (zi * 33.33) + "%;" +
                     "background-position:center; background-size:cover;" +
                     (zi ? "box-shadow:inset 1px 0 0 rgba(0,0,0,0.35);" : ""));
-                if (grad) strip.style.background = gradFor(idx, ZK[zi]);
+                if (proc) strip.style.background = procCss;
+                else if (grad) strip.style.background = gradFor(idx, ZK[zi]);
                 else paintZone(strip, ZK[zi]);
                 c.appendChild(strip);
             }
             var num = el("span", "position:absolute; right:3px; bottom:1px; z-index:2; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.95);", label);
             c.appendChild(num);
             var nm = setName(idx); if (nm) c.title = idx + " · " + nm + " (редактор · сайдбар · панель)";
-            if (!grad) probeSet(idx, c);
+            if (!grad && !proc) probeSet(idx, c);
             if (!active) {
                 // Превью набора и по мыши (mouseenter/leave), и с клавиатуры (focus/blur) —
                 // паритет доступности: пользователь, идущий по чипам с Tab, тоже «примеряет»
@@ -1704,7 +1858,7 @@
             // Тумблеры с зависимыми контролами (число/стиль частиц, длительность помидора,
             // скорость Aurora, радиус спотлайта) — пересобираем панель, чтобы соответствующий
             // слайдер силы появился/исчез. refreshPanel сохраняет вкладку/прокрутку/фокус (panel.js).
-            if (key === "particles" || key === "pomodoro" || key === "aurora" || key === "spotlight") { try { refreshPanel(); } catch (e) {} }
+            if (key === "particles" || key === "pomodoro" || key === "aurora" || key === "spotlight" || key === "tint") { try { refreshPanel(); } catch (e) {} }
         }, label, INFO["fx_" + key]);
     }
 
@@ -2381,7 +2535,7 @@
         add("Версия", APP_VERSION + " (схема конфига v" + CFG_VERSION + ")");
         add("Тема", themeKind());
         add("Фон включён", cfg.enabled ? "да" : "нет (мастер-выключатель)");
-        add("Активный набор", idx + " · " + (setName(idx) || "?") + (isGradSet(idx) ? " (градиент)" : " (фото)"));
+        add("Активный набор", idx + " · " + (setName(idx) || "?") + (isProcSet(idx) ? " (процедурный)" : isGradSet(idx) ? " (градиент)" : " (фото)"));
         var base = imgBase();
         add("Папка картинок", (base || "(путь не определён)") + (cfg.imgBase ? "  [задана вручную]" : "  [авто]"));
         add("Сетевые картинки", cfg.allowRemoteImages ? "разрешены" : "выключены");
@@ -2599,6 +2753,7 @@
             if (d[0] === "pomoMin" && !cfg.fx.pomodoro) return;
             if (d[0] === "auroraSpeed" && !cfg.fx.aurora) return;
             if (d[0] === "spotRadius" && !cfg.fx.spotlight) return;
+            if (d[0] === "tintStrength" && !cfg.fx.tint) return;
             secFx.appendChild(makeParamSlider(d));
         });
         if (cfg.fx.particles) secFx.appendChild(makePartStyleSelect()); // форма частиц — только когда частицы включены
@@ -3351,7 +3506,29 @@
         try { ensureStyle(); } catch (e) {}
         try { ensureStatusBar(); } catch (e) {}
         try { ensureBranchStrip(); } catch (e) {}
+        try { ensureErrorClass(); } catch (e) {}
         syncWidgets();
+    }
+    // ===== Реакция на ошибки в коде (fx.errorReact) =====
+    // Счётчик ошибок читаем из статусбара VS Code (иконка codicon-error + число рядом) — API
+    // для диагностик в custom-css нет, поэтому DOM, как и с git-веткой. Читаем ТОЛЬКО когда
+    // эффект включён (короткое замыкание) — иначе нулевой оверхед. Класс body.mlbg-errors
+    // включает CSS-подсветку статусбара (buildCSS, блок errorReact).
+    function problemsCount() {
+        try {
+            var wb = document.querySelector(".monaco-workbench"); if (!wb) return 0;
+            var ico = wb.querySelector(".statusbar-item .codicon-error");
+            if (!ico) return 0;
+            var item = ico.closest ? ico.closest(".statusbar-item") : null;
+            var txt = ((item && item.textContent) || "").replace(/\s+/g, " ");
+            var m = txt.match(/\d+/); // первое число у иконки ошибок = количество ошибок
+            return m ? parseInt(m[0], 10) : 0;
+        } catch (e) { return 0; }
+    }
+    function ensureErrorClass() {
+        var on = false;
+        try { on = !!(cfg.enabled && cfg.fx.errorReact && problemsCount() > 0); } catch (e) {}
+        try { var cl = document.body && document.body.classList; if (cl) cl[on ? "add" : "remove"]("mlbg-errors"); } catch (e) {}
     }
     // Смена темы VS Code (класс vs/vs-dark на .monaco-workbench) не меняет ревизию стиля,
     // поэтому сама по себе не пересобрала бы CSS. Наблюдаем за классом воркбенча и при

@@ -165,6 +165,92 @@ function gradFor(idx, zone) {
     return "linear-gradient(135deg, " + pal.join(", ") + ")";
 }
 
+// ===== Процедурные наборы (proc) =====
+// Как grad, но не плоский градиент: текстура («звёздное поле» / «волны-дюны» / «шум-грейн»)
+// рисуется на canvas в data-URL — ни единого ассета. Рисуем один раз на набор (кэш _procCache),
+// результат — фон для ВСЕХ зон набора (цельный вид). Если canvas/toDataURL недоступны
+// (нестандартная среда, node-смоук), procTexture вернёт null и зона откатится на градиент
+// из палитры набора (procFallback), поэтому набор всегда что-то показывает.
+function isProcSet(idx) { var s = SETS[idx]; return !!(s && s.proc); }
+function isProc(idx, zone) { return isProcSet(idx) && !hasUserImg(idx, zone); }
+// Осветлить/затемнить hex на долю t (t>0 к белому, t<0 к чёрному).
+function shadeHex(hex, t) {
+    var c = hexToRgbArr(hex), to = t >= 0 ? 255 : 0, k = Math.abs(t);
+    function f(v) { var x = Math.round(v + (to - v) * k); return (x < 16 ? "0" : "") + x.toString(16); }
+    return "#" + f(c[0]) + f(c[1]) + f(c[2]);
+}
+var _procCache = {};
+function _procStars(cx, W, H, acc) {
+    var i, n = 150;
+    for (i = 0; i < n; i++) {
+        var x = Math.random() * W, y = Math.random() * H, r = Math.random() * 1.4 + 0.2;
+        var useAcc = Math.random() < 0.35, a = 0.25 + Math.random() * 0.6;
+        cx.fillStyle = useAcc ? "rgba(" + acc + "," + a + ")" : "rgba(235,235,255," + a + ")";
+        cx.beginPath(); cx.arc(x, y, r, 0, 6.283); cx.fill();
+    }
+}
+function _procWaves(cx, W, H, acc) {
+    var layer, x;
+    for (layer = 0; layer < 6; layer++) {
+        var yBase = H * (0.25 + layer * 0.12), amp = 10 + layer * 5, a = 0.05 + layer * 0.03;
+        cx.strokeStyle = "rgba(" + acc + "," + a + ")"; cx.lineWidth = 1.5;
+        cx.beginPath();
+        for (x = 0; x <= W; x += 8) {
+            var y = yBase + Math.sin((x / W) * 6.283 * (1 + layer * 0.3) + layer) * amp;
+            if (x === 0) cx.moveTo(x, y); else cx.lineTo(x, y);
+        }
+        cx.stroke();
+    }
+}
+function _procNoise(cx, W, H, acc) {
+    var i, n = 1400;
+    for (i = 0; i < n; i++) {
+        var x = Math.random() * W, y = Math.random() * H, a = Math.random() * 0.06;
+        cx.fillStyle = Math.random() < 0.5 ? "rgba(255,255,255," + a + ")" : "rgba(0,0,0," + (a * 1.4) + ")";
+        cx.fillRect(x, y, 1.5, 1.5);
+    }
+    // редкие акцентные искры поверх грейна
+    for (i = 0; i < 40; i++) {
+        cx.fillStyle = "rgba(" + acc + "," + (0.1 + Math.random() * 0.25) + ")";
+        cx.fillRect(Math.random() * W, Math.random() * H, 2, 2);
+    }
+}
+function procTexture(idx) {
+    var s = SETS[idx]; if (!s || !s.proc) return null;
+    var base = isColor(s.base) ? s.base : "#181825", accHex = safeColor(s.accent, DEFAULTS.accent);
+    var key = s.proc + "|" + base + "|" + accHex;
+    if (Object.prototype.hasOwnProperty.call(_procCache, key)) return _procCache[key];
+    var url = null;
+    try {
+        var W = 480, H = 300, cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+        var cx = cv.getContext && cv.getContext("2d");
+        if (!cx || !cv.toDataURL) { _procCache[key] = null; return null; }
+        var g = cx.createLinearGradient(0, 0, W, H);
+        g.addColorStop(0, base); g.addColorStop(1, shadeHex(base, 0.14));
+        cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+        var acc = hexToRgbArr(accHex).join(",");
+        if (s.proc === "stars") _procStars(cx, W, H, acc);
+        else if (s.proc === "waves") _procWaves(cx, W, H, acc);
+        else _procNoise(cx, W, H, acc);
+        url = cv.toDataURL("image/jpeg", 0.82);
+    } catch (e) { url = null; }
+    _procCache[key] = url;
+    return url;
+}
+// Запасной градиент проц-набора (когда текстуру не удалось нарисовать): из base и акцента.
+function procFallback(idx, zone) {
+    var s = SETS[idx], base = (s && isColor(s.base)) ? s.base : "#181825";
+    var acc = safeColor(s && s.accent, DEFAULTS.accent), pal = [base, shadeHex(acc, -0.2)];
+    if (zone === "sidebar") return "linear-gradient(160deg, " + pal.slice().reverse().join(", ") + ")";
+    if (zone === "panel")   return "radial-gradient(120% 120% at 100% 100%, " + pal.join(", ") + ")";
+    return "linear-gradient(135deg, " + pal.join(", ") + ")";
+}
+// Готовый CSS-фон проц-зоны: текстура (data-URL, cover) или запасной градиент.
+function procBg(idx, zone) {
+    var url = procTexture(idx);
+    return url ? (cssUrl(url) + " center / cover no-repeat") : procFallback(idx, zone);
+}
+
 // Коэффициент занижения яркости editor по средней светлоте картинки: тёмные/средние —
 // как есть (1.0), почти белые — до ~0.4, чтобы код не «слепило». Плавно между.
 function lumaDimFactor(luma) {
@@ -255,10 +341,13 @@ function buildCSS() {
     // Фон зоны: генеративный набор -> градиент (SETS zone-ключ), иначе картинка (zoneBg).
     // zone — ключ SETS ("editor"|"sidebar"|"panel"); fitZone — ключ cfg.fit ("side" у сайдбара).
     function bgFor(zone, fitZone, position) {
+        if (isProc(idx, zone)) return procBg(idx, zone);
         return isGrad(idx, zone) ? gradFor(idx, zone) : zoneBg(zoneUrl(idx, zone), fitZone, position);
     }
     var edUrl = zoneUrl(idx, "editor");
-    var edIsGrad = isGrad(idx, "editor");
+    // «Не фото» редактора: градиент ИЛИ процедурная текстура — у обоих нет измеримой светлоты
+    // и своего URL-фото, поэтому авто-дим и трио-акцент из картинки для них выключаются.
+    var edIsGrad = isGrad(idx, "editor") || isProc(idx, "editor");
     var BG_ED = bgFor("editor", "editor", "center");
     var BG_SB = bgFor("sidebar", "side", "center bottom");
     var BG_PN = bgFor("panel", "panel", "right bottom");
@@ -586,6 +675,40 @@ function buildCSS() {
             "  0%,100% { box-shadow: inset 0 -2px 0 0 var(--mlbg-accent); }",
             "  50%     { box-shadow: inset 0 -2px 0 0 var(--mlbg-accent), 0 0 12px 0 rgba(var(--mlbg-accent-rgb),0.65); }",
             "}"
+        ]; }],
+        // v19: Тон акцентом — полноэкранная тонировка воркбенча в цвет набора. Fixed-оверлей
+        // (body::before — свободен: спотлайт занимает body::after) с mix-blend-mode:overlay,
+        // поэтому это светофильтр, а не мутная плёнка. z-index 8000: над оверлеями зон (z:1000),
+        // под спотлайтом (9000), панелью (100000) и верхним UI. Клики сквозь.
+        ["tint", function () {
+            var a = clampNum(fxp.tintStrength, 0, 0.6, 0.18);
+            return [
+                "body::before {",
+                "  content:''; position:fixed; inset:0; z-index:8000; pointer-events:none;",
+                "  background: var(--mlbg-accent); opacity:" + a + "; mix-blend-mode: overlay;",
+                "}"
+            ];
+        }],
+        // v19: Читаемость кода — мягкая тень под глифами, чтобы текст читался поверх яркой
+        // картинки. text-shadow НЕ влияет на ширину символов, поэтому метрики Monaco целы и
+        // курсор/выделение не сдвигаются (в отличие от подмены font-family — так делать нельзя).
+        // shadowRGB тема-зависимая: тёмный ореол на тёмной теме, светлый — на светлой.
+        ["legible", function () { return [
+            ".monaco-editor .view-line span { text-shadow: 0 1px 2px rgba(" + shadowRGB + ",0.6); }",
+            ".monaco-editor { -webkit-font-smoothing: antialiased; }"
+        ]; }],
+        // v19: Реакция на ошибки — когда JS видит ошибки в коде (счётчик у иконки ошибок в
+        // статусбаре, class body.mlbg-errors ставит heal в boot.js), статусбар мягко пульсирует
+        // красным. Правило есть только при включённом эффекте, а класс — только при errorReact,
+        // поэтому лишнего чтения DOM/подсветки без эффекта нет.
+        ["errorReact", function () { return [
+            "body.mlbg-errors .monaco-workbench .part.statusbar {",
+            "  animation: mlbg-errpulse 1.6s ease-in-out infinite;",
+            "}",
+            "@keyframes mlbg-errpulse {",
+            "  0%,100% { box-shadow: inset 0 2px 0 0 rgba(243,139,168,0.5); }",
+            "  50%     { box-shadow: inset 0 2px 0 0 rgba(243,139,168,0.95), 0 0 16px 0 rgba(243,139,168,0.4); }",
+            "}"
         ]; }]
     ];
     for (var bi = 0; bi < FX_BLOCKS.length; bi++) {
@@ -606,6 +729,7 @@ function buildCSS() {
     ];
     if (fx.aurora) rmSel.push("  .monaco-editor .overflow-guard > .monaco-scrollable-element::before");
     if (fx.typingPulse) rmSel.push("  body.mlbg-typing .tabs-container > .tab.active");
+    if (fx.errorReact) rmSel.push("  body.mlbg-errors .monaco-workbench .part.statusbar");
     add(
         "@media (prefers-reduced-motion: reduce) {",
         rmSel.join(",\n") + " { animation: none !important; }",

@@ -362,14 +362,26 @@ sandbox.cfg.setImg = { }; sandbox.cfg.setImg[gradIdx] = { editor: "file:///d:/o.
 contains(build(), "o.jpg", "генеративный набор: своя картинка зоны перекрывает градиент");
 sandbox.cfg.setImg = {}; sandbox.cfg.mode = "0";
 
-// ---- 17a2. Генеративных наборов теперь 6 (12–17), у зон разная форма градиента ----
-ok(sandbox.SETS.length === 18, "SETS: всего 18 наборов (12 фото + 6 генеративных)");
-var gradCount = 0;
-for (var gj = 0; gj < sandbox.SETS.length; gj++) if (sandbox.isGradSet(gj)) gradCount++;
-ok(gradCount === 6, "isGradSet: ровно 6 генеративных наборов");
+// ---- 17a2. Наборы: 12 фото + 6 генеративных + 3 процедурных, у зон разная форма градиента ----
+ok(sandbox.SETS.length === 21, "SETS: всего 21 набор (12 фото + 6 градиентных + 3 процедурных)");
+var gradCount = 0, procCount = 0;
+for (var gj = 0; gj < sandbox.SETS.length; gj++) { if (sandbox.isGradSet(gj)) gradCount++; if (sandbox.isProcSet(gj)) procCount++; }
+ok(gradCount === 6, "isGradSet: ровно 6 градиентных наборов");
+ok(procCount === 3, "isProcSet: ровно 3 процедурных набора");
 ok(sandbox.gradFor(gradIdx, "editor").indexOf("linear-gradient(135deg") === 0 &&
     sandbox.gradFor(gradIdx, "panel").indexOf("radial-gradient(") === 0,
     "gradFor: у зон разная форма (editor — диагональ, panel — радиальный)");
+// Процедурный набор: без canvas в node procTexture -> null, зона откатывается на градиент
+// (procFallback), поэтому картинок (url) в CSS нет, но фон всё равно есть.
+var procIdx = -1;
+for (var pj = 0; pj < sandbox.SETS.length; pj++) if (sandbox.isProcSet(pj)) { procIdx = pj; break; }
+ok(procIdx >= 0 && sandbox.procTexture(procIdx) === null, "procTexture: без canvas возвращает null (деградация)");
+var procBgCss = sandbox.procBg(procIdx, "editor");
+ok(procBgCss.indexOf("gradient") >= 0 && procBgCss.indexOf("url('") < 0,
+    "procBg: без текстуры зона откатывается на градиент (procFallback), без url()");
+sandbox.cfg.mode = String(procIdx);
+ok(build().indexOf("url('") < 0, "процедурный набор (без canvas): картинок (url) в CSS нет — только градиент");
+sandbox.cfg.mode = "0";
 
 // ---- 17a3. Превью при наведении: previewMode перебивает cfg.mode/фон по проекту ----
 sandbox.cfg.mode = "0"; sandbox.previewMode = 3;
@@ -409,6 +421,14 @@ sandbox.document.title = "app.js — MyProject — Visual Studio Code";
 ok(sandbox.workspaceName() === "MyProject", "workspaceName: имя проекта из заголовка окна (тире-разделитель)");
 sandbox.document.title = "readme.md - Repo - Visual Studio Code";
 ok(sandbox.workspaceName() === "Repo", "workspaceName: работает и с дефисным разделителем");
+// Форки VS Code (Cursor / VSCodium / Windsurf / Code - OSS): хвост-имя приложения тоже срезается
+sandbox.document.title = "app.js — MyProject — Cursor";
+ok(sandbox.workspaceName() === "MyProject", "workspaceName: срезает хвост Cursor (форк)");
+sandbox.document.title = "app.js — MyProject — VSCodium";
+ok(sandbox.workspaceName() === "MyProject", "workspaceName: срезает хвост VSCodium (форк)");
+sandbox.document.title = "app.js — MyProject — Windsurf";
+ok(sandbox.workspaceName() === "MyProject", "workspaceName: срезает хвост Windsurf (форк)");
+sandbox.document.title = "readme.md - Repo - Visual Studio Code"; // вернуть для последующих тестов
 sandbox.cfg.autoWorkspace = true; sandbox.cfg.workspaceSets = { "Repo": "3" }; sandbox.cfg.mode = "0";
 ok(sandbox.activeIndex() === 3, "activeIndex: закреплённый за проектом набор важнее cfg.mode");
 sandbox.cfg.autoWorkspace = false; sandbox.cfg.workspaceSets = {}; sandbox.document.title = ""; sandbox.cfg.mode = "0";
@@ -580,6 +600,33 @@ sandbox.cfg.fx.typingPulse = true;
 contains(build(), "@keyframes mlbg-typpulse", "typingPulse: keyframes пульса вкладки присутствуют");
 sandbox.cfg.fx.typingPulse = false;
 ok(build().indexOf("mlbg-typpulse") < 0, "typingPulse выкл: правил пульса нет");
+
+// ---- 18j. v19: Тон акцентом / Читаемость / Реакция на ошибки ----
+["tint", "legible", "errorReact"].forEach(function (k) { sandbox.cfg.fx[k] = false; });
+// Тон: полноэкранный оверлей body::before с mix-blend overlay
+sandbox.cfg.fx.tint = true;
+var cssTint = build();
+ok(cssTint.indexOf("body::before") >= 0 && cssTint.indexOf("mix-blend-mode: overlay") >= 0,
+    "tint: оверлей body::before с mix-blend overlay присутствует");
+sandbox.cfg.fx.tint = false;
+ok(build().indexOf("mix-blend-mode: overlay") < 0, "tint выкл: тонировки нет");
+// Читаемость: тень глифов кода (без изменения метрик)
+sandbox.cfg.fx.legible = true;
+contains(build(), ".monaco-editor .view-line span { text-shadow", "legible: тень глифов кода добавлена");
+sandbox.cfg.fx.legible = false;
+ok(build().indexOf(".view-line span { text-shadow") < 0, "legible выкл: тени глифов нет");
+// Реакция на ошибки: правило под классом body.mlbg-errors + keyframes
+sandbox.cfg.fx.errorReact = true;
+contains(build(), "body.mlbg-errors", "errorReact: правило подсветки под классом body.mlbg-errors");
+contains(build(), "@keyframes mlbg-errpulse", "errorReact: keyframes красного пульса присутствуют");
+sandbox.cfg.fx.errorReact = false;
+ok(build().indexOf("mlbg-errpulse") < 0, "errorReact выкл: правил реакции нет");
+// problemsCount: парсит число ошибок из текста статусбара (первое число у иконки ошибок)
+ok(typeof sandbox.problemsCount === "function" && sandbox.problemsCount() === 0,
+    "problemsCount: без статусбара в стабе возвращает 0, не бросает");
+// ensureErrorClass не бросает и при выключенном эффекте снимает класс
+var _errThrew = null; try { sandbox.cfg.fx.errorReact = false; sandbox.ensureErrorClass(); } catch (e) { _errThrew = e; }
+ok(_errThrew === null, "ensureErrorClass: отрабатывает без исключений (эффект выкл — класс снят)");
 
 // ---- 19. v16: стиль частиц санитизируется по белому списку ----
 ok(sandbox.safePartStyle("sakura") === "sakura" && sandbox.safePartStyle("dots") === "dots" &&

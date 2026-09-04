@@ -326,7 +326,7 @@ function diagnostics() {
     add("Версия", APP_VERSION + " (схема конфига v" + CFG_VERSION + ")");
     add("Тема", themeKind());
     add("Фон включён", cfg.enabled ? "да" : "нет (мастер-выключатель)");
-    add("Активный набор", idx + " · " + (setName(idx) || "?") + (isGradSet(idx) ? " (градиент)" : " (фото)"));
+    add("Активный набор", idx + " · " + (setName(idx) || "?") + (isProcSet(idx) ? " (процедурный)" : isGradSet(idx) ? " (градиент)" : " (фото)"));
     var base = imgBase();
     add("Папка картинок", (base || "(путь не определён)") + (cfg.imgBase ? "  [задана вручную]" : "  [авто]"));
     add("Сетевые картинки", cfg.allowRemoteImages ? "разрешены" : "выключены");

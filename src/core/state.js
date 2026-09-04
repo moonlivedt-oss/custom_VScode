@@ -11,11 +11,16 @@ function pickRandom() {
 // "<файл> — <папка> — Visual Studio Code" (разделитель — тире с пробелами, у несохранённого
 // файла спереди маркер). API папки в custom-css нет, поэтому парсим document.title:
 // срезаем хвост " — Visual Studio Code" и берём последний сегмент (имя папки-проекта).
+// Хвост заголовка окна — имя приложения. Поддерживаем не только «Visual Studio Code», но и
+// популярные форки (Cursor, VSCodium, Windsurf, Code - OSS): у них тот же движок и та же
+// разметка, меняется лишь подпись в конце заголовка. Срезаем любой из этих хвостов, чтобы
+// «фон по проекту» работал и в форках. Порядок не важен — совпадает первый подходящий.
+var APP_TITLE_RE = /\s*[—\-]\s*(?:Visual Studio Code|Code - OSS|VSCodium|Cursor|Windsurf)\s*$/i;
 function workspaceName() {
     try {
         var t = (document.title || "").trim();
         if (!t) return "";
-        t = t.replace(/\s*[—\-]\s*Visual Studio Code\s*$/i, "").trim();
+        t = t.replace(APP_TITLE_RE, "").trim();
         var parts = t.split(/\s+[—\-]\s+/); // сегменты, разделённые тире с пробелами
         var name = parts.length ? parts[parts.length - 1] : t;
         return name.replace(/[●•*]/g, "").trim().slice(0, 120); // убрать маркер несохранённого

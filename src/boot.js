@@ -6,7 +6,29 @@ function heal() {
     try { ensureStyle(); } catch (e) {}
     try { ensureStatusBar(); } catch (e) {}
     try { ensureBranchStrip(); } catch (e) {}
+    try { ensureErrorClass(); } catch (e) {}
     syncWidgets();
+}
+// ===== Реакция на ошибки в коде (fx.errorReact) =====
+// Счётчик ошибок читаем из статусбара VS Code (иконка codicon-error + число рядом) — API
+// для диагностик в custom-css нет, поэтому DOM, как и с git-веткой. Читаем ТОЛЬКО когда
+// эффект включён (короткое замыкание) — иначе нулевой оверхед. Класс body.mlbg-errors
+// включает CSS-подсветку статусбара (buildCSS, блок errorReact).
+function problemsCount() {
+    try {
+        var wb = document.querySelector(".monaco-workbench"); if (!wb) return 0;
+        var ico = wb.querySelector(".statusbar-item .codicon-error");
+        if (!ico) return 0;
+        var item = ico.closest ? ico.closest(".statusbar-item") : null;
+        var txt = ((item && item.textContent) || "").replace(/\s+/g, " ");
+        var m = txt.match(/\d+/); // первое число у иконки ошибок = количество ошибок
+        return m ? parseInt(m[0], 10) : 0;
+    } catch (e) { return 0; }
+}
+function ensureErrorClass() {
+    var on = false;
+    try { on = !!(cfg.enabled && cfg.fx.errorReact && problemsCount() > 0); } catch (e) {}
+    try { var cl = document.body && document.body.classList; if (cl) cl[on ? "add" : "remove"]("mlbg-errors"); } catch (e) {}
 }
 // Смена темы VS Code (класс vs/vs-dark на .monaco-workbench) не меняет ревизию стиля,
 // поэтому сама по себе не пересобрала бы CSS. Наблюдаем за классом воркбенча и при

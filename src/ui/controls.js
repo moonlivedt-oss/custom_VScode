@@ -123,7 +123,10 @@ function makeChip(mode, label) {
         // Мини-триптих: три вертикальные полоски с превью зон (редактор / сайдбар / панель),
         // чтобы собирать наборы на глаз. Полоски — фон chip как запасной вариант (editor).
         // Генеративный набор — рисуем полоски градиентом (нет картинок и 404-проверки).
-        var grad = isGradSet(idx);
+        var grad = isGradSet(idx), proc = isProcSet(idx);
+        // Процедурный набор: одна текстура на все зоны — красим ей и чип, и полоски (или
+        // запасным градиентом, если текстуру не удалось нарисовать).
+        var procCss = proc ? (function () { var u = procTexture(idx); return u ? cssUrl(u) + " center / cover no-repeat" : procFallback(idx, "editor"); })() : null;
         var ZK = ["editor", "sidebar", "panel"];
         // Чип 48×32 не должен держать полноразмерный JPEG фоновым слоем (100–250 КБ × зоны ×
         // наборы = мегабайты, и всё заново при каждой пересборке панели). Кладём акцентный
@@ -135,21 +138,23 @@ function makeChip(mode, label) {
             node.style.backgroundPosition = "center"; node.style.backgroundSize = "cover";
             onImage(url, function (st) { if (st && st.thumb) node.style.backgroundImage = cssUrl(st.thumb); });
         }
-        if (grad) c.style.background = gradFor(idx, "editor");
+        if (proc) c.style.background = procCss;
+        else if (grad) c.style.background = gradFor(idx, "editor");
         else paintZone(c, "editor");
         for (var zi = 0; zi < 3; zi++) {
             var strip = el("div",
                 "position:absolute; top:0; bottom:0; width:33.34%; left:" + (zi * 33.33) + "%;" +
                 "background-position:center; background-size:cover;" +
                 (zi ? "box-shadow:inset 1px 0 0 rgba(0,0,0,0.35);" : ""));
-            if (grad) strip.style.background = gradFor(idx, ZK[zi]);
+            if (proc) strip.style.background = procCss;
+            else if (grad) strip.style.background = gradFor(idx, ZK[zi]);
             else paintZone(strip, ZK[zi]);
             c.appendChild(strip);
         }
         var num = el("span", "position:absolute; right:3px; bottom:1px; z-index:2; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.95);", label);
         c.appendChild(num);
         var nm = setName(idx); if (nm) c.title = idx + " · " + nm + " (редактор · сайдбар · панель)";
-        if (!grad) probeSet(idx, c);
+        if (!grad && !proc) probeSet(idx, c);
         if (!active) {
             // Превью набора и по мыши (mouseenter/leave), и с клавиатуры (focus/blur) —
             // паритет доступности: пользователь, идущий по чипам с Tab, тоже «примеряет»
@@ -229,7 +234,7 @@ function makeCheck(key, label) {
         // Тумблеры с зависимыми контролами (число/стиль частиц, длительность помидора,
         // скорость Aurora, радиус спотлайта) — пересобираем панель, чтобы соответствующий
         // слайдер силы появился/исчез. refreshPanel сохраняет вкладку/прокрутку/фокус (panel.js).
-        if (key === "particles" || key === "pomodoro" || key === "aurora" || key === "spotlight") { try { refreshPanel(); } catch (e) {} }
+        if (key === "particles" || key === "pomodoro" || key === "aurora" || key === "spotlight" || key === "tint") { try { refreshPanel(); } catch (e) {} }
     }, label, INFO["fx_" + key]);
 }
 

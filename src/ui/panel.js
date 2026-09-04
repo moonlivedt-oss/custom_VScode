@@ -103,6 +103,7 @@ function buildEffectsSection(secFx) {
         if (d[0] === "pomoMin" && !cfg.fx.pomodoro) return;
         if (d[0] === "auroraSpeed" && !cfg.fx.aurora) return;
         if (d[0] === "spotRadius" && !cfg.fx.spotlight) return;
+        if (d[0] === "tintStrength" && !cfg.fx.tint) return;
         secFx.appendChild(makeParamSlider(d));
     });
     if (cfg.fx.particles) secFx.appendChild(makePartStyleSelect()); // форма частиц — только когда частицы включены
