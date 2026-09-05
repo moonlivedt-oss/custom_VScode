@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+  Фикстура для интеграционного теста (улучшение 7). Минимальный «скелет» воркбенча VS Code:
+  .monaco-workbench (тема vs-dark), статусбар с .right-items (куда плагин вставляет кнопку BG)
+  и редактор. Реальный custom-bg.js подключается ниже и должен: вставить кнопку BG в статусбар,
+  инжектить <style id="moonlight-custom-bg"> и по клику открыть панель #moonlight-bg-panel.
+  lang="en" — проверяем заодно авто-локализацию (панель должна быть на английском).
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>MoonLight custom-bg — e2e fixture</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #1e1e2e; }
+    .monaco-workbench { display: flex; flex-direction: column; height: 100vh; }
+    .part.editor { flex: 1 1 auto; }
+    .monaco-editor { height: 100%; }
+    /* статусбар внизу, с контейнером right-items — как в реальном VS Code */
+    .part.statusbar { height: 22px; display: flex; justify-content: flex-end; background: #181825; }
+    .statusbar .right-items { display: flex; align-items: center; }
+    .statusbar-item { color: #cdd6f4; font: 12px sans-serif; }
+  </style>
+</head>
+<body>
+  <div class="monaco-workbench vs-dark">
+    <div class="part editor">
+      <div class="monaco-editor">
+        <div class="overflow-guard">
+          <div class="monaco-scrollable-element"></div>
+        </div>
+      </div>
+    </div>
+    <div class="part statusbar">
+      <div class="right-items"></div>
+    </div>
+  </div>
+  <!-- Реальный собранный артефакт (node build.js). Путь относительный: фикстура в test/. -->
+  <script src="../custom-bg.js"></script>
+</body>
+</html>

@@ -1017,6 +1017,83 @@ var partKeys = sandbox.PART_STYLES.map(function (o) { return o[0]; });
 ok(partKeys.indexOf(sandbox.DEFAULTS.partStyle) >= 0,
     "линтер: DEFAULTS.partStyle входит в белый список PART_STYLES (" + sandbox.DEFAULTS.partStyle + ")");
 
+// ---- 30. i18n: t() переводит на EN, на RU/неизвестном отдаёт исходную строку ----
+var _langWas = sandbox.cfg.lang;
+sandbox.cfg.lang = "en";
+ok(sandbox.uiLang() === "en", "i18n: cfg.lang='en' -> uiLang()='en'");
+ok(sandbox.t("Сохранить") === "Save" && sandbox.t("Эффекты") === "Effects",
+    "i18n: t() переводит известные строки на английский");
+ok(sandbox.t("Строка без перевода 12345") === "Строка без перевода 12345",
+    "i18n: t() возвращает исходную строку, если перевода нет (не ломается)");
+sandbox.cfg.lang = "ru";
+ok(sandbox.t("Сохранить") === "Сохранить", "i18n: на русском t() возвращает русскую строку без изменений");
+sandbox.cfg.lang = "auto";
+ok(sandbox.t("Сохранить") === "Сохранить", "i18n: 'auto' без EN-локали VS Code -> русский (родной язык проекта)");
+ok(sandbox.mergeCfg({ lang: "en" }).lang === "en" && sandbox.mergeCfg({ lang: "zzz" }).lang === "auto",
+    "mergeCfg: lang принимает auto/ru/en, мусор -> 'auto'");
+sandbox.cfg.lang = _langWas;
+// Инвариант: у каждого ключа EN-словаря значение — непустая строка (нет «дыр» в переводе).
+var enBad = Object.keys(sandbox.EN).filter(function (k) { return typeof sandbox.EN[k] !== "string" || !sandbox.EN[k]; });
+ok(enBad.length === 0, "линтер: все значения EN-словаря — непустые строки" + (enBad.length ? "  (пустые: " + enBad.slice(0, 3).join(", ") + ")" : ""));
+
+// Инвариант: у каждой подсказки INFO есть английская пара в INFO_EN (непустая строка) — иначе
+// в английском режиме «?» этой настройки остался бы на русском (рассинхрон RU/EN подсказок).
+var infoNoEn = Object.keys(sandbox.INFO).filter(function (k) { return typeof sandbox.INFO_EN[k] !== "string" || !sandbox.INFO_EN[k]; });
+ok(infoNoEn.length === 0, "линтер: у каждой подсказки INFO есть перевод в INFO_EN" + (infoNoEn.length ? "  (без EN: " + infoNoEn.slice(0, 5).join(", ") + ")" : ""));
+var enNoInfo = Object.keys(sandbox.INFO_EN).filter(function (k) { return !(k in sandbox.INFO); });
+ok(enNoInfo.length === 0, "линтер: в INFO_EN нет лишних ключей без пары в INFO" + (enNoInfo.length ? "  (лишние: " + enNoInfo.slice(0, 5).join(", ") + ")" : ""));
+// infoText переводит подсказку контрола на EN и не трогает на RU.
+sandbox.cfg.lang = "en";
+ok(sandbox.infoText(sandbox.INFO.fx_aurora) === sandbox.INFO_EN.fx_aurora, "infoText: подсказка контрола переводится на английский");
+ok(sandbox.infoText("Эффекты") === "Effects", "infoText: подпись секции берётся из общего словаря (fallback t())");
+sandbox.cfg.lang = "ru";
+ok(sandbox.infoText(sandbox.INFO.fx_aurora) === sandbox.INFO.fx_aurora, "infoText: на русском подсказка не меняется");
+sandbox.cfg.lang = _langWas;
+
+// ---- 31. Профили: applyProfile накладывает patch поверх текущего вида ----
+var _cfgWas = sandbox.clone(sandbox.cfg);
+sandbox.cfg.mode = "3"; // выбранный набор должен сохраниться после профиля
+sandbox.applyProfile("focus");
+ok(sandbox.cfg.fx.spotlight === true && sandbox.cfg.fx.dimOnType === true && sandbox.cfg.fx.particles === false,
+    "профиль 'Фокус': включил спотлайт/дим-при-печати, выключил частицы");
+ok(sandbox.cfg.mode === "3", "профиль сохраняет выбранный набор (mode не сбрасывается)");
+sandbox.applyProfile("minimal");
+ok(sandbox.cfg.fx.glassTabs === false && sandbox.cfg.fx.particles === false && sandbox.cfg.fx.aurora === false,
+    "профиль 'Минимал': выключил стекло/частицы/aurora (почти ванильный вид)");
+ok(sandbox.cfg.enabled === true, "профиль включает фон (enabled=true)");
+sandbox.cfg = _cfgWas; // вернуть исходный конфиг тесту
+// Инвариант: все fx-ключи в патчах профилей существуют в DEFAULTS.fx (иначе mergeCfg их молча теряет).
+var profFxBad = [];
+sandbox.PROFILES.forEach(function (p) {
+    if (!p.patch.fx) return;
+    Object.keys(p.patch.fx).forEach(function (k) { if (!(k in sandbox.DEFAULTS.fx)) profFxBad.push(p.id + "." + k); });
+});
+ok(profFxBad.length === 0, "линтер: fx-ключи всех PROFILES есть в DEFAULTS.fx" + (profFxBad.length ? "  (лишние: " + profFxBad.join(", ") + ")" : ""));
+ok(sandbox.profileById("focus") && !sandbox.profileById("нет-такого"), "profileById: находит существующий профиль, на несуществующий -> null");
+
+// ---- 32. DOM-скрейпинг: учёт «здоровья» селекторов (улучшение 6) ----
+var h0 = sandbox.scrapeHealth();
+ok(Array.isArray(h0) && h0.length >= 3, "scrapeHealth: возвращает статус по каждому скрейперу (>=3)");
+for (var sc = 0; sc < 10; sc++) sandbox.gitBranch(); // в песочнице статусбар пуст -> все попытки без попаданий
+var gh = sandbox.scrapeHealth().filter(function (x) { return x.key === "gitBranch"; })[0];
+ok(gh && gh.tries >= 8 && gh.hits === 0 && gh.ok === false,
+    "scrapeHealth: 10 пустых чтений git-ветки -> селектор помечен как сбойный (ok=false)");
+
+// ---- 33. Авто-бюджет производительности: дефолт включён ----
+ok(sandbox.DEFAULTS.perfGuard === true, "perfGuard: включён по умолчанию");
+ok(sandbox.mergeCfg({ perfGuard: false }).perfGuard === false, "mergeCfg: perfGuard принимает булево");
+
+// ---- 34. Мост settings.json: seed из window.__MLBG_SEED__ (улучшение 5) ----
+ok(sandbox.seedConfig() === null, "seedConfig: без window.__MLBG_SEED__ базового конфига нет");
+sandbox.window.__MLBG_SEED__ = { accent: "#abcdef", mode: "2" };
+ok(!!sandbox.seedConfig(), "seedConfig: window.__MLBG_SEED__ распознан");
+sandbox.localStorage.removeItem("moonlight-bg-config"); // пустое хранилище -> loadCfg берёт seed
+var seeded = sandbox.loadCfg();
+ok(seeded.accent === "#abcdef" && seeded.mode === "2", "loadCfg: при пустом localStorage берёт базовый конфиг из seed");
+var seedBad = sandbox.mergeCfg({ accent: "не-цвет" }); // seed проходит ту же санитизацию mergeCfg
+ok(seedBad.accent === sandbox.DEFAULTS.accent, "seed проходит санитизацию mergeCfg (мусорный акцент -> дефолт)");
+try { delete sandbox.window.__MLBG_SEED__; } catch (e) { sandbox.window.__MLBG_SEED__ = undefined; }
+
 // ============================================================
 console.log("\nИтог: " + passed + " ok, " + failed + " fail.");
 process.exit(failed ? 1 : 0);

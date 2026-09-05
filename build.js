@@ -20,6 +20,8 @@ const OUT = path.join(ROOT, "custom-bg.js");
 const FILES = [
     "src/core/config.js",
     "src/core/state.js",
+    "src/core/scrape.js",  // централизованный DOM-скрейпинг + «здоровье» селекторов
+    "src/core/i18n.js",    // локализация UI (RU по умолчанию, EN — из словаря)
     "src/fx/css.js",
     "src/ui/dom.js",       // базовые DOM-хелперы (el, section, keyActivate)
     "src/ui/info.js",      // тексты подсказок INFO + попап «?»
@@ -71,8 +73,50 @@ function build(write) {
     return out;
 }
 
+// ============================================================
+//  Мини-сборка (улучшение 9): custom-bg.min.js — тот же код без полнострочных
+//  комментариев и отступов. БЕЗ внешних зависимостей (терсер/esbuild): это не полноценный
+//  минификатор, а безопасный «стриппер». В этом коде НЕТ шаблонных строк и многострочных
+//  литералов (см. build.js indent()), поэтому:
+//    * строка, начинающаяся (после пробелов) с "//", — гарантированно комментарий -> убираем;
+//    * ведущие пробелы можно срезать (JS не зависит от отступа, переводы строк сохраняются —
+//      ASI не ломается);
+//    * пустые строки схлопываем.
+//  Трейлинг-комментарии (`code // ...`) НЕ трогаем — там возможны http://, регэкспы и «//»
+//  внутри строк; их безопасный разбор потребовал бы токенизатора. Экономия и так заметная:
+//  основной объём — кириллические блоки комментариев целыми строками.
+const OUT_MIN = path.join(ROOT, "custom-bg.min.js");
+function stripLine(line) {
+    // rtrim + срез ведущих пробелов; строку-комментарий (после трима начинается с //) выкидываем.
+    const trimmed = line.replace(/^\s+/, "").replace(/\s+$/, "");
+    if (trimmed.indexOf("//") === 0) return null; // полнострочный комментарий
+    return trimmed;
+}
+function minify(code) {
+    const lines = code.split("\n");
+    const out = [];
+    for (let i = 0; i < lines.length; i++) {
+        const s = stripLine(lines[i]);
+        if (s === null || s === "") continue; // комментарий или пустая строка
+        out.push(s);
+    }
+    return out.join("\n") + "\n";
+}
+function buildMin() {
+    const full = build(false);          // тот же собранный код, но не пишем на диск здесь
+    const min = minify(full);
+    fs.writeFileSync(OUT_MIN, min, "utf8");
+    const a = Buffer.byteLength(full, "utf8"), b = Buffer.byteLength(min, "utf8");
+    console.log("OK: custom-bg.min.js собран (" + b + " байт, -" + Math.round((1 - b / a) * 100) + "% от полного).");
+    return min;
+}
+
 // Список модулей нужен и смоук-тесту (test/smoke.js), чтобы собирать их в том же порядке.
-// Экспортируем FILES/build; собираем только при прямом запуске `node build.js`,
+// Экспортируем FILES/build/minify; собираем только при прямом запуске `node build.js`,
 // а не при require из теста (иначе тест перезаписывал бы custom-bg.js как побочный эффект).
-module.exports = { FILES: FILES, build: build };
-if (require.main === module) build();
+// `node build.js --min` дополнительно пишет минифицированный custom-bg.min.js.
+module.exports = { FILES: FILES, build: build, minify: minify, buildMin: buildMin };
+if (require.main === module) {
+    build();
+    if (process.argv.indexOf("--min") >= 0) buildMin();
+}

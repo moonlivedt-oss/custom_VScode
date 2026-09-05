@@ -39,3 +39,21 @@ jobs:
             git diff --stat -- custom-bg.js
             exit 1
           fi
+
+  # Интеграционный тест (улучшение 7): реальный Chromium открывает фикстуру-воркбенч с
+  # собранным custom-bg.js и проверяет живой DOM (кнопка/панель/инжект/локализация). Отдельным
+  # джобом, т.к. требует Playwright (dev-зависимость) — основной smoke остаётся ноль-зависимостей.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Установить Playwright
+        run: npm i -D @playwright/test && npx playwright install --with-deps chromium
+      - name: Сборка артефакта
+        run: node build.js
+      - name: E2E (Playwright)
+        run: npx playwright test

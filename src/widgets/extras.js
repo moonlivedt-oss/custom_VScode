@@ -18,7 +18,9 @@ function ensureClock() {
 function tickClock() {
     var c = document.getElementById("mlbg-clock"); if (!c) return;
     var a = c.querySelector("a"); if (!a) return;
-    var d = new Date(), days = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+    var d = new Date(), days = uiLang() === "en"
+        ? ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
+        : ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
     a.textContent = pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds()) + "  " + days[d.getDay()] + " " + pad2(d.getDate()) + "." + pad2(d.getMonth() + 1);
 }
 
@@ -40,7 +42,7 @@ function ensurePomodoro() {
     if (cfg.fx.pomodoro) {
         if (!e0) {
             e0 = document.createElement("div"); e0.id = "mlbg-pomo"; e0.className = "statusbar-item right";
-            e0.title = "Помидор: клик — старт/пауза, Alt+клик — сброс";
+            e0.title = t("Помидор: клик — старт/пауза, Alt+клик — сброс");
             var a = document.createElement("a"); a.className = "statusbar-item-label"; a.style.padding = "0 6px"; e0.appendChild(a);
             e0.addEventListener("click", function (ev) {
                 if (ev.altKey) { pomo.running = false; pomo.remaining = pomoDur(); }
@@ -70,10 +72,10 @@ function tickPomo() {
 }
 function pomoDone() {
     try {
-        var t = document.createElement("div");
-        t.textContent = "Помидор готов — перерыв!";
-        t.style.cssText = "position:fixed; bottom:42px; right:16px; z-index:100001; background:rgba(var(--mlbg-accent-rgb),0.96); color:#181825; font-weight:700; padding:10px 14px; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.5); font-family:var(--vscode-font-family,sans-serif);";
-        document.body.appendChild(t); setTimeout(function () { t.remove(); }, 6000);
+        var note = document.createElement("div"); // не «t»: имя t занято функцией перевода (i18n)
+        note.textContent = t("Помидор готов — перерыв!");
+        note.style.cssText = "position:fixed; bottom:42px; right:16px; z-index:100001; background:rgba(var(--mlbg-accent-rgb),0.96); color:#181825; font-weight:700; padding:10px 14px; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.5); font-family:var(--vscode-font-family,sans-serif);";
+        document.body.appendChild(note); setTimeout(function () { note.remove(); }, 6000);
     } catch (e) {}
     try {
         var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
@@ -139,7 +141,7 @@ function resetPart(p, anyY) {
 }
 function newPart(anyY) { return resetPart({}, anyY); }
 function initParticles() {
-    var n = partCount(); part.list = [];
+    var n = effPartCount(); part.list = [];
     for (var i = 0; i < n; i++) part.list.push(newPart(true));
 }
 // системная настройка «уменьшить движение» — гасим частицы (и CSS-анимации, см. css.js)
@@ -246,13 +248,62 @@ function ensureParticles() {
         }
         // Пересоздаём набор при смене числа ИЛИ стиля частиц (у падающих стилей другое
         // направление и стартовые координаты — иначе снег «полетел бы» снизу вверх).
+        // Число берём эффективное (effPartCount) — под эконом-режимом оно ниже, поэтому
+        // включение/выключение mlbg-perfsave само пересоздаёт частиц в нужном количестве.
         var st = partStyleNow();
-        if (part.list.length !== partCount() || part.style !== st) { part.style = st; initParticles(); }
+        if (part.list.length !== effPartCount() || part.style !== st) { part.style = st; initParticles(); }
         if (!part.raf && !document.hidden) loopParticles(); // (пере)запуск, если стоим и окно видно
     } else {
         if (part.raf) { cancelAnimationFrame(part.raf); part.raf = 0; }
         if (part.canvas) { part.canvas.remove(); part.canvas = null; part.ctx = null; }
     }
+}
+
+// ===== Авто-бюджет производительности (улучшение 8) =====
+// custom-css-плагин не знает мощности машины: на слабом железе живой фон + частицы + Aurora
+// могут просаживать FPS редактора. Здесь — лёгкий rAF-семплер: пока включены тяжёлые эффекты
+// и окно видно, раз в секунду считаем реальный FPS. Устойчиво низкий FPS -> «эконом-режим»
+// (класс body.mlbg-perfsave гасит дорогие CSS-анимации, а число частиц падает через
+// effPartCount). Когда FPS восстанавливается — режим снимается. Всё под cfg.perfGuard.
+var perf = { raf: 0, t0: 0, frames: 0, low: 0, high: 0, save: false, fps: 60 };
+var PERF_CAP = 18;        // потолок числа частиц в эконом-режиме
+var PERF_LOW = 42, PERF_OK = 52; // пороги «плохо»/«снова хорошо» по FPS (гистерезис против дёрганья)
+// Эффективное число частиц: обычное, а в эконом-режиме — не больше PERF_CAP.
+function effPartCount() { var n = partCount(); return perf.save ? Math.min(n, PERF_CAP) : n; }
+// Включены ли эффекты, которые вообще есть смысл «бюджетировать» (стоят кадров непрерывно).
+function heavyFxOn() {
+    return !!(cfg.enabled && (cfg.fx.aurora || cfg.fx.particles || cfg.fx.spotlight || cfg.fx.kenburns || cfg.fx.typingPulse || cfg.fx.flow));
+}
+// Стоит ли сейчас мерить FPS: гвард включён, есть что бюджетировать, окно видно, и система не
+// в «уменьшить движение» (там тяжёлые анимации и так выключены — мерить нечего).
+function perfShouldRun() { return !!(cfg.perfGuard !== false && heavyFxOn() && !document.hidden && !reduceMotion()); }
+function setPerfSave(on) {
+    if (perf.save === on) return;
+    perf.save = on;
+    try { if (document.body && document.body.classList) document.body.classList[on ? "add" : "remove"]("mlbg-perfsave"); } catch (e) {}
+    try { ensureParticles(); } catch (e) {} // пересоздать частиц под новый лимит (effPartCount)
+    if (on) { try { toast(t("Экономия ресурсов активна: часть эффектов приглушена")); } catch (e) {} }
+}
+function perfLoop(ts) {
+    if (!perfShouldRun()) { perf.raf = 0; return; } // условия отпали — тихо останавливаемся
+    if (!perf.t0) { perf.t0 = ts; perf.frames = 0; perf.raf = requestAnimationFrame(perfLoop); return; }
+    perf.frames++;
+    var dt = ts - perf.t0;
+    if (dt >= 1000) {
+        perf.fps = perf.frames * 1000 / dt;
+        perf.t0 = ts; perf.frames = 0;
+        if (perf.fps < PERF_LOW) { perf.low++; perf.high = 0; if (perf.low >= 3) setPerfSave(true); }        // 3 плохих секунды подряд -> экономим
+        else if (perf.fps >= PERF_OK) { perf.high++; perf.low = 0; if (perf.high >= 5) setPerfSave(false); } // 5 хороших секунд -> отпускаем
+    }
+    perf.raf = requestAnimationFrame(perfLoop);
+}
+function perfStart() { if (!perf.raf && perfShouldRun()) { perf.t0 = 0; perf.low = 0; perf.high = 0; perf.raf = requestAnimationFrame(perfLoop); } }
+// Держим состояние в согласии с настройками: если мерить надо — запускаем семплер; если
+// эконом-режим стоит, но бюджетировать уже нечего (гвард выкл или тяжёлые эффекты сняты) —
+// снимаем эконом-класс, чтобы приглушение не «залипло». Зовётся из syncWidgets (apply).
+function perfSync() {
+    if (perfShouldRun()) perfStart();
+    else if (perf.save) setPerfSave(false);
 }
 
 // ===== Слайдшоу: авто-смена набора по таймеру =====
@@ -321,4 +372,5 @@ function syncWidgets() {
     try { ensurePomodoro(); } catch (e) {}
     try { ensureParticles(); } catch (e) {}
     try { syncFocusClass(); } catch (e) {} // отразить вкл/выкл эффекта фокуса без ожидания тика
+    try { perfSync(); } catch (e) {}       // запустить/остановить авто-бюджет FPS под текущие настройки
 }

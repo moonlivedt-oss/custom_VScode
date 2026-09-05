@@ -23,7 +23,11 @@ function workspaceName() {
         t = t.replace(APP_TITLE_RE, "").trim();
         var parts = t.split(/\s+[—\-]\s+/); // сегменты, разделённые тире с пробелами
         var name = parts.length ? parts[parts.length - 1] : t;
-        return name.replace(/[●•*]/g, "").trim().slice(0, 120); // убрать маркер несохранённого
+        name = name.replace(/[●•*]/g, "").trim().slice(0, 120); // убрать маркер несохранённого
+        // Учёт «здоровья» скрейпа имени проекта: если заголовок VS Code сменит формат и мы
+        // перестанем извлекать имя, диагностика это покажет (см. scrape.js / scrapeHealth).
+        if (typeof scrapeMark === "function") scrapeMark("workspace", !!name);
+        return name;
     } catch (e) { return ""; }
 }
 // Набор, закреплённый за текущим проектом (cfg.workspaceSets[имя]), если «фон по проекту»

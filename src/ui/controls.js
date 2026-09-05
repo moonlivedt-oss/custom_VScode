@@ -16,7 +16,7 @@ function makeToggle(get, onChange, label, info) {
     var cb = el("input", ST.checkbox); cb.type = "checkbox"; cb.checked = !!get();
     cb.addEventListener("change", function () { onChange(cb.checked); });
     row.appendChild(cb);
-    row.appendChild(el("span", ST.fill, label));
+    row.appendChild(el("span", ST.fill, t(label)));
     var d = infoDot(info); if (d) row.appendChild(d);
     return row;
 }
@@ -32,7 +32,7 @@ function makeToggle(get, onChange, label, info) {
 function makeSlider(opts) {
     var labelW = opts.labelW || 92, valW = opts.valW || 34, ell = opts.ellipsis !== false;
     var wrap = el("div", ST.row);
-    wrap.appendChild(el("span", mutedLabel(labelW, ell), opts.label));
+    wrap.appendChild(el("span", mutedLabel(labelW, ell), t(opts.label)));
     var sl = el("input", ST.range);
     sl.type = "range"; sl.min = String(opts.min); sl.max = String(opts.max); sl.step = String(opts.step); sl.value = String(opts.get());
     var val = el("span", "flex:0 0 " + valW + "px; text-align:right; color:var(--mlp-muted,#a6adc8);", Number(opts.get()).toFixed(opts.dec));
@@ -44,7 +44,7 @@ function makeSlider(opts) {
     // применяем сразу и сохраняем (apply), а не «живьём». def может быть функцией — для
     // слайдеров, чья цель меняется (зона фильтров картинки), дефолт тоже зонозависимый.
     if (opts.def != null) {
-        sl.title = "Двойной клик — сброс к значению по умолчанию";
+        sl.title = t("Двойной клик — сброс к значению по умолчанию");
         sl.addEventListener("dblclick", function () {
             var dv = (typeof opts.def === "function") ? opts.def() : opts.def;
             opts.onInput(dv);
@@ -98,7 +98,7 @@ function probeSet(idx, chip) {
             if (st.ok) return;
             chip.style.border = "1px solid #f38ba8";
             chip.style.boxShadow = "inset 0 0 0 1px rgba(243,139,168,0.55)";
-            chip.title = "Не грузится: " + setImage(idx, zone);
+            chip.title = t("Не грузится: ") + setImage(idx, zone);
             var b = chip.querySelector(".mlbg-bad"); if (!b) { b = el("span", "position:absolute; top:1px; left:3px; color:#f38ba8; font-weight:700;", "!"); b.className = "mlbg-bad"; chip.appendChild(b); }
         });
     });
@@ -153,7 +153,7 @@ function makeChip(mode, label) {
         }
         var num = el("span", "position:absolute; right:3px; bottom:1px; z-index:2; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.95);", label);
         c.appendChild(num);
-        var nm = setName(idx); if (nm) c.title = idx + " · " + nm + " (редактор · сайдбар · панель)";
+        var nm = setName(idx); if (nm) c.title = idx + " · " + nm + t(" (редактор · сайдбар · панель)");
         if (!grad && !proc) probeSet(idx, c);
         if (!active) {
             // Превью набора и по мыши (mouseenter/leave), и с клавиатуры (focus/blur) —
@@ -182,7 +182,7 @@ function makeChip(mode, label) {
         }
         applyFade(); refreshPanel();
     });
-    keyActivate(c, isSet ? ("Набор " + label + (setName(parseInt(mode, 10)) ? " — " + setName(parseInt(mode, 10)) : "")) : "Случайный набор");
+    keyActivate(c, isSet ? (t("Набор ") + label + (setName(parseInt(mode, 10)) ? " — " + setName(parseInt(mode, 10)) : "")) : t("Случайный набор"));
     c.setAttribute("aria-pressed", active ? "true" : "false"); // какой набор выбран — для скринридера
     return c;
 }
@@ -191,12 +191,12 @@ function makeChip(mode, label) {
 // (кнопка BG, чипы, списки), поэтому CSS-инъекция не грозит — только ограничение длины.
 function makeSetNameEdit() {
     var wrap = el("div", ST.row + " margin-top:6px;");
-    wrap.appendChild(el("span", mutedLabel(56), "Имя"));
+    wrap.appendChild(el("span", mutedLabel(56), t("Имя")));
     var ip = el("input", fieldStyle(" padding:3px 6px;"));
     ip.type = "text"; ip.maxLength = 40;
     var idx = activeIndex();
     ip.value = setName(idx);
-    ip.placeholder = "Набор " + idx;
+    ip.placeholder = t("Набор ") + idx;
     function commit() {
         var v = ip.value.trim().slice(0, 40);
         var i = activeIndex();
@@ -230,37 +230,37 @@ function makeGenerator() {
     }
     var row = el("div", ST.row);
     var ip = el("input", fieldStyle(" padding:3px 6px; font-size:11px;"));
-    ip.type = "text"; ip.maxLength = 40; ip.placeholder = "seed или #rrggbb";
-    ip.setAttribute("aria-label", "Seed или базовый цвет набора");
+    ip.type = "text"; ip.maxLength = 40; ip.placeholder = "seed / #rrggbb";
+    ip.setAttribute("aria-label", t("Seed или базовый цвет набора"));
     row.appendChild(ip);
     wrap.appendChild(row);
 
     // Применить сгенерированный набор: добавить в хвост и сделать активным.
     function makeAndApply(seed) {
         var idx = addGenSet(genSetFromSeed(seed));
-        if (idx === -2) { toast("Достигнут предел сгенерированных наборов (" + GEN_MAX + ")", false); return; }
-        if (idx < 0) { toast("Не удалось создать набор", false); return; }
+        if (idx === -2) { toast(t("Достигнут предел сгенерированных наборов (") + GEN_MAX + ")", false); return; }
+        if (idx < 0) { toast(t("Не удалось создать набор"), false); return; }
         cfg.mode = String(idx);
         applyFade(); refreshPanel();
-        toast("Набор создан: " + setName(idx));
+        toast(t("Набор создан: ") + setName(idx));
     }
 
-    var gen = btn("Сгенерировать", "Создать набор из seed/цвета в поле");
+    var gen = btn(t("Сгенерировать"), t("Создать набор из seed/цвета в поле"));
     gen.addEventListener("click", function () { makeAndApply(ip.value); });
-    var rnd = btn("Случайный", "Случайный согласованный набор");
+    var rnd = btn(t("Случайный"), t("Случайный согласованный набор"));
     rnd.addEventListener("click", function () { ip.value = ""; makeAndApply(""); });
     ip.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); makeAndApply(ip.value); } });
 
     var btns = el("div", "display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;");
     btns.appendChild(gen); btns.appendChild(rnd);
     if (cfg.genSets && cfg.genSets.length) {
-        var clr = btn("Очистить (" + cfg.genSets.length + ")", "Убрать все сгенерированные наборы");
+        var clr = btn(t("Очистить (") + cfg.genSets.length + ")", t("Убрать все сгенерированные наборы"));
         clr.style.color = "#f38ba8"; clr.style.background = "rgba(243,139,168,0.14)"; clr.style.borderColor = "rgba(243,139,168,0.3)";
         clr.addEventListener("click", function () {
             backupCfg();          // на случай «ой, не то» — «Восстановить» в «Система» вернёт
             removeGenSets();
             applyFade(); refreshPanel();
-            toast("Сгенерированные наборы убраны");
+            toast(t("Сгенерированные наборы убраны"));
         });
         btns.appendChild(clr);
     }
@@ -296,7 +296,7 @@ function makeCheck(key, label) {
 // ==== Контролы секции «Терминал» (работают с cfg.term) ====
 function makeTermSelect() {
     var wrap = el("div", ST.row);
-    wrap.appendChild(el("span", mutedLabel(56), "Шрифт"));
+    wrap.appendChild(el("span", mutedLabel(56), t("Шрифт")));
     var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
     TERM_FONTS.forEach(function (f) {
         var o = el("option", null, f); o.value = f; if (f === cfg.term.font) o.selected = true; sel.appendChild(o);
@@ -318,11 +318,11 @@ function makeTermSlider(key, label, min, max, step, dec) {
 }
 function makeTermColor(key, label) {
     var wrap = el("div", ST.row);
-    wrap.appendChild(el("span", mutedLabel(56), label));
+    wrap.appendChild(el("span", mutedLabel(56), t(label)));
     var ip = el("input", "flex:0 0 auto; width:34px; height:22px; padding:0; border:1px solid var(--mlp-border,rgba(205,214,244,0.2)); border-radius:6px; background:transparent; cursor:pointer;");
     ip.type = "color"; ip.value = cfg.term[key];
     var hex = el("input", "flex:1 1 auto; min-width:0; background:transparent; border:none; padding:0; color:var(--mlp-faint,#6c7086); font-size:11px; font-family:inherit;");
-    hex.type = "text"; hex.value = cfg.term[key]; hex.maxLength = 7; hex.setAttribute("aria-label", label + " HEX");
+    hex.type = "text"; hex.value = cfg.term[key]; hex.maxLength = 7; hex.setAttribute("aria-label", t(label) + " HEX");
     ip.addEventListener("input", function () { cfg.term[key] = ip.value; hex.value = ip.value; applyThrottledLive(); });
     ip.addEventListener("change", function () { try { saveCfg(); } catch (e) {} });
     function commitTermHex() {
@@ -348,13 +348,13 @@ function makeObjSlider(obj, key, label, min, max, step, dec, info, def) {
 }
 function makeAccentColor() {
     var wrap = el("div", ST.row);
-    wrap.appendChild(el("span", mutedLabel(92), "Акцент"));
+    wrap.appendChild(el("span", mutedLabel(92), t("Акцент")));
     var cur = getAccent();
     var ip = el("input", "flex:0 0 auto; width:34px; height:22px; padding:0; border:1px solid var(--mlp-border,rgba(205,214,244,0.2)); border-radius:6px; background:transparent; cursor:pointer;");
     ip.type = "color"; ip.value = cur;
     // HEX редактируемый: можно вписать/вставить #rrggbb, а не только тыкать в палитру.
     var hex = el("input", "flex:1 1 auto; min-width:0; background:transparent; border:none; padding:0; color:var(--mlp-faint,#6c7086); font-size:11px; font-family:inherit;");
-    hex.type = "text"; hex.value = cur; hex.maxLength = 7; hex.setAttribute("aria-label", "Акцент HEX");
+    hex.type = "text"; hex.value = cur; hex.maxLength = 7; hex.setAttribute("aria-label", t("Акцент HEX"));
     // акцент правится для АКТИВНОГО набора (setAccentValue), у каждого набора свой
     ip.addEventListener("input", function () { setAccentValue(ip.value); hex.value = ip.value; applyThrottledLive(); });
     ip.addEventListener("change", function () { try { saveCfg(); } catch (e) {} });
@@ -371,17 +371,17 @@ function makeAccentColor() {
     // показываем (иначе клик всегда упирался бы в «Не удалось взять цвет из картинки»).
     // Если в зону редактора подложена своя картинка (isGrad ложно), кнопка снова доступна.
     if (!isGrad(activeIndex(), "editor")) {
-        var pick = el("div", "flex:0 0 auto; padding:3px 8px; border-radius:6px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", "из картинки");
-        pick.title = "Взять акцент из фоновой картинки набора";
+        var pick = el("div", "flex:0 0 auto; padding:3px 8px; border-radius:6px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", t("из картинки"));
+        pick.title = t("Взять акцент из фоновой картинки набора");
         pick.addEventListener("click", function () {
             onImage(zoneUrl(activeIndex(), "editor"), function (st) {
                 if (st.ok && st.accent) {
                     setAccentValue(st.accent); ip.value = st.accent; hex.value = st.accent;
-                    apply(); refreshPanel(); toast("Акцент из картинки: " + st.accent);
-                } else { toast("Не удалось взять цвет из картинки", false); }
+                    apply(); refreshPanel(); toast(t("Акцент из картинки: ") + st.accent);
+                } else { toast(t("Не удалось взять цвет из картинки"), false); }
             });
         });
-        keyActivate(pick, "Акцент из картинки");
+        keyActivate(pick, t("Акцент из картинки"));
         wrap.appendChild(pick);
     }
     var d = infoDot(INFO.accent); if (d) wrap.appendChild(d);
@@ -405,18 +405,18 @@ function makeImgFilters() {
 
     // селектор зоны
     var selWrap = el("div", ST.row);
-    selWrap.appendChild(el("span", mutedLabel(92), "Зона"));
+    selWrap.appendChild(el("span", mutedLabel(92), t("Зона")));
     var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
-    ZONES.forEach(function (z) { var o = el("option", null, z[1]); o.value = z[0]; sel.appendChild(o); });
+    ZONES.forEach(function (z) { var o = el("option", null, t(z[1])); o.value = z[0]; sel.appendChild(o); });
     selWrap.appendChild(sel);
     var zd = infoDot(INFO.img_zone); if (zd) selWrap.appendChild(zd);
     box.appendChild(selWrap);
 
     // вписывание фоновой картинки выбранной зоны: cover (заполнить) | contain (целиком)
     var fitWrap = el("div", ST.row);
-    fitWrap.appendChild(el("span", mutedLabel(92), "Вписывание"));
+    fitWrap.appendChild(el("span", mutedLabel(92), t("Вписывание")));
     var fitSel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
-    [["cover", "Заполнить (cover)"], ["contain", "Целиком (contain)"]].forEach(function (o) { var op = el("option", null, o[1]); op.value = o[0]; fitSel.appendChild(op); });
+    [["cover", "Заполнить (cover)"], ["contain", "Целиком (contain)"]].forEach(function (o) { var op = el("option", null, t(o[1])); op.value = o[0]; fitSel.appendChild(op); });
     fitSel.addEventListener("change", function () { if (!cfg.fit) cfg.fit = {}; cfg.fit[cur] = fitSel.value; apply(); });
     fitWrap.appendChild(fitSel);
     var fd = infoDot(INFO.img_fit); if (fd) fitWrap.appendChild(fd);
@@ -427,7 +427,7 @@ function makeImgFilters() {
     // Ключи зон здесь — cfg.imgfx ("side"), у SETS/setImg — "sidebar"; маппим через IMGZONE.
     var IMGZONE = { editor: "editor", side: "sidebar", panel: "panel" };
     var pathWrap = el("div", ST.row);
-    pathWrap.appendChild(el("span", mutedLabel(92), "Путь картинки"));
+    pathWrap.appendChild(el("span", mutedLabel(92), t("Путь картинки")));
     var pathIp = el("input", fieldStyle(" padding:3px 6px; font-size:11px;"));
     pathIp.type = "text"; pathIp.maxLength = 1024;
     function commitPath() {
@@ -476,7 +476,7 @@ function makeSlideToggle() {
 // показанный в placeholder. Значение уходит в url('...') через cssUrl (инъекция исключена).
 function makeImgBaseField() {
     var wrap = el("div", ST.row);
-    wrap.appendChild(el("span", mutedLabel(92), "Папка"));
+    wrap.appendChild(el("span", mutedLabel(92), t("Папка")));
     var ip = el("input", fieldStyle(" padding:3px 6px; font-size:11px;"));
     ip.type = "text"; ip.maxLength = 512;
     ip.value = cfg.imgBase || "";
@@ -508,18 +508,18 @@ function makeWorkspaceUI() {
         function (v) { cfg.autoWorkspace = v; apply(); refreshPanel(); }, "Включить", INFO.workspace_on));
     var name = workspaceName();
     box.appendChild(el("div", "padding:4px 3px; color:var(--mlp-faint,#6c7086); font-size:11px;",
-        name ? ("Проект: " + name) : "Проект не определён — открыта ли папка?"));
+        name ? (t("Проект: ") + name) : t("Проект не определён — открыта ли папка?")));
     var pinned = (name && cfg.workspaceSets) ? cfg.workspaceSets[name] : null;
     if (name && pinned != null) {
         box.appendChild(el("div", "padding:2px 3px 4px; color:var(--mlp-muted,#a6adc8); font-size:11px;",
-            "Закреплён набор " + pinned + (setName(parseInt(pinned, 10)) ? " · " + setName(parseInt(pinned, 10)) : "")));
-        var forget = el("div", "margin-top:2px; padding:6px; text-align:center; border-radius:7px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.12); border:1px solid rgba(var(--mlbg-accent-rgb),0.28);", "Забыть закрепление за проектом");
+            t("Закреплён набор ") + pinned + (setName(parseInt(pinned, 10)) ? " · " + setName(parseInt(pinned, 10)) : "")));
+        var forget = el("div", "margin-top:2px; padding:6px; text-align:center; border-radius:7px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.12); border:1px solid rgba(var(--mlbg-accent-rgb),0.28);", t("Забыть закрепление за проектом"));
         forget.addEventListener("click", function () { if (cfg.workspaceSets) delete cfg.workspaceSets[name]; apply(); refreshPanel(); });
-        keyActivate(forget, "Забыть закрепление набора за проектом");
+        keyActivate(forget, t("Забыть закрепление набора за проектом"));
         box.appendChild(forget);
     } else if (name && cfg.autoWorkspace) {
         box.appendChild(el("div", "padding:2px 3px; color:var(--mlp-faint,#6c7086); font-size:11px;",
-            "Выбери набор выше — он закрепится за этим проектом."));
+            t("Выбери набор выше — он закрепится за этим проектом.")));
     }
     return box;
 }
@@ -530,6 +530,30 @@ function makeAmbientBranchToggle() {
         function (v) { cfg.ambientBranch = v; apply(); try { ensureBranchStrip(); } catch (e) {} }, "Полоска-индикатор ветки", INFO.ambient_branch);
 }
 
+// ==== Язык интерфейса панели (cfg.lang) ====
+// Селект «Авто / Русский / English». Смена перестраивает панель (refreshPanel), чтобы все
+// подписи сразу перерисовались на новом языке. «Авто» — по языку интерфейса VS Code (uiLang).
+function makeLangSelect() {
+    var wrap = el("div", ST.row);
+    wrap.appendChild(el("span", mutedLabel(92), t("Язык панели")));
+    var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
+    var cur = safeLang(cfg.lang);
+    LANGS.forEach(function (o) {
+        var op = el("option", null, o[1]); op.value = o[0]; if (o[0] === cur) op.selected = true; sel.appendChild(op);
+    });
+    sel.addEventListener("change", function () { cfg.lang = safeLang(sel.value); saveCfg(); try { updateLabel(); } catch (e) {} refreshPanel(); });
+    wrap.appendChild(sel);
+    return wrap;
+}
+
+// ==== Авто-бюджет производительности (cfg.perfGuard) ====
+// Тумблер: при устойчиво низком FPS автоматически приглушать тяжёлые эффекты (см. perf.js /
+// perfTick в widgets). Метка/подсказка переводятся централизованно в makeToggle.
+function makePerfGuardToggle() {
+    return makeToggle(function () { return cfg.perfGuard !== false; },
+        function (v) { cfg.perfGuard = v; apply(); }, "Авто-бюджет FPS", INFO.perf_guard);
+}
+
 // ==== Мастер-выключатель фона и эффектов (cfg.enabled) ====
 // Заметный тумблер вверху панели: выкл — «ванильный» VS Code, настройки сохранены.
 function makeMasterToggle() {
@@ -538,10 +562,10 @@ function makeMasterToggle() {
         "background:rgba(var(--mlbg-accent-rgb),0.12); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);");
     var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer; transform:scale(1.15);");
     cb.type = "checkbox"; cb.checked = cfg.enabled !== false;
-    var txt = el("span", "flex:1 1 auto; font-weight:700; letter-spacing:0.2px;", cfg.enabled !== false ? "Фон и эффекты включены" : "Фон и эффекты выключены");
+    var txt = el("span", "flex:1 1 auto; font-weight:700; letter-spacing:0.2px;", cfg.enabled !== false ? t("Фон и эффекты включены") : t("Фон и эффекты выключены"));
     cb.addEventListener("change", function () {
         cfg.enabled = cb.checked;
-        txt.textContent = cb.checked ? "Фон и эффекты включены" : "Фон и эффекты выключены";
+        txt.textContent = cb.checked ? t("Фон и эффекты включены") : t("Фон и эффекты выключены");
         apply();
     });
     row.appendChild(cb); row.appendChild(txt);
@@ -566,7 +590,7 @@ function makeAutoTimeToggle() {
 // Выпадающий список наборов (для выбора дневного/ночного). which — "day" | "night".
 function makeSetPicker(which, label) {
     var wrap = el("div", ST.row);
-    wrap.appendChild(el("span", mutedLabel(92), label));
+    wrap.appendChild(el("span", mutedLabel(92), t(label)));
     var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
     for (var i = 0; i < SETS.length; i++) {
         var o = el("option", null, i + " · " + setName(i)); o.value = String(i);
@@ -586,11 +610,11 @@ function makeSetPicker(which, label) {
 // syncWidgets пересоздаёт частицы под новый стиль (см. ensureParticles).
 function makePartStyleSelect() {
     var wrap = el("div", ST.row);
-    wrap.appendChild(el("span", mutedLabel(92), "Стиль частиц"));
+    wrap.appendChild(el("span", mutedLabel(92), t("Стиль частиц")));
     var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
     var cur = safePartStyle(cfg.partStyle);
     PART_STYLES.forEach(function (o) {
-        var op = el("option", null, o[1]); op.value = o[0]; if (o[0] === cur) op.selected = true; sel.appendChild(op);
+        var op = el("option", null, t(o[1])); op.value = o[0]; if (o[0] === cur) op.selected = true; sel.appendChild(op);
     });
     sel.addEventListener("change", function () { cfg.partStyle = safePartStyle(sel.value); apply(); });
     wrap.appendChild(sel);
@@ -606,8 +630,8 @@ function collapsible(parent, title, info) {
     var chev = el("span", "flex:0 0 auto; width:10px; text-align:center; color:var(--mlbg-accent); font-size:9px; transition:transform 0.15s;", "▶");
     chev.style.transform = collapsed ? "rotate(0deg)" : "rotate(90deg)";
     head.appendChild(chev);
-    head.appendChild(el("div", "flex:1 1 auto; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--mlp-head,#bac2de);", title));
-    var idot = infoDot(info); if (idot) head.appendChild(idot);
+    head.appendChild(el("div", "flex:1 1 auto; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--mlp-head,#bac2de);", t(title)));
+    var idot = infoDot(info); if (idot) head.appendChild(idot); // перевод подписи секции — внутри infoDot (infoText)
     var body = el("div", "padding:6px 3px 2px;");
     body.style.display = collapsed ? "none" : "block";
     // Единая смена состояния секции (используется и кликом, и разворотом из поиска по панели).
@@ -621,7 +645,7 @@ function collapsible(parent, title, info) {
     head.addEventListener("mouseenter", function () { head.style.background = "rgba(var(--mlbg-accent-rgb),0.16)"; });
     head.addEventListener("mouseleave", function () { head.style.background = "rgba(var(--mlbg-accent-rgb),0.08)"; });
     head.addEventListener("click", function () { setOpen(body.style.display === "none"); });
-    keyActivate(head, title);
+    keyActivate(head, t(title));
     head.setAttribute("aria-expanded", collapsed ? "false" : "true");
     wrap.appendChild(head); wrap.appendChild(body);
     parent.appendChild(wrap);
@@ -631,7 +655,9 @@ function collapsible(parent, title, info) {
     // вызван и вне панели (тогда индекса просто нет).
     try {
         if (typeof panelSections !== "undefined" && panelSections && panelSections.push) {
-            panelSections.push({ title: title, parent: parent, head: head, expand: function () { setOpen(true); } });
+            // title — стабильный русский ключ (sectionByTitle ищет по нему, cfg.ui.collapsed
+            // хранит по нему); label — переведённый текст для отображения и поиска по панели.
+            panelSections.push({ title: title, label: t(title), parent: parent, head: head, expand: function () { setOpen(true); } });
         }
     } catch (e) {}
     return body;

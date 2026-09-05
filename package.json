@@ -1,6 +1,6 @@
 {
   "name": "moonlight-custom-bg",
-  "version": "18.0.0",
+  "version": "19.0.0",
   "description": "Кастомный фон и панель оформления для VS Code: картинки по зонам, наборы с палитрой, слайдшоу и живые эффекты. Грузится через be5invis.vscode-custom-css.",
   "license": "MIT",
   "private": true,
@@ -13,8 +13,10 @@
   ],
   "scripts": {
     "build": "node build.js",
+    "build:min": "node build.js --min",
     "build:themes": "node build-themes.js",
     "test": "node test/smoke.js",
+    "test:e2e": "node build.js && playwright test",
     "check": "node build.js && node test/smoke.js",
     "setup": "node install.js",
     "hooks": "git config core.hooksPath hooks"
@@ -32,5 +34,9 @@
     "background",
     "theme",
     "be5invis"
-  ]
+  ],
+  "//devDependencies": "Только для интеграционного теста (npm run test:e2e). Основной поток (build + smoke) зависимостей НЕ требует; ставь эту dev-зависимость лишь для e2e.",
+  "devDependencies": {
+    "@playwright/test": "^1.47.0"
+  }
 }

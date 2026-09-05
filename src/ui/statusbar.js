@@ -6,9 +6,9 @@ function updateLabel() {
     var idx = activeIndex(), nm = setName(idx);
     // Мастер-выключатель: когда фон выключен — короткая подпись «BG выкл», без индикаторов.
     if (!cfg.enabled) {
-        a.textContent = "BG выкл";
+        a.textContent = t("BG выкл");
         var od = item.querySelector(".mlbg-mode-dot"); if (od) od.remove();
-        var t0 = "Фон и дизайн — настройки (фон выключен, Ctrl+Alt+0 — включить)";
+        var t0 = t("Фон и дизайн — настройки (фон выключен, Ctrl+Alt+0 — включить)");
         item.title = t0; item.setAttribute("aria-label", t0);
         return;
     }
@@ -31,9 +31,9 @@ function updateLabel() {
         else { dot.style.background = "var(--mlbg-accent)"; dot.style.border = "none"; }
     } else if (dot) { dot.remove(); }
 
-    var modeTxt = auto ? " · авто-набор по времени суток" : (slide ? " · слайдшоу вкл" : "");
-    var t = "Фон и дизайн — настройки" + (nm ? " (набор: " + nm + ")" : "") + modeTxt;
-    item.title = t; item.setAttribute("aria-label", t);
+    var modeTxt = auto ? t(" · авто-набор по времени суток") : (slide ? t(" · слайдшоу вкл") : "");
+    var title = t("Фон и дизайн — настройки") + (nm ? t(" (набор: ") + nm + ")" : "") + modeTxt;
+    item.title = title; item.setAttribute("aria-label", title);
 }
 function ensureStatusBar() {
     try {
@@ -42,10 +42,10 @@ function ensureStatusBar() {
         var item = document.getElementById(SB_ID);
         if (!item) {
             item = document.createElement("div");
-            item.id = SB_ID; item.className = "statusbar-item right"; item.title = "Фон и дизайн — настройки";
+            item.id = SB_ID; item.className = "statusbar-item right"; item.title = t("Фон и дизайн — настройки");
             item.setAttribute("role", "button");
             item.setAttribute("tabindex", "0");
-            item.setAttribute("aria-label", "Фон и дизайн — настройки");
+            item.setAttribute("aria-label", t("Фон и дизайн — настройки"));
             var a = document.createElement("a"); a.className = "statusbar-item-label"; a.style.padding = "0 6px";
             item.appendChild(a);
             item.addEventListener("click", togglePanel);

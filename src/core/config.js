@@ -88,11 +88,13 @@ var CFG_VERSION = 1;
 // APP_VERSION — отображаемая версия релиза (единый номер v14, v15, …), она же в package.json.
 // Держим здесь одной строкой, чтобы баннер в консоли (boot.js) и диагностика (io.js) брали
 // её из одного места, а не хардкодили порознь. При релизе меняется тут + в package.json.
-var APP_VERSION = "v18";
+var APP_VERSION = "v19";
 var DEFAULTS = {
     version: CFG_VERSION,
     enabled: true,                                      // мастер-выключатель: false — фон и эффекты выключены, настройки сохранены
-    imgBase: "",                                        // папка плагина для картинок; пусто — авто-определение (IMG). Переносимость без правки кода.
+    lang: "auto",                                       // язык интерфейса панели: "auto" (по языку VS Code) | "ru" | "en"
+    perfGuard: true,                                    // авто-бюджет производительности: при низком FPS приглушать тяжёлые эффекты
+    imgBase: "",                                      // папка плагина для картинок; пусто — авто-определение (IMG). Переносимость без правки кода.
     allowRemoteImages: false,                           // разрешить http(s)-картинки. По умолчанию выкл: чужой конфиг не заставит редактор ходить в сеть.
     mode: "0",
     baseOp: { editor: 0.06, side: 0.30, panel: 0.11 },
@@ -226,6 +228,79 @@ function safePartStyle(s) {
     return "dots";
 }
 
+// ===== Профили быстрого старта (улучшение 10: онбординг) =====
+// Готовые «образы» вида одним кликом. patch накладывается ПОВЕРХ текущего конфига (см.
+// applyProfile в io.js): трогаем только внешний вид (fx/fxp/baseOp/partStyle/enabled), а
+// выбранный набор, картинки, привязки к проектам и язык остаются. Имена/описания — русские
+// ключи, переводятся через t(). Задача — дать новичку 5 осмысленных пресетов вместо стены
+// из четырёх десятков тумблеров. Ключи fx строго из DEFAULTS.fx (линтер смоука это проверяет).
+var PROFILES = [
+    {
+        id: "calm", name: "Спокойный",
+        desc: "Ровный тёмный фон, мягкое стекло, без движения — читаемость на первом месте.",
+        patch: {
+            enabled: true, partStyle: "dots", baseOp: { editor: 0.05, side: 0.26, panel: 0.10 },
+            fx: {
+                kenburns: false, particles: false, aurora: false, spotlight: false, parallax: false,
+                typingPulse: false, flow: false, tint: false, present: false, dimInactive: false,
+                glassTabs: true, glassSide: true, glassStatus: true, scrim: true, vignette: true,
+                rounded: true, activeLine: true, reading: false
+            }
+        }
+    },
+    {
+        id: "focus", name: "Фокус",
+        desc: "Гаснет всё лишнее, спотлайт у курсора, приглушение при печати — только код.",
+        patch: {
+            enabled: true, partStyle: "dots", baseOp: { editor: 0.04, side: 0.24, panel: 0.09 },
+            fx: {
+                spotlight: true, dimOnType: true, dimInactive: true, minimapFade: true, reading: false,
+                particles: false, aurora: false, kenburns: false, parallax: false, typingPulse: false,
+                present: false, scrim: true, vignette: true, glassTabs: true, glassSide: true
+            }
+        }
+    },
+    {
+        id: "present", name: "Презентация",
+        desc: "Крупные акценты, спокойный фон, скрыт визуальный шум — для стрима и скринкаста.",
+        patch: {
+            enabled: true, partStyle: "dots", baseOp: { editor: 0.06, side: 0.28, panel: 0.11 },
+            fx: {
+                present: true, aurora: true, tabAccent: true, activeLine: true, cursorGlow: true,
+                particles: false, spotlight: false, dimOnType: false, kenburns: false, parallax: false,
+                glassTabs: true, glassSide: true, rounded: true, vignette: true
+            }
+        }
+    },
+    {
+        id: "minimal", name: "Минимал",
+        desc: "Почти ванильный VS Code: тонкий фон, без эффектов и частиц.",
+        patch: {
+            enabled: true, partStyle: "dots", baseOp: { editor: 0.03, side: 0.16, panel: 0.06 },
+            fx: {
+                kenburns: false, particles: false, aurora: false, spotlight: false, parallax: false,
+                typingPulse: false, flow: false, tint: false, present: false, vignette: false,
+                glassTabs: false, glassSide: false, glassStatus: false, scrim: false, groupBorder: false,
+                rounded: true, activeLine: false
+            }
+        }
+    },
+    {
+        id: "max", name: "Максимум",
+        desc: "Всё включено: живой фон, частицы, свечения — витрина возможностей.",
+        patch: {
+            enabled: true, partStyle: "stars", baseOp: { editor: 0.08, side: 0.34, panel: 0.14 },
+            fx: {
+                kenburns: true, particles: true, aurora: true, cursorGlow: true, selection: true,
+                glassTabs: true, glassSide: true, glassStatus: true, scrim: true, vignette: true,
+                rounded: true, activeLine: true, groupBorder: true, tabAccent: true, typingPulse: true,
+                parallax: true, spotlight: false, present: false
+            }
+        }
+    }
+];
+function profileById(id) { for (var i = 0; i < PROFILES.length; i++) if (PROFILES[i].id === id) return PROFILES[i]; return null; }
+
 // ключ, подпись, min, max, step, знаков после запятой
 var PARAMS = [
     ["blur", "Размытие стекла", 0, 20, 1, 0],
@@ -352,6 +427,10 @@ function mergeCfg(p) {
         c.version = CFG_VERSION; // после слияния конфиг всегда текущей версии
         // мастер-выключатель фона/эффектов: только булево
         if (typeof p.enabled === "boolean") c.enabled = p.enabled;
+        // язык интерфейса: только из белого списка (auto/ru/en), иначе остаётся дефолт
+        if (typeof p.lang === "string") c.lang = safeLang(p.lang);
+        // авто-бюджет производительности: только булево
+        if (typeof p.perfGuard === "boolean") c.perfGuard = p.perfGuard;
         // папка плагина для картинок: строка-URL, нормализуется safeBase (см. imgBase())
         if (typeof p.imgBase === "string") c.imgBase = safeBase(p.imgBase);
         // разрешение сетевых картинок: только булево (по умолчанию false — см. imgAllowed)
@@ -531,7 +610,23 @@ function loadCfg() {
         // огромная строка не била по старту разбором/памятью. Свыше лимита — дефолты.
         if (raw && raw.length <= 256 * 1024) return mergeCfg(safeParse(raw));
     } catch (e) {}
+    // localStorage пуст (новая машина / переустановка / крупный апдейт VS Code почистил
+    // хранилище). Если компаньон-расширение прокинуло базовый конфиг из settings.json
+    // (window.__MLBG_SEED__ — едет через Settings Sync, улучшение 5), берём его как отправную
+    // точку: вид «переезжает» на новую машину сам. mergeCfg санитизирует чужой объект.
+    var seed = seedConfig();
+    if (seed) { try { return mergeCfg(seed); } catch (e) {} }
     return clone(DEFAULTS);
+}
+// Базовый конфиг из settings.json, проброшенный компаньоном как глобал window.__MLBG_SEED__
+// (см. extension/extension.js). Возвращает объект или null. Мягко — глобала может не быть
+// (плагин подключён вручную, без расширения) или он битый.
+function seedConfig() {
+    try {
+        var s = (typeof window !== "undefined") ? window.__MLBG_SEED__ : null;
+        if (s && typeof s === "object") return s;
+    } catch (e) {}
+    return null;
 }
 function saveCfg() {
     try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {}

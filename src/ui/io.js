@@ -35,8 +35,8 @@ function exportCfg() {
         saved = true;
     } catch (e) {}
     var copied = copyText(json);
-    toast(saved && copied ? "Экспорт: файл сохранён + в буфере обмена"
-        : saved ? "Экспорт: файл сохранён" : copied ? "Экспорт: скопировано в буфер" : "Не удалось выгрузить", (saved || copied));
+    toast(saved && copied ? t("Экспорт: файл сохранён + в буфере обмена")
+        : saved ? t("Экспорт: файл сохранён") : copied ? t("Экспорт: скопировано в буфер") : t("Не удалось выгрузить"), (saved || copied));
 }
 // Считает удалённые (http(s)/сетевые) ссылки на картинки в СЫРОМ конфиге (до санитизации):
 // база imgBase и все cfg.setImg[idx][zone]. Нужно, чтобы честно предупредить при импорте
@@ -63,7 +63,7 @@ function importCfg() {
     inp.addEventListener("change", function () {
         var f = inp.files && inp.files[0]; if (!f) { inp.remove(); return; }
         // Конфиг весит килобайты — отсекаем заведомо чужие/огромные файлы до чтения в память.
-        if (f.size > 256 * 1024) { toast("Файл слишком большой (>256 КБ)", false); inp.remove(); return; }
+        if (f.size > 256 * 1024) { toast(t("Файл слишком большой (>256 КБ)"), false); inp.remove(); return; }
         var rd = new FileReader();
         rd.onload = function () {
             try {
@@ -81,14 +81,14 @@ function importCfg() {
                 // всегда заблокированы (mergeForeign выключил «Разрешить сетевые картинки»),
                 // но пользователь должен знать, что кто-то пытался увести редактор в сеть.
                 if (remote > 0) {
-                    toast("Импортировано. Заблокировано " + remote + " сетевых ссылок на картинки — редактор в сеть не пойдёт. Сетевые картинки остаются выключены; включи их вручную, только если доверяешь источнику.", false);
+                    toast(t("Импортировано. Заблокировано ") + remote + t(" сетевых ссылок на картинки — редактор в сеть не пойдёт. Сетевые картинки остаются выключены; включи их вручную, только если доверяешь источнику."), false);
                 } else {
-                    toast("Настройки импортированы");
+                    toast(t("Настройки импортированы"));
                 }
-            } catch (e) { toast("Ошибка: файл не читается как JSON", false); }
+            } catch (e) { toast(t("Ошибка: файл не читается как JSON"), false); }
             inp.remove();
         };
-        rd.onerror = function () { toast("Не удалось прочитать файл", false); inp.remove(); };
+        rd.onerror = function () { toast(t("Не удалось прочитать файл"), false); inp.remove(); };
         rd.readAsText(f);
     });
     document.body.appendChild(inp); inp.click();
@@ -116,21 +116,21 @@ function makePresetsUI() {
     // строка сохранения текущего вида под именем
     var saveRow = el("div", "display:flex; gap:6px; align-items:center; padding:2px 2px;");
     var ip = el("input", fieldStyle(" padding:4px 6px;"));
-    ip.type = "text"; ip.maxLength = 40; ip.placeholder = "Имя пресета";
-    var saveB = el("div", "flex:0 0 auto; padding:5px 10px; border-radius:7px; cursor:pointer; font-weight:600; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.16); border:1px solid rgba(var(--mlbg-accent-rgb),0.32);", "Сохранить");
+    ip.type = "text"; ip.maxLength = 40; ip.placeholder = t("Имя пресета");
+    var saveB = el("div", "flex:0 0 auto; padding:5px 10px; border-radius:7px; cursor:pointer; font-weight:600; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.16); border:1px solid rgba(var(--mlbg-accent-rgb),0.32);", t("Сохранить"));
     function doSave() {
         var name = ip.value.trim().slice(0, 40);
-        if (!name) { toast("Введите имя пресета", false); return; }
+        if (!name) { toast(t("Введите имя пресета"), false); return; }
         var cur = loadPresets();
-        if (!(name in cur) && Object.keys(cur).length >= PRESETS_MAX) { toast("Слишком много пресетов (макс. " + PRESETS_MAX + ")", false); return; }
+        if (!(name in cur) && Object.keys(cur).length >= PRESETS_MAX) { toast(t("Слишком много пресетов (макс. ") + PRESETS_MAX + ")", false); return; }
         var snap = clone(cfg); delete snap.ui; // положение/свёрнутость панели не входят в пресет
         cur[name] = snap; savePresets(cur);
         ip.value = "";
-        toast("Пресет «" + name + "» сохранён");
+        toast(t("Пресет «") + name + t("» сохранён"));
         refreshPanel();
     }
     saveB.addEventListener("click", doSave);
-    keyActivate(saveB, "Сохранить пресет");
+    keyActivate(saveB, t("Сохранить пресет"));
     ip.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); doSave(); } });
     saveRow.appendChild(ip); saveRow.appendChild(saveB);
     var sd = infoDot(INFO.presets); if (sd) saveRow.appendChild(sd);
@@ -139,7 +139,7 @@ function makePresetsUI() {
     // список сохранённых пресетов: клик по строке — применить, «×» — удалить
     var presets = loadPresets(), names = Object.keys(presets);
     if (!names.length) {
-        box.appendChild(el("div", "padding:6px 3px 2px; color:var(--mlp-faint,#6c7086); font-size:11px;", "Пресетов пока нет — сохрани текущий вид под именем."));
+        box.appendChild(el("div", "padding:6px 3px 2px; color:var(--mlp-faint,#6c7086); font-size:11px;", t("Пресетов пока нет — сохрани текущий вид под именем.")));
     } else {
         var list = el("div", "display:flex; flex-direction:column; gap:4px; margin-top:6px;");
         names.forEach(function (name) {
@@ -148,7 +148,7 @@ function makePresetsUI() {
             row.addEventListener("mouseleave", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.08)"; });
             row.appendChild(el("div", "flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--mlp-fg,#cdd6f4);", name));
             var del = el("div", "flex:0 0 auto; width:18px; height:18px; line-height:16px; text-align:center; border-radius:5px; color:var(--mlp-muted,#a6adc8);", "×");
-            del.title = "Удалить пресет";
+            del.title = t("Удалить пресет");
             row.appendChild(del);
             row.addEventListener("click", function (e) {
                 if (del.contains(e.target)) return; // клик по «×» обрабатывается отдельно
@@ -160,20 +160,60 @@ function makePresetsUI() {
                 if (typeof cur[name].mode === "string" && /^\d+$/.test(cur[name].mode) && parseInt(cur[name].mode, 10) < SETS.length) cfg.mode = cur[name].mode;
                 sessionRandomIndex = null;          // random переберётся под новый конфиг
                 apply(); refreshPanel();
-                toast("Пресет «" + name + "» применён");
+                toast(t("Пресет «") + name + t("» применён"));
             });
-            keyActivate(row, "Применить пресет " + name);
+            keyActivate(row, t("Применить пресет ") + name);
             del.addEventListener("click", function (e) {
                 e.stopPropagation();
                 var cur = loadPresets(); delete cur[name]; savePresets(cur);
-                toast("Пресет «" + name + "» удалён");
+                toast(t("Пресет «") + name + t("» удалён"));
                 refreshPanel();
             });
-            keyActivate(del, "Удалить пресет " + name);
+            keyActivate(del, t("Удалить пресет ") + name);
             list.appendChild(row);
         });
         box.appendChild(list);
     }
+    return box;
+}
+
+// ===== Профили быстрого старта (улучшение 10) =====
+// Накладывает patch профиля (PROFILES из config.js) ПОВЕРХ текущего конфига: трогает только
+// внешний вид, а выбранный набор/картинки/привязки/язык сохраняются. Идёт через backupCfg
+// (можно откатить «Восстановить») и mergeCfg (санитизация после наложения).
+function applyProfile(id) {
+    var p = profileById(id); if (!p) { toast(t("Не удалось создать набор"), false); return; }
+    backupCfg();                       // текущий вид -> резерв (профиль можно откатить)
+    var raw = clone(cfg);              // стартуем от текущего конфига — сохраняем набор/картинки/язык/ui
+    var patch = p.patch, k;
+    for (k in patch) {
+        if (!patch.hasOwnProperty(k)) continue;
+        if ((k === "fx" || k === "fxp" || k === "baseOp") && raw[k] && typeof raw[k] === "object") {
+            for (var kk in patch[k]) if (patch[k].hasOwnProperty(kk)) raw[k][kk] = patch[k][kk]; // слить по полям
+        } else raw[k] = patch[k];
+    }
+    cfg = mergeCfg(raw);               // санитизация после наложения (в т.ч. clamp яркостей/сил)
+    syncGenSets();                     // ген-наборы текущего конфига остаются в хвосте SETS
+    apply(); refreshPanel();
+    toast(t("Профиль применён: ") + t(p.name));
+}
+// UI секции «Профили»: пять карточек-кнопок с названием и коротким описанием. Клик — применить.
+function makeProfilesUI() {
+    var box = el("div", null);
+    box.appendChild(el("div", "padding:2px 3px 6px; color:var(--mlp-faint,#6c7086); font-size:11px;",
+        t("Выбери готовый профиль — он настроит вид целиком. Потом всё можно поправить вручную.")));
+    var list = el("div", "display:flex; flex-direction:column; gap:5px;");
+    PROFILES.forEach(function (p) {
+        var row = el("div", "padding:7px 9px; border-radius:8px; cursor:pointer; background:rgba(var(--mlbg-accent-rgb),0.08); border:1px solid var(--mlp-border-faint,rgba(205,214,244,0.12));");
+        row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.16)"; });
+        row.addEventListener("mouseleave", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.08)"; });
+        row.appendChild(el("div", "font-weight:600; color:var(--mlp-fg,#cdd6f4); margin-bottom:2px;", t(p.name)));
+        row.appendChild(el("div", "font-size:10.5px; line-height:1.4; color:var(--mlp-muted,#a6adc8);", t(p.desc)));
+        row.addEventListener("click", function () { applyProfile(p.id); });
+        keyActivate(row, t("Применить профиль") + ": " + t(p.name));
+        list.appendChild(row);
+    });
+    box.appendChild(list);
     return box;
 }
 
@@ -182,11 +222,11 @@ function makePresetsUI() {
 // работает как переключатель между «до» и «после» (нажал не туда — нажми ещё раз).
 function restoreBackup() {
     var b = readBackup();
-    if (!b) { toast("Резерва нет", false); return; }
+    if (!b) { toast(t("Резерва нет"), false); return; }
     backupCfg();                 // текущее -> резерв (обратный откат тем же действием)
     cfg = b; syncGenSets(); sessionRandomIndex = null; // хвост SETS под ген-наборы восстановленного конфига
     apply(); refreshPanel();
-    toast("Восстановлены прежние настройки");
+    toast(t("Восстановлены прежние настройки"));
 }
 
 // ===== Шаринг образа коротким кодом =====
@@ -216,7 +256,7 @@ function shareDecode(code) {
 }
 function applyShareCode(code) {
     var o = shareDecode(code);
-    if (!o) { toast("Код не распознан", false); return false; }
+    if (!o) { toast(t("Код не распознан"), false); return false; }
     backupCfg(); // текущее -> резерв (применение чужого кода можно откатить)
     var keep = {}; for (var i = 0; i < SHARE_KEEP.length; i++) keep[SHARE_KEEP[i]] = cfg[SHARE_KEEP[i]];
     cfg = mergeCfg(o); // санитизация всего содержимого кода
@@ -224,7 +264,7 @@ function applyShareCode(code) {
     syncGenSets(); // хвост SETS под сохранённые ген-наборы (genSets вернулись из keep); заодно зажмёт mode на чужой ген-индекс
     sessionRandomIndex = null;
     apply(); refreshPanel();
-    toast("Образ применён из кода");
+    toast(t("Образ применён из кода"));
     return true;
 }
 
@@ -235,20 +275,57 @@ function makeShareUI() {
     copyB.style.marginBottom = "6px";
     copyB.addEventListener("click", function () {
         var code = shareEncode();
-        toast(code && copyText(code) ? "Код образа скопирован в буфер" : "Не удалось сформировать код", !!code);
+        toast(code && copyText(code) ? t("Код образа скопирован в буфер") : t("Не удалось сформировать код"), !!code);
     });
     box.appendChild(copyB);
     var row = el("div", ST.row);
     var ip = el("input", fieldStyle(" padding:3px 6px; font-size:11px;"));
-    ip.type = "text"; ip.placeholder = "Вставь код образа"; ip.maxLength = 8192;
-    var applyB = el("div", "flex:0 0 auto; padding:5px 10px; border-radius:7px; cursor:pointer; font-weight:600; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.16); border:1px solid rgba(var(--mlbg-accent-rgb),0.32);", "Применить");
+    ip.type = "text"; ip.placeholder = t("Вставь код образа"); ip.maxLength = 8192;
+    var applyB = el("div", "flex:0 0 auto; padding:5px 10px; border-radius:7px; cursor:pointer; font-weight:600; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.16); border:1px solid rgba(var(--mlbg-accent-rgb),0.32);", t("Применить"));
     function doApply() { if (applyShareCode(ip.value)) ip.value = ""; }
     applyB.addEventListener("click", doApply);
-    keyActivate(applyB, "Применить код образа");
+    keyActivate(applyB, t("Применить код образа"));
     ip.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); doApply(); } });
     row.appendChild(ip); row.appendChild(applyB);
     var d = infoDot(INFO.share_code); if (d) row.appendChild(d);
     box.appendChild(row);
+    return box;
+}
+
+// ===== Синхронизация через settings.json (улучшение 5) =====
+// custom-bg.js хранит конфиг в localStorage конкретной машины — он не переносится и не едет
+// через Settings Sync. Мост: компаньон-расширение читает объект-настройку moonlightBg.config
+// из settings.json (а он синхронизируется) и прокидывает его сюда как window.__MLBG_SEED__.
+// На новой машине с пустым localStorage этот seed становится отправным конфигом (см. loadCfg).
+// Здесь — две ручные операции: скопировать текущий вид как строку для settings.json и
+// подтянуть синхронизированный образ на эту машину поверх текущего.
+function copyConfigForSettings() {
+    // Готовая строка для settings.json: ключ + компактный объект конфига. allowRemoteImages и
+    // машинно-зависимые пути тоже попадут — это осознанный «полный образ» для своих машин.
+    var snippet = '"moonlightBg.config": ' + JSON.stringify(cfg);
+    var okc = copyText(snippet);
+    toast(okc ? t("Скопировано для settings.json") : t("Не удалось скопировать"), okc);
+}
+function applySeed() {
+    var o = seedConfig();
+    if (!o) { toast(t("Базовый конфиг из settings.json не найден (нужно расширение-компаньон)"), false); return; }
+    backupCfg(); // текущее -> резерв (загрузку базы можно откатить)
+    var keep = {}; for (var i = 0; i < SHARE_KEEP.length; i++) keep[SHARE_KEEP[i]] = cfg[SHARE_KEEP[i]];
+    cfg = mergeCfg(o);
+    for (var j = 0; j < SHARE_KEEP.length; j++) cfg[SHARE_KEEP[j]] = keep[SHARE_KEEP[j]]; // машинно-зависимое оставляем своё
+    syncGenSets(); sessionRandomIndex = null;
+    apply(); refreshPanel();
+    toast(t("Загружено из settings.json"));
+}
+function makeSyncUI() {
+    var box = el("div", null);
+    var copyB = makeIoBtn("Скопировать для settings.json");
+    copyB.style.marginBottom = "6px";
+    copyB.addEventListener("click", copyConfigForSettings);
+    box.appendChild(copyB);
+    var loadB = makeIoBtn("Загрузить базу из settings.json");
+    loadB.addEventListener("click", applySeed);
+    box.appendChild(loadB);
     return box;
 }
 
@@ -509,8 +586,8 @@ function buildColorTheme(idx) {
 // Экспорт темы активного набора: скачать color-theme.json + положить в буфер (как exportCfg).
 function exportTheme() {
     var idx = activeIndex();
-    var t = buildColorTheme(idx);
-    var json = JSON.stringify(t.obj, null, 2);
+    var th = buildColorTheme(idx); // не «t»: имя t занято функцией перевода (i18n)
+    var json = JSON.stringify(th.obj, null, 2);
     var fname = "moonlight-" + (_slug(setName(idx)) || ("set-" + idx)) + "-color-theme.json";
     var saved = false;
     try {
@@ -522,8 +599,8 @@ function exportTheme() {
         saved = true;
     } catch (e) {}
     var copied = copyText(json);
-    toast(saved && copied ? "Тема «" + t.name + "» сохранена в файл + в буфере"
-        : saved ? "Тема сохранена в файл" : copied ? "Тема скопирована в буфер" : "Не удалось выгрузить тему", (saved || copied));
+    toast(saved && copied ? (t("Тема «") + th.name + t("» сохранена в файл + в буфере"))
+        : saved ? t("Тема сохранена в файл") : copied ? t("Тема скопирована в буфер") : t("Не удалось выгрузить тему"), (saved || copied));
 }
 
 // Секция «Экспорт темы»: одна кнопка — тема активного набора. Имя набора показываем,
@@ -531,7 +608,7 @@ function exportTheme() {
 function makeThemeExportUI() {
     var box = el("div", null);
     box.appendChild(el("div", "padding:2px 3px 6px; font-size:11px; color:var(--mlp-muted,#a6adc8);",
-        "Тема соберётся из палитры активного набора: «" + (setName(activeIndex()) || "?") + "»."));
+        t("Тема соберётся из палитры активного набора: ") + "«" + (setName(activeIndex()) || "?") + "»"));
     var row = el("div", "display:flex; align-items:center; gap:8px;");
     var b = makeIoBtn("Экспорт VS Code-темы");
     b.addEventListener("click", function () { exportTheme(); });
@@ -582,16 +659,16 @@ function _histApply(json) {
 }
 function undo() {
     if (_histTimer) commitHistory();          // зафиксировать «осевшее» изменение перед отменой
-    if (!_histUndo.length) { toast("Нечего отменять", false); return; }
+    if (!_histUndo.length) { toast(t("Нечего отменять"), false); return; }
     _histRedo.push(_histLast);
     _histApply(_histUndo.pop());
-    toast("Отменено");
+    toast(t("Отменено"));
 }
 function redo() {
-    if (!_histRedo.length) { toast("Нечего повторить", false); return; }
+    if (!_histRedo.length) { toast(t("Нечего повторить"), false); return; }
     _histUndo.push(_histLast);
     _histApply(_histRedo.pop());
-    toast("Повторено");
+    toast(t("Повторено"));
 }
 // Кнопки «Отменить / Повторить» для вкладки «Система». Всегда активны: если стек пуст,
 // действие мягко сообщает тостом (проще, чем держать их вид в актуальном состоянии без
@@ -620,27 +697,38 @@ function _zoneDiag(idx, zone) {
 }
 function diagnostics() {
     var idx = activeIndex(), lines = [], bad = 0;
-    function add(k, v) { lines.push(k + ": " + v); }
+    function add(k, v) { lines.push(t(k) + ": " + v); }
     add("Версия", APP_VERSION + " (схема конфига v" + CFG_VERSION + ")");
     add("Тема", themeKind());
-    add("Фон включён", cfg.enabled ? "да" : "нет (мастер-выключатель)");
-    add("Активный набор", idx + " · " + (setName(idx) || "?") + (isProcSet(idx) ? " (процедурный)" : isGradSet(idx) ? " (градиент)" : " (фото)"));
+    add("Язык интерфейса", uiLang() + (cfg.lang === "auto" ? "  [авто]" : "  [" + cfg.lang + "]"));
+    add("Фон включён", cfg.enabled ? t("да") : t("нет (мастер-выключатель)"));
+    add("Активный набор", idx + " · " + (setName(idx) || "?") + (isProcSet(idx) ? " (проц.)" : isGradSet(idx) ? " (град.)" : " (фото)"));
     var base = imgBase();
     add("Папка картинок", (base || "(путь не определён)") + (cfg.imgBase ? "  [задана вручную]" : "  [авто]"));
-    add("Сетевые картинки", cfg.allowRemoteImages ? "разрешены" : "выключены");
+    add("Сетевые картинки", cfg.allowRemoteImages ? t("разрешены") : t("выключены"));
     var styleFound = !!document.getElementById(STYLE_ID);
-    add("Стиль в DOM", styleFound ? "найден (custom-css активен)" : "НЕ найден");
+    add("Стиль в DOM", styleFound ? t("найден (custom-css активен)") : t("НЕ найден"));
     if (!styleFound) bad++;
-    add("Кнопка BG", document.getElementById(SB_ID) ? "найдена" : "нет (статусбар ещё не готов?)");
+    add("Кнопка BG", document.getElementById(SB_ID) ? t("найдена") : t("нет (статусбар ещё не готов?)"));
     ["editor", "sidebar", "panel"].forEach(function (z, i) {
         var r = _zoneDiag(idx, z);
         if (r.bad) bad++;
-        add("Картинка · " + ["редактор", "сайдбар", "панель"][i], r.s);
+        lines.push(t("Картинка · ") + t(["редактор", "сайдбар", "панель"][i]) + ": " + r.s);
     });
     add("Всего наборов", SETS.length + (SETS_DROPPED > 0 ? "  (отброшено битых: " + SETS_DROPPED + " — проверь правки SETS)" : ""));
+    // «Здоровье» DOM-скрейпинга (git-ветка / счётчик ошибок / имя проекта): если селектор под
+    // текущую версию VS Code перестал находиться, показываем это явно — вместо тихой поломки.
+    // scrapeHealth живёт в scrape.js (typeof-страховка на случай сборки без модуля).
+    if (typeof scrapeHealth === "function") {
+        var health = scrapeHealth();
+        health.forEach(function (h) {
+            if (!h.ok) bad++;
+            lines.push(t("Чтение из DOM · ") + t(h.name) + ": " + (h.ok ? "" : t("СБОЙ") + " · ") + t(h.note));
+        });
+    }
     // Подсказка, если картинки набора не грузятся — почти всегда виноват путь.
     if (bad && styleFound) lines.push("", "Похоже, картинки набора не находятся. Проверь «Папка плагина» ниже: путь должен вести к папке с assets/. После правки фон появляется сразу.");
-    return { lines: lines, ok: bad === 0, text: "MoonLight custom-bg — диагностика\n" + lines.join("\n") };
+    return { lines: lines, ok: bad === 0, text: t("MoonLight custom-bg — диагностика") + "\n" + lines.join("\n") };
 }
 // UI секции «Диагностика»: кнопка «Проверить» заполняет блок-отчёт и копирует его в буфер
 // (удобно вложить в issue). Отчёт остаётся на экране, чтобы прочитать без буфера обмена.
@@ -654,8 +742,8 @@ function makeDiagnosticsUI() {
         var d = diagnostics();
         out.textContent = d.text; out.hidden = false;
         var copied = copyText(d.text);
-        toast(d.ok ? (copied ? "Всё в порядке · отчёт скопирован" : "Всё в порядке")
-                   : "Есть проблемы · отчёт скопирован для issue", d.ok);
+        toast(d.ok ? (copied ? t("Всё в порядке · отчёт скопирован") : t("Всё в порядке"))
+                   : t("Есть проблемы · отчёт скопирован для issue"), d.ok);
     });
     box.appendChild(runB); box.appendChild(out);
     return box;
@@ -663,10 +751,10 @@ function makeDiagnosticsUI() {
 
 // Кнопка экспорта/импорта (одинаковый вид, разный обработчик навешивается снаружи).
 function makeIoBtn(text) {
-    var b = el("div", "flex:1 1 0; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", text);
+    var b = el("div", "flex:1 1 0; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", t(text));
     b.addEventListener("mouseenter", function () { b.style.background = "rgba(137,180,250,0.26)"; });
     b.addEventListener("mouseleave", function () { b.style.background = "rgba(137,180,250,0.14)"; });
-    keyActivate(b, text);
+    keyActivate(b, t(text));
     return b;
 }
 

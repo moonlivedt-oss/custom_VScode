@@ -4,17 +4,35 @@
 `custom-bg.js` в `vscode_custom_css.imports` и предлагает включить Custom CSS.
 
 > Это **заготовка** (v0.1.0), а не опубликованное расширение. Сам фон рисует
-> [`be5invis.vscode-custom-css`](https://marketplace.visualstudio.com/items?itemName=be5invis.vscode-custom-css)
-> — оно указано в `extensionDependencies` и ставится вместе с этим расширением.
+> [`be5invis.vscode-custom-css`](https://marketplace.visualstudio.com/items?itemName=be5invis.vscode-custom-css).
+> Раньше оно было жёсткой `extensionDependencies`; теперь зависимость **мягкая** — расширение
+> ставится и в браузерном VS Code (где custom-css нет), а на десктопе `be5invis` предлагается
+> поставить через health-check (см. ниже), если его ещё нет.
 
 ## Что делает
 - Команда **«MoonLight BG: прописать импорт в настройки»** (`moonlightBg.setup`) — добавляет
   `file:///…/custom-bg.js` в `vscode_custom_css.imports` (глобально) и предлагает вызвать
   включение Custom CSS.
-- Команда **«MoonLight BG: убрать импорт из настроек»** (`moonlightBg.remove`) — обратное.
+- Команда **«MoonLight BG: убрать импорт из настроек»** (`moonlightBg.remove`) — обратное
+  (заодно чистит seed-файл синхронизации).
+- Команда **«MoonLight BG: проверить состояние установки»** (`moonlightBg.health`) — отчёт о
+  состоянии (стоит ли `be5invis`, прописан ли импорт, на месте ли `custom-bg.js`, не обновлялся
+  ли VS Code) с кнопками-действиями. После обновления VS Code (инжект слетает) подсказка о
+  перевключении показывается автоматически, один раз на версию.
 - На первом запуске настройка предлагается автоматически (один раз, помечается в `globalState`).
+- **Синхронизация через `settings.json`** — настройка `moonlightBg.config` (объект) едет с
+  Settings Sync; расширение прокидывает её в `custom-bg.js` как базовый конфиг для новых машин
+  (см. «Синхронизация» в панели плагина).
 - **Поставляет цветовые темы** «MoonLight <набор>» (по одной на каждый встроенный набор) —
-  см. ниже.
+  работают и в вебе (см. ниже).
+
+## Веб / Codespaces (vscode.dev, github.dev, Codespaces)
+Кастомный **фон** в браузерном VS Code **невозможен** — `be5invis.vscode-custom-css` патчит
+файлы редактора, а в вебе их патчить нельзя. Но **темы MoonLight работают и там**: у расширения
+есть веб-точка входа (`extension-web.js`, поле `browser` в манифесте), поэтому его
+`contributes.themes` доступны в vscode.dev/Codespaces. Открой палитру → **Color Theme** →
+любая «MoonLight …». Команда **«MoonLight BG: про веб-режим»** (`moonlightBg.webInfo`) поясняет
+это прямо в редакторе.
 
 ## Цветовые темы (`contributes.themes`)
 Помимо фона расширение регистрирует **настоящие темы VS Code** — палитра интерфейса + подсветка

@@ -12,3 +12,12 @@ desktop.ini
 
 # Node (на случай, если появятся зависимости)
 node_modules/
+
+# Минифицированная сборка (генерируется `npm run build:min`, в репозиторий не коммитим)
+custom-bg.min.js
+
+# Playwright (интеграционный тест, улучшение 7)
+test-results/
+playwright-report/
+.playwright/
+blob-report/

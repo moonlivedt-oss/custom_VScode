@@ -16,12 +16,11 @@ function heal() {
 // включает CSS-подсветку статусбара (buildCSS, блок errorReact).
 function problemsCount() {
     try {
-        var wb = document.querySelector(".monaco-workbench"); if (!wb) return 0;
-        var ico = wb.querySelector(".statusbar-item .codicon-error");
-        if (!ico) return 0;
-        var item = ico.closest ? ico.closest(".statusbar-item") : null;
-        var txt = ((item && item.textContent) || "").replace(/\s+/g, " ");
+        // Чтение статусбара вынесено в scrapeStatusItem (scrape.js) + учёт «здоровья»
+        // селектора: если у нового VS Code иконка ошибок переедет, диагностика это покажет.
+        var txt = scrapeStatusItem("codicon-error").replace(/\s+/g, " ");
         var m = txt.match(/\d+/); // первое число у иконки ошибок = количество ошибок
+        scrapeMark("problems", !!txt); // «нашли элемент», даже если ошибок 0 (сам виджет на месте)
         return m ? parseInt(m[0], 10) : 0;
     } catch (e) { return 0; }
 }
@@ -80,7 +79,7 @@ function cycleSet(dir) {
     cfg.mode = String(next); // из «случайно» — переходим на конкретный набор
     applyFade();
     if (document.getElementById(PANEL_ID)) refreshPanel();
-    try { toast("Набор " + next + (setName(next) ? " · " + setName(next) : "")); } catch (e) {}
+    try { toast(t("Набор ") + next + (setName(next) ? " · " + setName(next) : "")); } catch (e) {}
 }
 function onHotkey(e) {
     try {
@@ -91,13 +90,13 @@ function onHotkey(e) {
         else if (e.code === "Digit0" || e.code === "Numpad0") { // мастер-выключатель фона
             e.preventDefault();
             cfg.enabled = !cfg.enabled; apply();
-            try { toast(cfg.enabled ? "Фон включён" : "Фон выключен"); } catch (er) {}
+            try { toast(cfg.enabled ? t("Фон включён") : t("Фон выключен")); } catch (er) {}
             if (document.getElementById(PANEL_ID)) refreshPanel();
         }
         else if (e.code === "KeyR") { // режим чтения: фон редактора почти гаснет ради читаемости кода
             e.preventDefault();
             cfg.fx.reading = !cfg.fx.reading; apply();
-            try { toast(cfg.fx.reading ? "Режим чтения включён" : "Режим чтения выключен"); } catch (er) {}
+            try { toast(cfg.fx.reading ? t("Режим чтения включён") : t("Режим чтения выключен")); } catch (er) {}
             if (document.getElementById(PANEL_ID)) refreshPanel();
         }
         else if (e.code === "KeyZ") { e.preventDefault(); try { undo(); } catch (er) {} } // отменить изменение вида
@@ -172,12 +171,11 @@ document.addEventListener("mousemove", onMouseFx, true);
 var BRANCH_ID = "moonlight-branch";
 function gitBranch() {
     try {
-        var wb = document.querySelector(".monaco-workbench"); if (!wb) return "";
-        var ico = wb.querySelector(".statusbar-item .codicon-git-branch");
-        if (!ico) return "";
-        var item = ico.closest ? ico.closest(".statusbar-item") : null;
-        var txt = (item && item.textContent) || "";
-        return txt.replace(/\s+/g, " ").trim().slice(0, 80);
+        // Имя ветки берём из статусбара через общий scrapeStatusItem + учёт «здоровья»:
+        // если git-виджет статусбара сменит разметку в новой версии, это всплывёт в диагностике.
+        var txt = scrapeStatusItem("codicon-git-branch").replace(/\s+/g, " ").trim().slice(0, 80);
+        scrapeMark("gitBranch", !!txt);
+        return txt;
     } catch (e) { return ""; }
 }
 function ensureBranchStrip() {
@@ -230,4 +228,20 @@ try {
 } catch (e) {}
 heal();
 
-console.log("[MoonLight custom-bg] " + APP_VERSION + " installed (tabbed panel: Набор/Вид/Терминал/Система; v18 fx: aurora living background, cursor spotlight, typing pulse + particle styles firefly/rain/confetti + particle perf: in-place recycle, no per-particle save/restore for round styles), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "particles:", cfg.partStyle, "theme:", themeKind());
+// ===== Онбординг первого запуска (улучшение 10) =====
+// Один раз (флаг в localStorage) мягко подсказываем, как открыть панель и что есть готовые
+// профили — иначе три десятка эффектов встречают новичка стеной. Показываем с задержкой,
+// чтобы UI VS Code успел собраться (и наш тост не потерялся среди стартовой возни).
+var ONBOARD_KEY = "moonlight-bg-onboarded";
+try {
+    var _seen = false;
+    try { _seen = !!localStorage.getItem(ONBOARD_KEY); } catch (e) {}
+    if (!_seen) {
+        try { localStorage.setItem(ONBOARD_KEY, "1"); } catch (e) {}
+        setTimeout(function () {
+            try { if (!document.hidden) toast(t("MoonLight BG: открой панель кнопкой BG в статусбаре (Ctrl+Alt+B) и выбери профиль в «Система → Профили».")); } catch (e) {}
+        }, 4000);
+    }
+} catch (e) {}
+
+console.log("[MoonLight custom-bg] " + APP_VERSION + " installed (tabbed panel: Набор/Вид/Терминал/Система/Данные; v19: i18n RU/EN, quick-start profiles, FPS auto-budget, settings.json sync, DOM-scrape health, refined tooltips), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "particles:", cfg.partStyle, "lang:", uiLang(), "theme:", themeKind());

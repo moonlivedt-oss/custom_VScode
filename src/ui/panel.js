@@ -51,7 +51,7 @@ function buildEffectsSection(secFx) {
     var onlyOn = fxOnlyOn; // восстановить состояние фильтра, переживающее refreshPanel
     var fxHead = el("div", "display:flex; align-items:center; gap:8px; margin-bottom:5px;");
     var fxCount = el("span", "flex:0 0 auto; font-size:11px; color:var(--mlp-muted,#a6adc8);", "");
-    var onlyBtn = el("div", "flex:0 0 auto; margin-left:auto; padding:3px 9px; border-radius:6px; cursor:pointer; font-size:11px;", "только включённые");
+    var onlyBtn = el("div", "flex:0 0 auto; margin-left:auto; padding:3px 9px; border-radius:6px; cursor:pointer; font-size:11px;", t("только включённые"));
     function styleOnlyBtn() {
         onlyBtn.style.color = onlyOn ? "var(--mlbg-accent)" : "var(--mlp-muted,#a6adc8)";
         onlyBtn.style.background = onlyOn ? "rgba(var(--mlbg-accent-rgb),0.18)" : "rgba(var(--mlbg-accent-rgb),0.06)";
@@ -61,10 +61,10 @@ function buildEffectsSection(secFx) {
     fxHead.appendChild(fxCount); fxHead.appendChild(onlyBtn);
 
     var fxSearch = el("input", fieldStyle(" padding:4px 7px; font-size:11px; margin-bottom:5px;"));
-    fxSearch.type = "text"; fxSearch.placeholder = "Фильтр эффектов…"; fxSearch.setAttribute("aria-label", "Фильтр эффектов по названию");
+    fxSearch.type = "text"; fxSearch.placeholder = t("Фильтр эффектов…"); fxSearch.setAttribute("aria-label", t("Фильтр эффектов…"));
     fxSearch.value = fxFilterQ; // восстановить набранный фильтр после пересборки панели
     var grid = el("div", "display:grid; grid-template-columns:1fr 1fr; gap:1px 10px;");
-    var fxEmpty = el("div", "padding:6px 3px; font-size:11px; color:var(--mlp-faint,#6c7086);", "Ничего не найдено.");
+    var fxEmpty = el("div", "padding:6px 3px; font-size:11px; color:var(--mlp-faint,#6c7086);", t("Ничего не найдено."));
     fxEmpty.hidden = true;
     var fxRows = FX_LIST.map(function (o) {
         var node = makeCheck(o[0], o[1]); grid.appendChild(node);
@@ -72,7 +72,7 @@ function buildEffectsSection(secFx) {
         // и (если активен «только включённые») перефильтровываем — без пересборки панели.
         var cb = node.querySelector ? node.querySelector("input") : null;
         if (cb) cb.addEventListener("change", function () { updateFxView(); });
-        return { node: node, key: o[0], label: o[1].toLowerCase() };
+        return { node: node, key: o[0], label: t(o[1]).toLowerCase() };
     });
     function updateFxView() {
         fxFilterQ = fxSearch.value || ""; // запомнить фильтр на время сессии (переживёт refresh)
@@ -82,7 +82,7 @@ function buildEffectsSection(secFx) {
             var hide = (q && r.label.indexOf(q) < 0) || (onlyOn && !isOn);
             r.node.hidden = hide; if (!hide) shown++;
         });
-        fxCount.textContent = "Включено: " + on + " / " + fxRows.length;
+        fxCount.textContent = t("Включено: ") + on + " / " + fxRows.length;
         fxEmpty.hidden = shown > 0;
     }
     fxSearch.addEventListener("input", updateFxView);
@@ -97,7 +97,7 @@ function buildEffectsSection(secFx) {
     // Числовая «сила» эффектов — под тумблерами. Параметры, зависящие от выключенного
     // эффекта, не показываем: «Частиц» — только когда включены «Частицы», «Помидор, мин» —
     // когда включён «Помидор» (тумблеры particles/pomodoro пересобирают панель, см. makeCheck).
-    secFx.appendChild(el("div", "margin-top:8px; padding:3px 3px 1px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--mlp-head,#bac2de);", "Сила"));
+    secFx.appendChild(el("div", "margin-top:8px; padding:3px 3px 1px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--mlp-head,#bac2de);", t("Сила")));
     PARAMS.forEach(function (d) {
         if (d[0] === "partCount" && !cfg.fx.particles) return;
         if (d[0] === "pomoMin" && !cfg.fx.pomodoro) return;
@@ -107,6 +107,7 @@ function buildEffectsSection(secFx) {
         secFx.appendChild(makeParamSlider(d));
     });
     if (cfg.fx.particles) secFx.appendChild(makePartStyleSelect()); // форма частиц — только когда частицы включены
+    secFx.appendChild(makePerfGuardToggle()); // авто-приглушение тяжёлых эффектов при низком FPS
 }
 
 function togglePanel(ev) {
@@ -159,15 +160,15 @@ function togglePanel(ev) {
 
     // Заголовок = ручка перетаскивания
     var head = el("div", "display:flex; align-items:center; justify-content:space-between; cursor:move; user-select:none; padding:2px 2px 7px;");
-    head.appendChild(el("div", "font-weight:700; font-size:13px; letter-spacing:0.3px;", "⠿  Фон и дизайн"));
+    head.appendChild(el("div", "font-weight:700; font-size:13px; letter-spacing:0.3px;", t("⠿  Фон и дизайн")));
     var hr = el("div", "display:flex; align-items:center; gap:5px;");
-    var infoAll = infoDot("Перетаскивай окно за заголовок. Секции сворачиваются кликом по названию. У настроек «?» — клик показывает пояснение. Положение и свёрнутость запоминаются.");
+    var infoAll = infoDot(t("Перетаскивай окно за заголовок. Секции сворачиваются кликом по названию. У настроек «?» — клик показывает пояснение. Положение и свёрнутость запоминаются."));
     if (infoAll) hr.appendChild(infoAll);
     var close = el("div", "flex:0 0 auto; width:20px; height:20px; line-height:18px; text-align:center; border-radius:6px; cursor:pointer; color:var(--mlp-muted,#a6adc8);", "×");
     close.addEventListener("mouseenter", function () { close.style.background = "rgba(var(--mlbg-accent-rgb),0.2)"; });
     close.addEventListener("mouseleave", function () { close.style.background = "transparent"; });
     close.addEventListener("click", function (e) { e.stopPropagation(); closePanel(); });
-    keyActivate(close, "Закрыть");
+    keyActivate(close, t("Закрыть"));
     hr.appendChild(close);
     head.appendChild(hr);
     p.appendChild(head);
@@ -205,13 +206,16 @@ function togglePanel(ev) {
     p.appendChild(makeMasterToggle());
 
     // ===== Вкладки-категории =====
-    // Панель разрослась до дюжины секций — раскладываем их по 4 категориям, чтобы
+    // Панель разрослась до дюжины секций — раскладываем их по 5 категориям, чтобы
     // одновременно была видна ТОЛЬКО одна группа (панель короче, меньше скролла).
     // Секции внутри вкладки остаются сворачиваемыми (их свёрнутость по-прежнему копится
     // в cfg.ui.collapsed по уникальным заголовкам). Активная вкладка помнится в panelTab
     // (переживает refreshPanel). Скрытые вкладки — hidden, поэтому и ловушка Tab, и стартовый
     // фокус (panelFocusables фильтрует offsetParent===null) их не видят.
-    var TABS = ["Набор", "Вид", "Терминал", "Система"];
+    // «Данные» вынесены из «Системы» отдельной вкладкой: управление образами/конфигом
+    // (профили, пресеты, синхронизация, обмен, экспорт/импорт, история, сброс) — их много,
+    // и в «Системе» они перегружали список. Теперь «Система» — только установка и справка.
+    var TABS = ["Набор", "Вид", "Терминал", "Система", "Данные"];
     // Стартовая вкладка — запомненная между сессиями (cfg.ui.tab), клампим под число вкладок.
     if (typeof cfg.ui.tab === "number") panelTab = cfg.ui.tab;
     if (panelTab < 0 || panelTab >= TABS.length) panelTab = 0;
@@ -239,9 +243,9 @@ function togglePanel(ev) {
     var tabBar = el("div",
         "display:flex; gap:3px; margin:6px 0 2px; position:sticky; top:0; z-index:3;" +
         "background:var(--mlp-bg,rgba(24,24,37,0.98));");
-    TABS.forEach(function (t, ti) {
-        var btn = el("div", null, t);
-        keyActivate(btn, "Вкладка " + t);
+    TABS.forEach(function (tabName, ti) {
+        var btn = el("div", null, t(tabName));
+        keyActivate(btn, t(tabName));
         btn.setAttribute("role", "tab");
         styleTabBtn(btn, ti === panelTab);
         btn.addEventListener("click", function () { selectTab(ti); });
@@ -257,8 +261,8 @@ function togglePanel(ev) {
     // проставляется фильтр внутри секции «Эффекты». Индекс — panelSections (наполняется ниже).
     var searchWrap = el("div", "position:relative; margin:4px 0 2px;");
     var searchInp = el("input", fieldStyle(" padding:5px 8px; font-size:11px;"));
-    searchInp.type = "text"; searchInp.placeholder = "Поиск настроек…"; searchInp.maxLength = 40;
-    searchInp.setAttribute("aria-label", "Поиск по панели настроек");
+    searchInp.type = "text"; searchInp.placeholder = t("Поиск настроек…"); searchInp.maxLength = 40;
+    searchInp.setAttribute("aria-label", t("Поиск настроек…"));
     var searchRes = el("div",
         "position:absolute; left:0; right:0; top:100%; z-index:6; margin-top:2px; max-height:240px; overflow-y:auto;" +
         "background:var(--mlp-bg,rgba(24,24,37,0.99)); border:1px solid rgba(var(--mlbg-accent-rgb),0.35); border-radius:8px;" +
@@ -291,22 +295,24 @@ function togglePanel(ev) {
         searchRes.textContent = "";
         if (!q) { searchRes.hidden = true; return; }
         var rows = [], seen = {};
-        panelSections.forEach(function (s) { // секции по названию
-            if (s.title.toLowerCase().indexOf(q) >= 0 && !seen["s:" + s.title]) {
+        panelSections.forEach(function (s) { // секции по названию (совпадение по переводу или по русскому ключу)
+            var disp = s.label || s.title;
+            if ((disp.toLowerCase().indexOf(q) >= 0 || s.title.toLowerCase().indexOf(q) >= 0) && !seen["s:" + s.title]) {
                 seen["s:" + s.title] = 1;
                 var ti = tabPanes.indexOf(s.parent);
-                rows.push({ label: s.title, sub: ti >= 0 ? TABS[ti] : "", act: (function (sec) { return function () { goSection(sec); }; })(s) });
+                rows.push({ label: disp, sub: ti >= 0 ? t(TABS[ti]) : "", act: (function (sec) { return function () { goSection(sec); }; })(s) });
             }
         });
         var fxSec = sectionByTitle("Эффекты"); // отдельные эффекты -> секция «Эффекты» с фильтром
         if (fxSec) FX_LIST.forEach(function (o) {
-            if (o[1].toLowerCase().indexOf(q) >= 0 && !seen["f:" + o[0]]) {
+            var disp = t(o[1]); // переведённое имя эффекта (для поиска и фильтра секции)
+            if ((disp.toLowerCase().indexOf(q) >= 0 || o[1].toLowerCase().indexOf(q) >= 0) && !seen["f:" + o[0]]) {
                 seen["f:" + o[0]] = 1;
-                rows.push({ label: "Эффект: " + o[1], sub: "Вид", act: (function (term) { return function () { goSection(fxSec, term); }; })(o[1].toLowerCase()) });
+                rows.push({ label: t("Эффект: ") + disp, sub: t("Вид"), act: (function (term) { return function () { goSection(fxSec, term); }; })(disp.toLowerCase()) });
             }
         });
         searchRes.hidden = false;
-        if (!rows.length) { searchRes.appendChild(el("div", "padding:7px 9px; font-size:11px; color:var(--mlp-faint,#6c7086);", "Ничего не найдено")); return; }
+        if (!rows.length) { searchRes.appendChild(el("div", "padding:7px 9px; font-size:11px; color:var(--mlp-faint,#6c7086);", t("Ничего не найдено"))); return; }
         rows.slice(0, 10).forEach(function (r) {
             var row = el("div", "display:flex; align-items:center; gap:8px; padding:6px 9px; cursor:pointer; font-size:11px;");
             row.appendChild(el("span", "flex:1 1 auto; color:var(--mlp-fg,#cdd6f4);", r.label));
@@ -327,7 +333,7 @@ function togglePanel(ev) {
 
     p.appendChild(tabBar);
     tabPanes.forEach(function (pane) { p.appendChild(pane); });
-    var tSet = tabPanes[0], tView = tabPanes[1], tTerm = tabPanes[2], tSys = tabPanes[3];
+    var tSet = tabPanes[0], tView = tabPanes[1], tTerm = tabPanes[2], tSys = tabPanes[3], tData = tabPanes[4];
 
     // ===== Вкладка «Набор»: какой фон и когда =====
     // Набор (превью-чипы)
@@ -390,12 +396,24 @@ function togglePanel(ev) {
     secTerm.appendChild(makeTermColor("cursorColor", "Курсор"));
     secTerm.appendChild(makeTermColor("selColor", "Выделение"));
 
-    // ===== Вкладка «Система»: служебное (переносимость, сохранённые образы, данные) =====
+    // ===== Вкладка «Система»: установка, диагностика, справка =====
+    // Осталась лёгкой: только то, что относится к работоспособности плагина, — а управление
+    // образами и конфигом переехало в отдельную вкладку «Данные» (ниже), чтобы «Система» не
+    // была стеной из секций и кнопок.
+    // Язык панели — самой первой строкой (высокая заметность): переключение RU/EN/Авто.
+    tSys.appendChild(makeLangSelect());
+
     // Диагностика установки — первой: если фон «не появился», сюда заглядывают в первую
     // очередь. Кнопка собирает отчёт (версия, тема, набор, пути картинок, найден ли стиль)
     // и копирует его в буфер — удобно приложить к issue. Ничего не меняет.
     var secDiag = collapsible(tSys, "Диагностика", "Проверка установки: что плагин видит о себе (версия, тема, набор, папка и загрузка картинок, активен ли custom-css). Отчёт копируется в буфер для issue. Загляни сюда, если фон не появился.");
     secDiag.appendChild(makeDiagnosticsUI());
+
+    // Папка плагина: база для картинок набора. Нужна при переносе плагина (иначе фон
+    // пропадает — плитки набора с «!»). Отдельная секция, чтобы не путать с путём картинки.
+    var secBase = collapsible(tSys, "Папка плагина", "Откуда брать картинки наборов. Меняй, если перенёс плагин и фон пропал. Пусто — путь определяется автоматически.");
+    secBase.appendChild(makeImgBaseField());
+    secBase.appendChild(makeRemoteImagesToggle());
 
     // Горячие клавиши: сами хоткеи заданы в boot.js (onHotkey) — здесь только напоминание,
     // чтобы их можно было узнать, не заглядывая в код/README. Свёрнуто по умолчанию.
@@ -411,27 +429,35 @@ function togglePanel(ev) {
     ].forEach(function (k) {
         var row = el("div", "display:flex; align-items:center; gap:8px; padding:2px 3px;");
         row.appendChild(el("kbd", "flex:0 0 92px; font-family:var(--vscode-editor-font-family,monospace); font-size:10px; text-align:center; padding:2px 4px; border-radius:5px; background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3); color:var(--mlbg-accent);", k[0]));
-        row.appendChild(el("span", "flex:1 1 auto; font-size:11px; color:var(--mlp-muted,#a6adc8);", k[1]));
+        row.appendChild(el("span", "flex:1 1 auto; font-size:11px; color:var(--mlp-muted,#a6adc8);", t(k[1])));
         secKeys.appendChild(row);
     });
 
-    // Папка плагина: база для картинок набора. Нужна при переносе плагина (иначе фон
-    // пропадает — плитки набора с «!»). Отдельная секция, чтобы не путать с путём картинки.
-    var secBase = collapsible(tSys, "Папка плагина", "Откуда брать картинки наборов. Меняй, если перенёс плагин и фон пропал. Пусто — путь определяется автоматически.");
-    secBase.appendChild(makeImgBaseField());
-    secBase.appendChild(makeRemoteImagesToggle());
+    // ===== Вкладка «Данные»: образы, обмен, конфиг =====
+    // Всё про сохранение/перенос/обмен образом вида + операции над конфигом (экспорт/импорт,
+    // история, восстановление, сброс). Вынесено из «Системы» — этих пунктов много, вместе они
+    // читаются как один смысловой блок и не мешают быстро найти диагностику/установку.
+
+    // Профили-пресеты для быстрого старта: один клик настраивает весь вид (см. онбординг).
+    var secProfiles = collapsible(tData, "Профили", "Готовые профили вида: спокойный, фокус, презентация, минимал, максимум. Один клик настраивает фон и эффекты целиком — дальше можно править вручную.");
+    secProfiles.appendChild(makeProfilesUI());
 
     // Пресеты (сохранённые образы)
-    var secPreset = collapsible(tSys, "Пресеты", "Сохранённые образы: весь вид под именем, переключение одним кликом.");
+    var secPreset = collapsible(tData, "Пресеты", "Сохранённые образы: весь вид под именем, переключение одним кликом.");
     secPreset.appendChild(makePresetsUI());
 
+    // Синхронизация через settings.json: перенос вида на другие машины (едет с Settings Sync).
+    // Требует компаньон-расширение (оно прокидывает базовый конфиг как window.__MLBG_SEED__).
+    var secSync = collapsible(tData, "Синхронизация", "Через settings.json (едет с Settings Sync). Скопируй строку и вставь её в settings.json — вид перенесётся на другие машины. «Загрузить базу» подтянет синхронизированный образ сюда.");
+    secSync.appendChild(makeSyncUI());
+
     // Поделиться образом коротким кодом (без картинок/путей)
-    var secShare = collapsible(tSys, "Поделиться", "Короткий код всего образа для обмена: скопируй свой или примени чужой. Картинки и пути не входят.");
+    var secShare = collapsible(tData, "Поделиться", "Короткий код всего образа для обмена: скопируй свой или примени чужой. Картинки и пути не входят.");
     secShare.appendChild(makeShareUI());
 
     // Экспорт цветовой темы VS Code из палитры активного набора: вид живёт и там, где
     // custom-фон недоступен (vscode.dev, SSH, Codespaces), и находится поиском тем.
-    var secTheme = collapsible(tSys, "Экспорт темы", "Собрать настоящую VS Code-тему (color-theme.json) из палитры активного набора: цвета интерфейса + подсветка синтаксиса. Работает там, где custom-фон недоступен. Как применить — в подсказке «?» рядом с кнопкой.");
+    var secTheme = collapsible(tData, "Экспорт темы", "Собрать настоящую VS Code-тему (color-theme.json) из палитры активного набора: цвета интерфейса + подсветка синтаксиса. Работает там, где custom-фон недоступен. Как применить — в подсказке «?» рядом с кнопкой.");
     secTheme.appendChild(makeThemeExportUI());
 
     // экспорт / импорт
@@ -439,26 +465,26 @@ function togglePanel(ev) {
     var expB = makeIoBtn("Экспорт"); expB.addEventListener("click", function () { exportCfg(); });
     var impB = makeIoBtn("Импорт"); impB.addEventListener("click", function () { importCfg(); });
     io.appendChild(expB); io.appendChild(impB);
-    tSys.appendChild(io);
+    tData.appendChild(io);
 
     // История изменений вида (Undo / Redo) в пределах сессии. Отдельно от авто-резерва ниже:
     // резерв — откат одной крупной замены (импорт/сброс/пресет), а история — пошаговая отмена
     // правок панели. Хоткеи: Ctrl+Alt+Z / Ctrl+Alt+Y.
-    tSys.appendChild(makeHistoryUI());
+    tData.appendChild(makeHistoryUI());
 
     // Восстановление из авто-резерва: появляется, когда резерв есть (после импорта/сброса/
     // пресета). Возвращает конфиг, бывший до последней такой замены (можно нажать повторно).
     if (hasBackup()) {
-        var restB = el("div", "margin-top:8px; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", "Восстановить прежние настройки");
+        var restB = el("div", "margin-top:8px; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", t("Восстановить прежние настройки"));
         restB.addEventListener("mouseenter", function () { restB.style.background = "rgba(137,180,250,0.26)"; });
         restB.addEventListener("mouseleave", function () { restB.style.background = "rgba(137,180,250,0.14)"; });
         restB.addEventListener("click", function () { restoreBackup(); });
-        keyActivate(restB, "Восстановить прежние настройки из резерва");
-        tSys.appendChild(restB);
+        keyActivate(restB, t("Восстановить прежние настройки из резерва"));
+        tData.appendChild(restB);
     }
 
     // сброс
-    var reset = el("div", "margin-top:8px; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", "Сбросить к дефолту");
+    var reset = el("div", "margin-top:8px; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", t("Сбросить к дефолту"));
     reset.addEventListener("mouseenter", function () { reset.style.background = "rgba(var(--mlbg-accent-rgb),0.26)"; });
     reset.addEventListener("mouseleave", function () { reset.style.background = "rgba(var(--mlbg-accent-rgb),0.14)"; });
     reset.addEventListener("click", function () {
@@ -468,8 +494,8 @@ function togglePanel(ev) {
         syncGenSets(); // дефолт без ген-наборов -> обрезать хвост SETS; keepMode на ген-набор зажмётся на 0
         apply(); refreshPanel();
     });
-    keyActivate(reset, "Сбросить к дефолту");
-    tSys.appendChild(reset);
+    keyActivate(reset, t("Сбросить к дефолту"));
+    tData.appendChild(reset);
 
     document.body.appendChild(p);
 

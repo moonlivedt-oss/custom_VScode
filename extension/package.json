@@ -2,7 +2,7 @@
   "name": "moonlight-custom-bg-setup",
   "displayName": "MoonLight custom-bg (авто-настройка)",
   "description": "Автоматически прописывает MoonLight custom-bg в vscode_custom_css.imports и подсказывает включить Custom CSS. Сам фон рисует be5invis.vscode-custom-css.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "moonlivedt",
   "license": "MIT",
   "engines": {
@@ -12,13 +12,11 @@
     "Other",
     "Themes"
   ],
-  "extensionDependencies": [
-    "be5invis.vscode-custom-css"
-  ],
   "activationEvents": [
     "onStartupFinished"
   ],
   "main": "./extension.js",
+  "browser": "./extension-web.js",
   "contributes": {
     "commands": [
       {
@@ -28,8 +26,27 @@
       {
         "command": "moonlightBg.remove",
         "title": "MoonLight BG: убрать импорт из настроек"
+      },
+      {
+        "command": "moonlightBg.webInfo",
+        "title": "MoonLight BG: про веб-режим (темы вместо фона)"
+      },
+      {
+        "command": "moonlightBg.health",
+        "title": "MoonLight BG: проверить состояние установки"
       }
     ],
+    "configuration": {
+      "title": "MoonLight custom-bg",
+      "properties": {
+        "moonlightBg.config": {
+          "type": "object",
+          "default": {},
+          "scope": "application",
+          "markdownDescription": "Базовый конфиг MoonLight BG (образ вида) для переноса на другие машины через Settings Sync. Заполни его строкой из панели плагина: «Система → Синхронизация → Скопировать для settings.json». На машине с пустым локальным хранилищем этот образ подхватывается как отправной. Требует перезапуска VS Code после изменения."
+        }
+      }
+    },
     "themes": [
       {
         "label": "MoonLight Алые кроны",

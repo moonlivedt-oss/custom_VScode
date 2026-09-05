@@ -886,6 +886,17 @@ function buildCSS() {
         "  }",
         "}"
     );
+    // Авто-бюджет производительности (улучшение 8): класс body.mlbg-perfsave навешивается
+    // рантаймом (perf.js в widgets), когда FPS устойчиво низкий. Гасим самые дорогие по кадрам
+    // непрерывные эффекты — анимированный градиент Aurora, пульс печати, «поток» и «живой
+    // контур» группы — и приглушаем слой частиц (их число рантайм тоже снижает). Правило есть
+    // в CSS всегда, но действует лишь при наличии класса (нулевая цена, пока FPS в норме).
+    add(
+        "body.mlbg-perfsave .monaco-editor .overflow-guard > .monaco-scrollable-element::before,",
+        "body.mlbg-perfsave .editor-group-container.active::before,",
+        "body.mlbg-perfsave .tabs-container > .tab.active { animation: none !important; }",
+        "body.mlbg-perfsave #mlbg-particles { opacity: 0.25 !important; }"
+    );
     return out.join("\n");
 }
 
