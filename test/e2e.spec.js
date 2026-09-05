@@ -41,9 +41,11 @@ test.describe("MoonLight custom-bg — интеграция в живом DOM", 
         const panel = page.locator("#moonlight-bg-panel");
         await expect(panel).toBeVisible();
 
-        // 4. Авто-локализация: фикстура с lang="en" -> английский UI.
-        await expect(panel.getByText("System", { exact: false })).toBeVisible();
-        await expect(panel.getByText("Background & effects on", { exact: false })).toBeVisible();
+        // 4. Авто-локализация: фикстура с lang="en" -> английский UI. exact:true — иначе строгий
+        // режим Playwright падает на неоднозначности: «Background & effects on» встречается и в
+        // мастер-тумблере, и в подписи хоткея «Background & effects on / off». Вкладку берём по роли.
+        await expect(panel.getByRole("tab", { name: "System" })).toBeVisible();
+        await expect(panel.getByText("Background & effects on", { exact: true })).toBeVisible();
 
         // 5. Esc закрывает панель.
         await page.keyboard.press("Escape");
