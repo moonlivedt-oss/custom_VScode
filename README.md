@@ -224,53 +224,28 @@ Ken Burns, матовое стекло, Aurora, спотлайт · фон по�
 
 ### Галерея: наборы вживую
 
-Один и тот же код — восемь разных наборов. Каждый перекрашивает интерфейс под свою палитру:
+Один и тот же код — девять разных наборов. Каждый перекрашивает интерфейс под свою палитру:
 акцент, скроллбар, курсор, рамки, подсветку строки — всё меняется вместе с фоном.
 
 <table>
   <tr valign="top">
-    <td align="center" width="50%">
-      <img src="docs/screenshots/set-bloodmoon.png" alt="Набор «Алые кроны»: багряный замок за кодом, красный акцент" width="420"><br>
-      <sub><b>Алые кроны</b> · фото</sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="docs/screenshots/set-cats.png" alt="Набор «Кот и звёзды»: звёздная ночь и силуэт кота, сиреневый акцент" width="420"><br>
-      <sub><b>Кот и звёзды</b> · фото</sub>
-    </td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-bloodmoon.png" alt="Набор «Алые кроны»: багряный замок и маки за кодом, красный акцент" width="280"><br><sub><b>Алые кроны</b> · фото</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-cats.png" alt="Набор «Кот и звёзды»: звёздная ночь и силуэт кота, сиреневый акцент" width="280"><br><sub><b>Кот и звёзды</b> · фото</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-mist-scroll.png" alt="Набор «Свиток тумана»: туманные горы и водопады" width="280"><br><sub><b>Свиток тумана</b> · фото</sub></td>
   </tr>
   <tr valign="top">
-    <td align="center">
-      <img src="docs/screenshots/set-crystal-lake.png" alt="Набор «Хрустальное озеро»: зимнее озеро, голубой акцент" width="420"><br>
-      <sub><b>Хрустальное озеро</b> · фото</sub>
-    </td>
-    <td align="center">
-      <img src="docs/screenshots/set-star-pier.png" alt="Набор «Звёздный причал»: кот на крыше и цветущая сакура" width="420"><br>
-      <sub><b>Звёздный причал</b> · фото</sub>
-    </td>
+    <td align="center"><img src="docs/screenshots/set-crystal-lake.png" alt="Набор «Хрустальное озеро»: зимнее озеро, голубой акцент" width="280"><br><sub><b>Хрустальное озеро</b> · фото</sub></td>
+    <td align="center"><img src="docs/screenshots/set-star-pier.png" alt="Набор «Звёздный причал»: кот на крыше и цветущая сакура" width="280"><br><sub><b>Звёздный причал</b> · фото</sub></td>
+    <td align="center"><img src="docs/screenshots/set-falling-star.png" alt="Набор «Ночь падающей звезды»: сакура и фигура под ночным небом" width="280"><br><sub><b>Ночь падающей звезды</b> · фото</sub></td>
   </tr>
   <tr valign="top">
-    <td align="center">
-      <img src="docs/screenshots/set-falling-star.png" alt="Набор «Ночь падающей звезды»: сакура и фигура под ночным небом" width="420"><br>
-      <sub><b>Ночь падающей звезды</b> · фото</sub>
-    </td>
-    <td align="center">
-      <img src="docs/screenshots/set-dunes.png" alt="Процедурный набор «Дюны»: тёплые волны-дюны на canvas" width="420"><br>
-      <sub><b>Дюны</b> · процедурный</sub>
-    </td>
-  </tr>
-  <tr valign="top">
-    <td align="center">
-      <img src="docs/screenshots/set-grid.png" alt="Процедурный набор «Сетка»: техно-сетка на canvas" width="420"><br>
-      <sub><b>Сетка</b> · процедурный</sub>
-    </td>
-    <td align="center">
-      <img src="docs/screenshots/set-cells.png" alt="Процедурный набор «Клетки»: органичные клетки на canvas" width="420"><br>
-      <sub><b>Клетки</b> · процедурный</sub>
-    </td>
+    <td align="center"><img src="docs/screenshots/set-dunes.png" alt="Процедурный набор «Дюны»: тёплые волны-дюны на canvas" width="280"><br><sub><b>Дюны</b> · процедурный</sub></td>
+    <td align="center"><img src="docs/screenshots/set-grid.png" alt="Процедурный набор «Сетка»: техно-сетка на canvas" width="280"><br><sub><b>Сетка</b> · процедурный</sub></td>
+    <td align="center"><img src="docs/screenshots/set-cells.png" alt="Процедурный набор «Клетки»: органичные клетки на canvas" width="280"><br><sub><b>Клетки</b> · процедурный</sub></td>
   </tr>
 </table>
 
-<sub>Ещё 17 наборов — в таблице выше; фон переключается кнопкой <code>BG</code> или <code>Ctrl+Alt+.</code></sub>
+<sub>Ещё 16 наборов — в таблице выше; фон переключается кнопкой <code>BG</code> или <code>Ctrl+Alt+.</code></sub>
 
 ---
 

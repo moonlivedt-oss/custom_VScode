@@ -147,49 +147,24 @@ repaints the interface.
 
 ### Gallery: sets in action
 
-The same code — eight different sets. Each repaints the interface with its own palette: accent,
+The same code — nine different sets. Each repaints the interface with its own palette: accent,
 scrollbar, cursor, borders, active-line highlight — all change together with the background.
 
 <table>
   <tr valign="top">
-    <td align="center" width="50%">
-      <img src="docs/screenshots/set-bloodmoon.png" alt="Set: crimson castle behind code, red accent" width="420"><br>
-      <sub><b>Crimson Crowns</b> · photo</sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="docs/screenshots/set-cats.png" alt="Set: starry night with a cat silhouette, lilac accent" width="420"><br>
-      <sub><b>Cat and Stars</b> · photo</sub>
-    </td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-bloodmoon.png" alt="Set: crimson castle and poppies behind code, red accent" width="280"><br><sub><b>Crimson Crowns</b> · photo</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-cats.png" alt="Set: starry night with a cat silhouette, lilac accent" width="280"><br><sub><b>Cat and Stars</b> · photo</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-mist-scroll.png" alt="Set: misty mountains and waterfalls" width="280"><br><sub><b>Mist Scroll</b> · photo</sub></td>
   </tr>
   <tr valign="top">
-    <td align="center">
-      <img src="docs/screenshots/set-crystal-lake.png" alt="Set: winter lake, blue accent" width="420"><br>
-      <sub><b>Crystal Lake</b> · photo</sub>
-    </td>
-    <td align="center">
-      <img src="docs/screenshots/set-star-pier.png" alt="Set: a cat on a roof and blooming sakura" width="420"><br>
-      <sub><b>Star Pier</b> · photo</sub>
-    </td>
+    <td align="center"><img src="docs/screenshots/set-crystal-lake.png" alt="Set: winter lake, blue accent" width="280"><br><sub><b>Crystal Lake</b> · photo</sub></td>
+    <td align="center"><img src="docs/screenshots/set-star-pier.png" alt="Set: a cat on a roof and blooming sakura" width="280"><br><sub><b>Star Pier</b> · photo</sub></td>
+    <td align="center"><img src="docs/screenshots/set-falling-star.png" alt="Set: sakura and a figure under a night sky" width="280"><br><sub><b>Falling Star Night</b> · photo</sub></td>
   </tr>
   <tr valign="top">
-    <td align="center">
-      <img src="docs/screenshots/set-falling-star.png" alt="Set: sakura and a figure under a night sky" width="420"><br>
-      <sub><b>Falling Star Night</b> · photo</sub>
-    </td>
-    <td align="center">
-      <img src="docs/screenshots/set-dunes.png" alt="Procedural set: warm dune waves on canvas" width="420"><br>
-      <sub><b>Dunes</b> · procedural</sub>
-    </td>
-  </tr>
-  <tr valign="top">
-    <td align="center">
-      <img src="docs/screenshots/set-grid.png" alt="Procedural set: a techy grid on canvas" width="420"><br>
-      <sub><b>Grid</b> · procedural</sub>
-    </td>
-    <td align="center">
-      <img src="docs/screenshots/set-cells.png" alt="Procedural set: organic cells on canvas" width="420"><br>
-      <sub><b>Cells</b> · procedural</sub>
-    </td>
+    <td align="center"><img src="docs/screenshots/set-dunes.png" alt="Procedural set: warm dune waves on canvas" width="280"><br><sub><b>Dunes</b> · procedural</sub></td>
+    <td align="center"><img src="docs/screenshots/set-grid.png" alt="Procedural set: a techy grid on canvas" width="280"><br><sub><b>Grid</b> · procedural</sub></td>
+    <td align="center"><img src="docs/screenshots/set-cells.png" alt="Procedural set: organic cells on canvas" width="280"><br><sub><b>Cells</b> · procedural</sub></td>
   </tr>
 </table>
 
