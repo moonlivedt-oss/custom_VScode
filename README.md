@@ -2,18 +2,23 @@
 
 # MoonLight custom-bg
 
-**Кастомный фон и панель оформления для VS Code — картинки по зонам, наборы с собственной палитрой, генеративные фоны без картинок, слайдшоу, живые эффекты и фон под проект. Всё настраивается прямо в редакторе.**
+### Живой фон и полноценная панель оформления для VS Code — прямо в редакторе
 
-Наборы фонов → акцент на набор → фильтры по зонам → эффекты → фон под проект → виджеты статусбара
+Картинки по зонам · наборы с собственной палитрой · генеративные фоны без ассетов · слайдшоу<br>
+Ken Burns, матовое стекло, Aurora, спотлайт · фон под проект · виджеты статусбара · интерфейс RU / EN
 
-![version](https://img.shields.io/badge/version-v19-blue)
+![version](https://img.shields.io/badge/version-v19-cba6f7)
 ![vscode](https://img.shields.io/badge/VS%20Code-custom--css-007ACC?logo=visualstudiocode&logoColor=white)
-![license](https://img.shields.io/badge/license-MIT-green)
-![sets](https://img.shields.io/badge/наборов-25-orange)
-![lang](https://img.shields.io/badge/язык-RU%20%7C%20EN-blueviolet)
+![sets](https://img.shields.io/badge/наборов-25-f5a97f)
+![effects](https://img.shields.io/badge/эффектов-~44-f38ba8)
+![lang](https://img.shields.io/badge/язык-RU%20%7C%20EN-89b4fa)
+![tests](https://img.shields.io/badge/тесты-247%20ok-a6e3a1)
 ![deps](https://img.shields.io/badge/зависимостей-0-brightgreen)
+![license](https://img.shields.io/badge/license-MIT-green)
 
 <img src="docs/screenshots/hero.png" alt="MoonLight custom-bg в работе: код, дерево файлов и фоновая картинка набора" width="880">
+
+<sub>Один самодостаточный скрипт · ноль npm-зависимостей · настройка в пару кликов, без правки файлов</sub>
 
 </div>
 
@@ -409,6 +414,9 @@ API для этого в custom-css нет, поэтому парсится DOM.
 
 ## Структура проекта
 
+<details>
+<summary><b>Развернуть дерево файлов и назначение модулей</b></summary>
+
 ```
 vscode-bg/
   custom-bg.js         ← СОБРАННЫЙ файл (его грузит VS Code). НЕ редактировать вручную.
@@ -458,14 +466,18 @@ vscode-bg/
     e2e.spec.js        ← интеграционный тест (Playwright, живой DOM): npm run test:e2e
     fixture.html       ← скелет воркбенча VS Code для e2e
   playwright.config.js ← конфиг Playwright (dev-зависимость; в основной поток не входит)
+  scripts/
+    screenshots.js     ← генератор скринов панели для README (npm run screenshots)
   docs/
-    screenshots/       ← картинки для README
+    screenshots/       ← картинки для README (hero + панель по вкладкам RU/EN)
 ```
 
 > `custom-bg.min.js` (`npm run build:min`, безопасный стриппер, −44%) и артефакты Playwright
 > в репозиторий не коммитятся (см. `.gitignore`). `extension/` содержит десктопную точку входа
 > (`extension.js`: авто-настройка, health-check, синхронизация settings.json) и веб-точку
 > (`extension-web.js`: темы MoonLight в vscode.dev / Codespaces).
+
+</details>
 
 ---
 
@@ -480,8 +492,22 @@ vscode-bg/
 node build.js        # → пересобирает custom-bg.js   (или: npm run build)
 node test/smoke.js   # → смоук-тест                    (или: npm test)
 npm run check        # → сборка + смоук-тест одной командой
+npm run build:min    # → минифицированный custom-bg.min.js (безопасный стриппер, −44%)
 npm run hooks        # → поставить локальный pre-commit хук (git config core.hooksPath hooks)
 ```
+
+<details>
+<summary>Playwright: интеграционный тест и генерация скриншотов (dev-зависимость)</summary>
+
+```bash
+npm i -D @playwright/test && npx playwright install chromium   # разово
+npm run test:e2e     # → живой Chromium открывает панель и проверяет кнопку/инжект/локализацию
+npm run screenshots  # → пересоздаёт docs/screenshots/menu-<lang>-<tab>.png (RU/EN × 5 вкладок)
+```
+
+Playwright в основной ноль-зависимостей поток не входит — нужен только для e2e и скриншотов.
+
+</details>
 
 > Зависимостей нет, `npm install` не требуется — скрипты просто зовут `node`. При каждом
 > `push` / `pull request` в `main` GitHub Actions прогоняет смоук-тест и проверяет, что
@@ -583,4 +609,15 @@ npm run hooks        # → поставить локальный pre-commit ху
 
 ## Лицензия
 
-MIT — см. [LICENSE](LICENSE).
+MIT — см. [LICENSE](LICENSE). Наборы фонов и палитры — часть проекта; используй, меняй и делись.
+
+---
+
+<div align="center">
+<sub>
+
+**MoonLight custom-bg** — один скрипт, ноль зависимостей, весь вид в твоих руках.<br>
+Нашёл баг или есть идея? — [Issues](https://github.com/moonlivedt-oss/custom_VScode/issues) · [Discussions](https://github.com/moonlivedt-oss/custom_VScode/discussions)
+
+</sub>
+</div>

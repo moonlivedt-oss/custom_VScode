@@ -17,6 +17,7 @@
     "build:themes": "node build-themes.js",
     "test": "node test/smoke.js",
     "test:e2e": "node build.js && playwright test",
+    "screenshots": "node build.js && node scripts/screenshots.js",
     "check": "node build.js && node test/smoke.js",
     "setup": "node install.js",
     "hooks": "git config core.hooksPath hooks"
