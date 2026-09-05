@@ -24,6 +24,16 @@ function tickClock() {
 
 var pomo = { running: false, remaining: null };
 function pomoDur() { return Math.round((cfg.fxp.pomoMin || 25) * 60); }
+// Фокус-сессия: класс body.mlbg-focus включает правила фокуса (см. FX_BLOCKS.focusSession в
+// css.js). Держим класс = «эффект включён И «Помидор» включён И идёт (running)». На паузе/
+// сбросе/завершении и при выключенном эффекте класс снимается — фокус плавно спадает (у правил
+// есть transition). Зовётся из всех точек смены состояния таймера + из syncWidgets (apply).
+function syncFocusClass() {
+    try {
+        var on = !!(cfg.fx.focusSession && cfg.fx.pomodoro && pomo.running);
+        document.body.classList[on ? "add" : "remove"]("mlbg-focus");
+    } catch (e) {}
+}
 function ensurePomodoro() {
     var right = statusRight(); if (!right) return;
     var e0 = document.getElementById("mlbg-pomo");
@@ -41,7 +51,7 @@ function ensurePomodoro() {
         }
         if (pomo.remaining == null) pomo.remaining = pomoDur();
         paintPomo();
-    } else if (e0) { e0.remove(); }
+    } else if (e0) { e0.remove(); syncFocusClass(); } else { syncFocusClass(); }
 }
 function paintPomo() {
     var e0 = document.getElementById("mlbg-pomo"); if (!e0) return;
@@ -49,6 +59,7 @@ function paintPomo() {
     var r = pomo.remaining != null ? pomo.remaining : pomoDur();
     a.textContent = (pomo.running ? "" : "|| ") + pad2(Math.floor(r / 60)) + ":" + pad2(r % 60);
     e0.style.background = pomo.running ? "rgba(var(--mlbg-accent-rgb),0.22)" : "transparent";
+    syncFocusClass(); // старт/пауза/сброс/тик проходят через paintPomo — отсюда и держим класс
 }
 function tickPomo() {
     if (!cfg.fx.pomodoro || !pomo.running) return;
@@ -309,4 +320,5 @@ function syncWidgets() {
     try { ensureClock(); } catch (e) {}
     try { ensurePomodoro(); } catch (e) {}
     try { ensureParticles(); } catch (e) {}
+    try { syncFocusClass(); } catch (e) {} // отразить вкл/выкл эффекта фокуса без ожидания тика
 }

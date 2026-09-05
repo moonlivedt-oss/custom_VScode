@@ -170,7 +170,12 @@
             // подаёт акценты. highContrast — a11y: плотная тень под кодом и подписями панелей +
             // толще фокус-обводка ради читаемости поверх картинки. Оба opt-in.
             present: false,                                 // режим Present: спокойный фон, крупнее акценты, скрыть шум
-            highContrast: false                             // контраст+: усиленная читаемость текста и фокуса (a11y)
+            highContrast: false,                            // контраст+: усиленная читаемость текста и фокуса (a11y)
+            // Фокус-сессия: модификатор «Помидора». Пока идёт таймер (body.mlbg-focus), гасит
+            // отвлекающее — неактивные группы/вкладки, миникарту, хлебные крошки — и приглушает
+            // сайдбар/актив-бар/панель, чтобы взгляд держался на активном редакторе. Работает
+            // ТОЛЬКО при включённом и запущенном «Помидоре»; на паузе/по завершении фокус спадает.
+            focusSession: false                             // затемнить всё, кроме активного файла, на время сессии
         },
         // Стиль летящих частиц (fx.particles). Категориальный (не числовой) — санитизируется
         // по белому списку PART_STYLES. dots — прежнее поведение (кружки), остальные меняют
@@ -211,7 +216,8 @@
         ["selectionMatch", "Совпадения слова"], ["stickyGlass", "Стекло sticky"],
         ["aurora", "Aurora фон"], ["spotlight", "Спотлайт"], ["typingPulse", "Пульс печати"],
         ["tint", "Тон акцентом"], ["legible", "Читаемость кода"], ["errorReact", "Реакция на ошибки"],
-        ["present", "Режим Present"], ["highContrast", "Контраст+"]
+        ["present", "Режим Present"], ["highContrast", "Контраст+"],
+        ["focusSession", "Фокус-сессия"]
     ];
 
     // Стили частиц (fx.particles): ключ + подпись. dots — прежние кружки; stars — искры-звёздочки;
@@ -660,6 +666,21 @@
             var wv = cfg.workspaceSets[wk];
             if (typeof wv === "string" && parseInt(wv, 10) >= SETS.length) delete cfg.workspaceSets[wk];
         }
+        var mi = parseInt(cfg.mode, 10);
+        if (!isNaN(mi) && mi >= SETS.length) cfg.mode = "0";
+    }
+    // Пересобрать хвост SETS из cfg.genSets. Нужно после ПОЛНОЙ подмены cfg (импорт файла,
+    // применение пресета, восстановление из резерва, применение кода образа, сброс к дефолту):
+    // _appendGenSets дозагружает сгенерированные наборы только на СТАРТЕ (из localStorage, до
+    // создания cfg), поэтому без этого импортированные ген-наборы не появлялись бы в списке до
+    // перезапуска, а сброшенные — наоборот, висели бы в SETS. Обрезаем до встроенных (GEN_BASE),
+    // нормализуем cfg.genSets тем же санитайзером и дозагружаем; затем чистим mode, если он указывал
+    // на исчезнувший набор. Идемпотентна: повторный вызов при неизменном cfg ничего не ломает.
+    function syncGenSets() {
+        SETS.length = GEN_BASE;
+        var us = sanitizeUserSets(cfg.genSets || []);
+        cfg.genSets = us; // нормализованная форма — та же, что уйдёт в localStorage
+        for (var i = 0; i < us.length; i++) SETS.push(us[i]);
         var mi = parseInt(cfg.mode, 10);
         if (!isNaN(mi) && mi >= SETS.length) cfg.mode = "0";
     }
@@ -1475,6 +1496,21 @@
                 "  opacity: 0.55; transition: opacity 0.25s ease;",
                 "}"
             ]; }],
+            // Фокус-сессия: правила ДЕЙСТВУЮТ только пока на body висит класс mlbg-focus (его
+            // навешивает ensurePomodoro/tickPomo, пока идёт «Помидор» — см. syncFocusClass в
+            // widgets/extras.js). Гасим отвлекающее сильнее, чем dimInactive: неактивные группы/
+            // вкладки, миникарта, хлебные крошки; сайдбар/актив-бар/панель приглушаются, но
+            // проявляются при наведении (остаются рабочими). Активная группа — мягкий акцентный
+            // контур. Всё с transition — вход/выход из сессии плавный.
+            ["focusSession", function () { return [
+                "body.mlbg-focus .editor-group-container:not(.active):not(.empty) .monaco-editor .view-lines { opacity: 0.3; transition: opacity 0.3s ease; }",
+                "body.mlbg-focus .part.sidebar, body.mlbg-focus .part.activitybar, body.mlbg-focus .part.panel { opacity: 0.55; transition: opacity 0.3s ease; }",
+                "body.mlbg-focus .part.sidebar:hover, body.mlbg-focus .part.activitybar:hover, body.mlbg-focus .part.panel:hover { opacity: 1; }",
+                "body.mlbg-focus .monaco-editor .minimap { opacity: 0.22; transition: opacity 0.3s ease; }",
+                "body.mlbg-focus .monaco-breadcrumbs { opacity: 0.4; }",
+                "body.mlbg-focus .tabs-container > .tab:not(.active) { opacity: 0.55; transition: opacity 0.3s ease; }",
+                "body.mlbg-focus .editor-group-container.active { box-shadow: inset 0 0 0 1px rgba(var(--mlbg-accent-rgb),0.35), inset 0 0 44px rgba(var(--mlbg-accent-rgb),0.07); transition: box-shadow 0.3s ease; }"
+            ]; }],
             // v16: стекло палитры команд/автодополнения/подсказок + тонкая акцентная рамка
             ["glassCommand", function () { return [".quick-input-widget, .suggest-widget, .monaco-hover, .parameter-hints-widget, .monaco-editor .suggest-widget {"]
                 .concat(surfaceLines("--vscode-editorWidget-background", 0.72))
@@ -1789,6 +1825,7 @@
         ambient_branch: "Тонкая полоска у верхнего края окна подсказывает текущую git-ветку: на main/master — красноватая (ты на основной ветке), на остальных — зеленоватая. Ветка читается из статусбара; если индикатора git нет, полоска не появляется.",
         allow_remote: "Разрешить фоновые картинки по http(s)-ссылкам. По умолчанию ВЫКЛ ради безопасности: тогда импортированный или чужой конфиг не сможет заставить редактор сходить в сеть за картинкой (утечка IP, факт использования плагина, возможный трекер). Включай, только если сам указываешь адрес картинки в интернете и доверяешь ему.",
         share_code: "Короткий код всего образа (набор, яркость, эффекты, терминал, палитра) — без картинок и путей. «Скопировать» кладёт код в буфер, чтобы поделиться; вставь чужой код в поле и «Применить», чтобы примерить его вид. Свои картинки/пути и закрепления по проектам не затрагиваются.",
+        theme_export: "Собрать из палитры активного набора настоящую цветовую тему VS Code (color-theme.json): согласованные цвета интерфейса + подсветка синтаксиса, выведенные из акцента. Файл скачивается и копируется в буфер. Зачем: тема работает и там, где custom-фон недоступен — в vscode.dev, по SSH и в Codespaces, и находится через поиск тем. Как применить: (1) быстро — вставь блок \"colors\" в settings.json под \"workbench.colorCustomizations\", а \"tokenColors\" — под \"editor.tokenColorCustomizations\".textMateRules (применится сразу, без упаковки); (2) как полноценную тему — положи файл в папку themes/ своего theme-расширения. Фото-наборы дают тёмную подложку, выведенную из акцента (саму картинку в тему не перенести).",
         img_base: "Папка плагина, откуда берутся картинки наборов. Нужна, если перенёс плагин в другое место, а фон пропал (плитки набора с «!»). Укажи путь к папке с assets в виде vscode-file://vscode-app/… или file:///… (завершающий слэш добавится сам). Пусто — путь определяется автоматически; в подсказке поля показан текущий.",
         autotime_from: "С какого часа (0–23) считать «день» и включать дневной набор.",
         autotime_to: "До какого часа (0–23) длится «день». Если «до» меньше «с» — интервал считается через полночь (напр. день 20→6).",
@@ -1832,6 +1869,7 @@
         fx_clock: "Часы с датой в статусбаре.",
         fx_particles: "Летящие частицы поверх интерфейса.",
         fx_pomodoro: "Таймер-помидор в статусбаре (клик — старт/пауза, Alt+клик — сброс).",
+        fx_focusSession: "Пока идёт «Помидор», редактор уходит в режим фокуса: неактивные группы и вкладки, миникарта и хлебные крошки гаснут, сайдбар/панель/актив-бар приглушаются (проявляются при наведении), активный редактор подсвечивается мягким акцентным контуром. На паузе, по сбросу и по завершении сессии фокус плавно спадает. Работает только при включённом «Помидоре» — сначала включи его и запусти таймер.",
         fx_dimOnType: "Пока печатаешь, фоновая картинка редактора плавно тускнеет для читаемости и возвращается через паузу после последней клавиши.",
         fx_dimOnBlur: "Когда окно VS Code теряет фокус (переключился в браузер/мессенджер), фоновая картинка редактора плавно тускнеет, чтобы не отвлекать; при возврате фокуса возвращается.",
         fx_groupBorderMono: "Живой контур одним акцентным цветом набора вместо радужного перелива. Действует, когда включён «Живой контур».",
@@ -2615,6 +2653,10 @@
                     var remote = countRemoteImgs(parsed); // считаем ДО санитизации (сырой файл)
                     backupCfg(); // текущие настройки -> резерв, чтобы неудачный импорт можно было откатить
                     cfg = mergeForeign(parsed); // санитизация + сетевые картинки принудительно выкл (чужой файл сам их не включит)
+                    syncGenSets(); // импортированные ген-наборы -> в список сразу (иначе видны только после перезапуска)
+                    // Вернуть активный набор, если файл ссылался на свой ген-набор: mergeCfg зажал mode
+                    // до syncGenSets (SETS ещё не был расширен), поэтому индекс ген-набора сбросился бы на 0.
+                    if (parsed && typeof parsed.mode === "string" && /^\d+$/.test(parsed.mode) && parseInt(parsed.mode, 10) < SETS.length) cfg.mode = parsed.mode;
                     sessionRandomIndex = null; // сбросить выбор random из прошлой сессии — переберётся под новый конфиг
                     apply(); refreshPanel();
                     // Предупреждаем о сетевых ссылках на картинки в импортированном файле. Они
@@ -2696,6 +2738,8 @@
                     var keepUi = cfg.ui;                // пресет меняет дизайн, не трогая положение панели
                     backupCfg();                        // прежний вид -> резерв (можно откатить применение пресета)
                     cfg = mergeForeign(cur[name]); cfg.ui = keepUi; // сетевые картинки не включаем из пресета
+                    syncGenSets();                      // ген-наборы пресета -> в список сразу
+                    if (typeof cur[name].mode === "string" && /^\d+$/.test(cur[name].mode) && parseInt(cur[name].mode, 10) < SETS.length) cfg.mode = cur[name].mode;
                     sessionRandomIndex = null;          // random переберётся под новый конфиг
                     apply(); refreshPanel();
                     toast("Пресет «" + name + "» применён");
@@ -2722,7 +2766,7 @@
         var b = readBackup();
         if (!b) { toast("Резерва нет", false); return; }
         backupCfg();                 // текущее -> резерв (обратный откат тем же действием)
-        cfg = b; sessionRandomIndex = null;
+        cfg = b; syncGenSets(); sessionRandomIndex = null; // хвост SETS под ген-наборы восстановленного конфига
         apply(); refreshPanel();
         toast("Восстановлены прежние настройки");
     }
@@ -2737,7 +2781,9 @@
     // не трогаем при применении кода: машинно-зависимое (свои картинки, путь плагина, привязки к
     // проектам) + согласие на сетевые картинки (allowRemoteImages) — оно личное, как setImg/imgBase;
     // иначе применение чужого кода образа тихо отключало бы собственные удалённые картинки пользователя.
-    var SHARE_KEEP = ["ui", "imgBase", "workspaceSets", "autoWorkspace", "ambientBranch", "setImg", "allowRemoteImages"];
+    // genSets тоже личные (сгенерированные пользователем наборы) и в код образа не входят (SHARE_KEYS);
+    // без сохранения их mergeCfg(o) обнулил бы — и генеративные наборы пропали бы при применении чужого кода.
+    var SHARE_KEEP = ["ui", "imgBase", "workspaceSets", "autoWorkspace", "ambientBranch", "setImg", "allowRemoteImages", "genSets"];
     // UTF-8-безопасный base64 (в именах наборов бывает кириллица — «сырой» btoa на ней падает).
     function b64enc(s) { try { return btoa(unescape(encodeURIComponent(s))); } catch (e) { return ""; } }
     function b64dec(s) { try { return decodeURIComponent(escape(atob(s))); } catch (e) { return ""; } }
@@ -2756,7 +2802,8 @@
         backupCfg(); // текущее -> резерв (применение чужого кода можно откатить)
         var keep = {}; for (var i = 0; i < SHARE_KEEP.length; i++) keep[SHARE_KEEP[i]] = cfg[SHARE_KEEP[i]];
         cfg = mergeCfg(o); // санитизация всего содержимого кода
-        for (var j = 0; j < SHARE_KEEP.length; j++) cfg[SHARE_KEEP[j]] = keep[SHARE_KEEP[j]]; // вернуть машинно-зависимое
+        for (var j = 0; j < SHARE_KEEP.length; j++) cfg[SHARE_KEEP[j]] = keep[SHARE_KEEP[j]]; // вернуть машинно-зависимое (в т.ч. genSets)
+        syncGenSets(); // хвост SETS под сохранённые ген-наборы (genSets вернулись из keep); заодно зажмёт mode на чужой ген-индекс
         sessionRandomIndex = null;
         apply(); refreshPanel();
         toast("Образ применён из кода");
@@ -2783,6 +2830,295 @@
         ip.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); doApply(); } });
         row.appendChild(ip); row.appendChild(applyB);
         var d = infoDot(INFO.share_code); if (d) row.appendChild(d);
+        box.appendChild(row);
+        return box;
+    }
+
+    // ===== Экспорт цветовой темы VS Code =====
+    // Из палитры активного набора (подложка + акцент) собираем НАСТОЯЩУЮ VS Code color-theme.json:
+    // согласованный тёмный набор цветов воркбенча + подсветка синтаксиса. Ценность — «вид живёт
+    // и там, где custom-css недоступен»: тема грузится в vscode.dev, по SSH/в Codespaces, находится
+    // поиском тем. Ничего сетевого/личного в файл не попадает: только цвета, выведенные из набора.
+    //
+    // Как использовать (см. INFO.theme_export): (1) цвета можно вставить в settings.json под
+    // "workbench.colorCustomizations" / "editor.tokenColorCustomizations" — применится сразу без
+    // упаковки; (2) сам файл — положить в themes/ своего theme-расширения (тогда тема ставится и
+    // находится поиском, работает там, где custom-css нет).
+    //
+    // Все цвета выводятся детерминированно из акцента набора существующими хелперами палитры
+    // (hexToRgbArr/rgbToHsl/hslToHex/shadeHex/rotateHue из css.js — они в общей области IIFE),
+    // поэтому один и тот же набор всегда даёт одну и ту же тему.
+
+    // hex + альфа (0..1) -> #rrggbbaa (VS Code принимает 8-значный hex в colors).
+    function _hexA(hex, a) {
+        var v = Math.round(Math.max(0, Math.min(1, a)) * 255).toString(16);
+        return hex + (v.length < 2 ? "0" + v : v);
+    }
+    // Оттенок (0..1) акцента — основа тонированных нейтралей темы.
+    function _hueOf(hex) { return rgbToHsl.apply(null, hexToRgbArr(hex))[0]; }
+    // Акцент произвольного набора (как getAccent, но по индексу): правка пользователя ->
+    // «родной» акцент набора -> глобальный. Тема строится под конкретный набор.
+    function _setAccent(idx) {
+        var o = cfg.setAccent && cfg.setAccent[idx];
+        if (isColor(o)) return o;
+        var s = SETS[idx];
+        if (s && isColor(s.accent)) return s.accent;
+        return safeColor(cfg.accent, DEFAULTS.accent);
+    }
+    // Тёмная подложка набора: у grad — первый цвет палитры, у proc — base, у фото-набора
+    // (картинку в тему не затащить) — выводим тёмный тон из оттенка акцента.
+    function _setBaseBg(idx, ac) {
+        var s = SETS[idx];
+        if (s && s.grad && s.grad.length && isColor(s.grad[0])) return s.grad[0];
+        if (s && s.proc && isColor(s.base)) return s.base;
+        return hslToHex(_hueOf(ac), 0.28, 0.09);
+    }
+    // Транслитерация для ASCII-имени файла (имена наборов кириллические). Не идеал по ГОСТ —
+    // достаточно для читаемого и портируемого имени; пусто -> вызывающий подставит индекс.
+    var _TRANSLIT = {
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh", "з": "z",
+        "и": "i", "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r",
+        "с": "s", "т": "t", "у": "u", "ф": "f", "х": "h", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sch",
+        "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya"
+    };
+    function _slug(s) {
+        s = String(s).toLowerCase(); var o = "";
+        for (var i = 0; i < s.length; i++) { var c = s[i]; o += (_TRANSLIT[c] != null ? _TRANSLIT[c] : c); }
+        return o.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+    }
+
+    // Собрать объект color-theme.json для набора idx. Возвращает { name, obj }.
+    function buildColorTheme(idx) {
+        if (typeof idx !== "number" || idx < 0 || idx >= SETS.length) idx = activeIndex();
+        var ac = _setAccent(idx);
+        var bg = _setBaseBg(idx, ac);
+        var h = _hueOf(ac);
+        // Нейтрали, чуть тонированные в оттенок акцента (низкая насыщенность — интерфейс спокойный).
+        var bgDark = shadeHex(bg, -0.28);              // актив-бар / статусбар / титлбар (темнее)
+        var bgSide = shadeHex(bg, -0.12);              // сайдбар / панель / неактивные вкладки
+        var bgLift = shadeHex(bg, 0.08);               // поля/дропдауны/виджеты (светлее)
+        var border = shadeHex(bg, 0.16);               // границы/направляющие
+        var fg = hslToHex(h, 0.14, 0.86);              // основной текст
+        var fgMut = hslToHex(h, 0.10, 0.62);           // приглушённый текст
+        var fgDim = hslToHex(h, 0.08, 0.44);           // номера строк / комментарии / whitespace
+        // Акценты подсветки синтаксиса — повороты оттенка (rotateHue нормализует S/L в читаемые).
+        var kw = ac;                                   // ключевые слова / теги
+        var str = rotateHue(ac, 0.33);                 // строки
+        var fn = rotateHue(ac, -0.33);                 // функции
+        var typ = rotateHue(ac, -0.12);                // типы/классы
+        var num = rotateHue(ac, 0.5);                  // числа/константы
+        var attr = rotateHue(ac, 0.12);                // атрибуты/свойства
+        var err = "#f38ba8", warn = "#f9e2af", good = "#a6e3a1"; // диагностика — фиксированные (узнаваемые)
+
+        var colors = {
+            "focusBorder": _hexA(ac, 0.5),
+            "foreground": fgMut,
+            "widget.shadow": "#00000066",
+            "selection.background": _hexA(ac, 0.34),
+            "descriptionForeground": fgMut,
+            "errorForeground": err,
+            "textLink.foreground": ac,
+            "textLink.activeForeground": shadeHex(ac, 0.16),
+
+            "editor.background": bg,
+            "editor.foreground": fg,
+            "editorLineNumber.foreground": fgDim,
+            "editorLineNumber.activeForeground": ac,
+            "editorCursor.foreground": ac,
+            "editor.selectionBackground": _hexA(ac, 0.32),
+            "editor.selectionHighlightBackground": _hexA(ac, 0.16),
+            "editor.wordHighlightBackground": _hexA(ac, 0.16),
+            "editor.wordHighlightStrongBackground": _hexA(ac, 0.24),
+            "editor.findMatchBackground": _hexA(ac, 0.45),
+            "editor.findMatchHighlightBackground": _hexA(ac, 0.22),
+            "editor.lineHighlightBackground": _hexA(shadeHex(bg, 0.12), 0.4),
+            "editorIndentGuide.background1": border,
+            "editorIndentGuide.activeBackground1": _hexA(ac, 0.6),
+            "editorWhitespace.foreground": fgDim,
+            "editorBracketMatch.background": _hexA(ac, 0.16),
+            "editorBracketMatch.border": _hexA(ac, 0.6),
+            "editorError.foreground": err,
+            "editorWarning.foreground": warn,
+            "editorInfo.foreground": ac,
+            "editorGutter.modifiedBackground": attr,
+            "editorGutter.addedBackground": good,
+            "editorGutter.deletedBackground": err,
+
+            "editorWidget.background": bgLift,
+            "editorWidget.border": border,
+            "editorSuggestWidget.background": bgLift,
+            "editorSuggestWidget.selectedBackground": _hexA(ac, 0.24),
+            "editorHoverWidget.background": bgLift,
+            "editorHoverWidget.border": border,
+            "peekViewEditor.background": bg,
+            "peekViewResult.background": bgSide,
+
+            "sideBar.background": bgSide,
+            "sideBar.foreground": fgMut,
+            "sideBar.border": border,
+            "sideBarTitle.foreground": fg,
+            "sideBarSectionHeader.background": bgSide,
+            "sideBarSectionHeader.foreground": fg,
+
+            "activityBar.background": bgDark,
+            "activityBar.foreground": ac,
+            "activityBar.inactiveForeground": fgDim,
+            "activityBar.border": border,
+            "activityBarBadge.background": ac,
+            "activityBarBadge.foreground": bg,
+            "activityBar.activeBorder": ac,
+
+            "titleBar.activeBackground": bgDark,
+            "titleBar.activeForeground": fg,
+            "titleBar.inactiveBackground": bgDark,
+            "titleBar.inactiveForeground": fgDim,
+            "titleBar.border": border,
+
+            "statusBar.background": bgDark,
+            "statusBar.foreground": fgMut,
+            "statusBar.border": border,
+            "statusBar.noFolderBackground": bgDark,
+            "statusBar.debuggingBackground": ac,
+            "statusBar.debuggingForeground": bg,
+            "statusBarItem.remoteBackground": ac,
+            "statusBarItem.remoteForeground": bg,
+
+            "tab.activeBackground": bg,
+            "tab.inactiveBackground": bgSide,
+            "tab.activeForeground": fg,
+            "tab.inactiveForeground": fgDim,
+            "tab.activeBorderTop": ac,
+            "tab.activeBorder": _hexA(ac, 0.7),
+            "tab.border": bgDark,
+            "editorGroupHeader.tabsBackground": bgSide,
+            "editorGroupHeader.tabsBorder": border,
+            "editorGroup.border": border,
+
+            "panel.background": bgSide,
+            "panel.border": border,
+            "panelTitle.activeForeground": fg,
+            "panelTitle.inactiveForeground": fgDim,
+            "panelTitle.activeBorder": ac,
+
+            "terminal.background": bg,
+            "terminal.foreground": fg,
+            "terminalCursor.foreground": ac,
+
+            "button.background": ac,
+            "button.foreground": bg,
+            "button.hoverBackground": shadeHex(ac, 0.14),
+            "badge.background": ac,
+            "badge.foreground": bg,
+            "progressBar.background": ac,
+
+            "input.background": bgLift,
+            "input.foreground": fg,
+            "input.border": border,
+            "input.placeholderForeground": fgDim,
+            "inputOption.activeBorder": ac,
+            "inputOption.activeBackground": _hexA(ac, 0.24),
+            "dropdown.background": bgLift,
+            "dropdown.foreground": fg,
+            "dropdown.border": border,
+            "quickInput.background": bgLift,
+            "quickInput.foreground": fg,
+            "quickInputList.focusBackground": _hexA(ac, 0.24),
+
+            "list.activeSelectionBackground": _hexA(ac, 0.28),
+            "list.activeSelectionForeground": fg,
+            "list.inactiveSelectionBackground": _hexA(ac, 0.16),
+            "list.hoverBackground": _hexA(shadeHex(bg, 0.14), 0.5),
+            "list.focusBackground": _hexA(ac, 0.28),
+            "list.highlightForeground": ac,
+
+            "scrollbarSlider.background": _hexA(ac, 0.22),
+            "scrollbarSlider.hoverBackground": _hexA(ac, 0.38),
+            "scrollbarSlider.activeBackground": _hexA(ac, 0.55),
+
+            "gitDecoration.modifiedResourceForeground": attr,
+            "gitDecoration.untrackedResourceForeground": good,
+            "gitDecoration.deletedResourceForeground": err,
+
+            "minimap.selectionHighlight": _hexA(ac, 0.5),
+            "breadcrumb.foreground": fgDim,
+            "breadcrumb.focusForeground": fg,
+            "breadcrumb.activeSelectionForeground": ac
+        };
+
+        // TextMate-подсветка: общие скоупы -> выведенные акценты. semanticHighlighting=true
+        // разрешает семантическую подсветку темы (LSP-токены), поверх этих scope-правил.
+        function tc(scope, color, style) {
+            var s = { scope: scope, settings: { foreground: color } };
+            if (style) s.settings.fontStyle = style;
+            return s;
+        }
+        var tokenColors = [
+            tc(["comment", "punctuation.definition.comment"], fgDim, "italic"),
+            tc(["string", "string.quoted", "string.template"], str),
+            tc(["constant.numeric", "constant.language", "constant.character", "constant.other"], num),
+            tc(["keyword", "storage", "storage.type", "storage.modifier", "keyword.control", "keyword.operator.new"], kw),
+            tc(["keyword.operator", "punctuation", "meta.brace"], fgMut),
+            tc(["entity.name.function", "support.function", "meta.function-call.generic"], fn),
+            tc(["entity.name.type", "entity.name.class", "support.type", "support.class", "entity.other.inherited-class"], typ),
+            tc(["variable", "variable.other", "meta.definition.variable.name"], fg),
+            tc(["variable.parameter", "variable.other.readwrite"], fg),
+            tc(["variable.language", "variable.other.constant", "support.variable"], num),
+            tc(["entity.name.tag", "punctuation.definition.tag"], kw),
+            tc(["entity.other.attribute-name", "meta.object-literal.key", "support.type.property-name"], attr),
+            tc(["markup.heading", "entity.name.section"], kw, "bold"),
+            tc(["markup.bold"], num, "bold"),
+            tc(["markup.italic"], str, "italic"),
+            tc(["markup.inline.raw", "markup.fenced_code"], fn),
+            tc(["markup.inserted"], good),
+            tc(["markup.deleted"], err),
+            tc(["invalid", "invalid.illegal"], err)
+        ];
+
+        var name = "MoonLight " + (setName(idx) || ("Набор " + idx));
+        return {
+            name: name,
+            obj: {
+                "$schema": "vscode://schemas/color-theme",
+                name: name,
+                type: "dark",
+                semanticHighlighting: true,
+                colors: colors,
+                tokenColors: tokenColors
+            }
+        };
+    }
+
+    // Экспорт темы активного набора: скачать color-theme.json + положить в буфер (как exportCfg).
+    function exportTheme() {
+        var idx = activeIndex();
+        var t = buildColorTheme(idx);
+        var json = JSON.stringify(t.obj, null, 2);
+        var fname = "moonlight-" + (_slug(setName(idx)) || ("set-" + idx)) + "-color-theme.json";
+        var saved = false;
+        try {
+            var blob = new Blob([json], { type: "application/json" });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement("a"); a.href = url; a.download = fname;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+            saved = true;
+        } catch (e) {}
+        var copied = copyText(json);
+        toast(saved && copied ? "Тема «" + t.name + "» сохранена в файл + в буфере"
+            : saved ? "Тема сохранена в файл" : copied ? "Тема скопирована в буфер" : "Не удалось выгрузить тему", (saved || copied));
+    }
+
+    // Секция «Экспорт темы»: одна кнопка — тема активного набора. Имя набора показываем,
+    // чтобы было понятно, ЧТО именно выгрузится (тема строится под текущий набор).
+    function makeThemeExportUI() {
+        var box = el("div", null);
+        box.appendChild(el("div", "padding:2px 3px 6px; font-size:11px; color:var(--mlp-muted,#a6adc8);",
+            "Тема соберётся из палитры активного набора: «" + (setName(activeIndex()) || "?") + "»."));
+        var row = el("div", "display:flex; align-items:center; gap:8px;");
+        var b = makeIoBtn("Экспорт VS Code-темы");
+        b.addEventListener("click", function () { exportTheme(); });
+        row.appendChild(b);
+        var d = infoDot(INFO.theme_export); if (d) row.appendChild(d);
         box.appendChild(row);
         return box;
     }
@@ -3414,6 +3750,11 @@
         var secShare = collapsible(tSys, "Поделиться", "Короткий код всего образа для обмена: скопируй свой или примени чужой. Картинки и пути не входят.");
         secShare.appendChild(makeShareUI());
 
+        // Экспорт цветовой темы VS Code из палитры активного набора: вид живёт и там, где
+        // custom-фон недоступен (vscode.dev, SSH, Codespaces), и находится поиском тем.
+        var secTheme = collapsible(tSys, "Экспорт темы", "Собрать настоящую VS Code-тему (color-theme.json) из палитры активного набора: цвета интерфейса + подсветка синтаксиса. Работает там, где custom-фон недоступен. Как применить — в подсказке «?» рядом с кнопкой.");
+        secTheme.appendChild(makeThemeExportUI());
+
         // экспорт / импорт
         var io = el("div", "display:flex; gap:8px; margin-top:12px;");
         var expB = makeIoBtn("Экспорт"); expB.addEventListener("click", function () { exportCfg(); });
@@ -3445,6 +3786,7 @@
             var keepMode = cfg.mode, keepUi = cfg.ui; // сброс дизайна, но не положения/свёрнутости панели
             backupCfg();                              // прежние настройки -> резерв (сброс можно откатить)
             cfg = clone(DEFAULTS); cfg.mode = keepMode; cfg.ui = keepUi;
+            syncGenSets(); // дефолт без ген-наборов -> обрезать хвост SETS; keepMode на ген-набор зажмётся на 0
             apply(); refreshPanel();
         });
         keyActivate(reset, "Сбросить к дефолту");
@@ -3549,6 +3891,16 @@
 
     var pomo = { running: false, remaining: null };
     function pomoDur() { return Math.round((cfg.fxp.pomoMin || 25) * 60); }
+    // Фокус-сессия: класс body.mlbg-focus включает правила фокуса (см. FX_BLOCKS.focusSession в
+    // css.js). Держим класс = «эффект включён И «Помидор» включён И идёт (running)». На паузе/
+    // сбросе/завершении и при выключенном эффекте класс снимается — фокус плавно спадает (у правил
+    // есть transition). Зовётся из всех точек смены состояния таймера + из syncWidgets (apply).
+    function syncFocusClass() {
+        try {
+            var on = !!(cfg.fx.focusSession && cfg.fx.pomodoro && pomo.running);
+            document.body.classList[on ? "add" : "remove"]("mlbg-focus");
+        } catch (e) {}
+    }
     function ensurePomodoro() {
         var right = statusRight(); if (!right) return;
         var e0 = document.getElementById("mlbg-pomo");
@@ -3566,7 +3918,7 @@
             }
             if (pomo.remaining == null) pomo.remaining = pomoDur();
             paintPomo();
-        } else if (e0) { e0.remove(); }
+        } else if (e0) { e0.remove(); syncFocusClass(); } else { syncFocusClass(); }
     }
     function paintPomo() {
         var e0 = document.getElementById("mlbg-pomo"); if (!e0) return;
@@ -3574,6 +3926,7 @@
         var r = pomo.remaining != null ? pomo.remaining : pomoDur();
         a.textContent = (pomo.running ? "" : "|| ") + pad2(Math.floor(r / 60)) + ":" + pad2(r % 60);
         e0.style.background = pomo.running ? "rgba(var(--mlbg-accent-rgb),0.22)" : "transparent";
+        syncFocusClass(); // старт/пауза/сброс/тик проходят через paintPomo — отсюда и держим класс
     }
     function tickPomo() {
         if (!cfg.fx.pomodoro || !pomo.running) return;
@@ -3834,6 +4187,7 @@
         try { ensureClock(); } catch (e) {}
         try { ensurePomodoro(); } catch (e) {}
         try { ensureParticles(); } catch (e) {}
+        try { syncFocusClass(); } catch (e) {} // отразить вкл/выкл эффекта фокуса без ожидания тика
     }
 
     // ===================== src/boot.js =====================

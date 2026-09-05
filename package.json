@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "build": "node build.js",
+    "build:themes": "node build-themes.js",
     "test": "node test/smoke.js",
     "check": "node build.js && node test/smoke.js",
     "setup": "node install.js",

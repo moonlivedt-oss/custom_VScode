@@ -694,6 +694,21 @@ function buildCSS() {
             "  opacity: 0.55; transition: opacity 0.25s ease;",
             "}"
         ]; }],
+        // Фокус-сессия: правила ДЕЙСТВУЮТ только пока на body висит класс mlbg-focus (его
+        // навешивает ensurePomodoro/tickPomo, пока идёт «Помидор» — см. syncFocusClass в
+        // widgets/extras.js). Гасим отвлекающее сильнее, чем dimInactive: неактивные группы/
+        // вкладки, миникарта, хлебные крошки; сайдбар/актив-бар/панель приглушаются, но
+        // проявляются при наведении (остаются рабочими). Активная группа — мягкий акцентный
+        // контур. Всё с transition — вход/выход из сессии плавный.
+        ["focusSession", function () { return [
+            "body.mlbg-focus .editor-group-container:not(.active):not(.empty) .monaco-editor .view-lines { opacity: 0.3; transition: opacity 0.3s ease; }",
+            "body.mlbg-focus .part.sidebar, body.mlbg-focus .part.activitybar, body.mlbg-focus .part.panel { opacity: 0.55; transition: opacity 0.3s ease; }",
+            "body.mlbg-focus .part.sidebar:hover, body.mlbg-focus .part.activitybar:hover, body.mlbg-focus .part.panel:hover { opacity: 1; }",
+            "body.mlbg-focus .monaco-editor .minimap { opacity: 0.22; transition: opacity 0.3s ease; }",
+            "body.mlbg-focus .monaco-breadcrumbs { opacity: 0.4; }",
+            "body.mlbg-focus .tabs-container > .tab:not(.active) { opacity: 0.55; transition: opacity 0.3s ease; }",
+            "body.mlbg-focus .editor-group-container.active { box-shadow: inset 0 0 0 1px rgba(var(--mlbg-accent-rgb),0.35), inset 0 0 44px rgba(var(--mlbg-accent-rgb),0.07); transition: box-shadow 0.3s ease; }"
+        ]; }],
         // v16: стекло палитры команд/автодополнения/подсказок + тонкая акцентная рамка
         ["glassCommand", function () { return [".quick-input-widget, .suggest-widget, .monaco-hover, .parameter-hints-widget, .monaco-editor .suggest-widget {"]
             .concat(surfaceLines("--vscode-editorWidget-background", 0.72))

@@ -429,6 +429,11 @@ function togglePanel(ev) {
     var secShare = collapsible(tSys, "Поделиться", "Короткий код всего образа для обмена: скопируй свой или примени чужой. Картинки и пути не входят.");
     secShare.appendChild(makeShareUI());
 
+    // Экспорт цветовой темы VS Code из палитры активного набора: вид живёт и там, где
+    // custom-фон недоступен (vscode.dev, SSH, Codespaces), и находится поиском тем.
+    var secTheme = collapsible(tSys, "Экспорт темы", "Собрать настоящую VS Code-тему (color-theme.json) из палитры активного набора: цвета интерфейса + подсветка синтаксиса. Работает там, где custom-фон недоступен. Как применить — в подсказке «?» рядом с кнопкой.");
+    secTheme.appendChild(makeThemeExportUI());
+
     // экспорт / импорт
     var io = el("div", "display:flex; gap:8px; margin-top:12px;");
     var expB = makeIoBtn("Экспорт"); expB.addEventListener("click", function () { exportCfg(); });
@@ -460,6 +465,7 @@ function togglePanel(ev) {
         var keepMode = cfg.mode, keepUi = cfg.ui; // сброс дизайна, но не положения/свёрнутости панели
         backupCfg();                              // прежние настройки -> резерв (сброс можно откатить)
         cfg = clone(DEFAULTS); cfg.mode = keepMode; cfg.ui = keepUi;
+        syncGenSets(); // дефолт без ген-наборов -> обрезать хвост SETS; keepMode на ген-набор зажмётся на 0
         apply(); refreshPanel();
     });
     keyActivate(reset, "Сбросить к дефолту");

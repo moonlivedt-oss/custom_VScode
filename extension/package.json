@@ -5,15 +5,157 @@
   "version": "0.1.0",
   "publisher": "moonlivedt",
   "license": "MIT",
-  "engines": { "vscode": "^1.75.0" },
-  "categories": ["Other"],
-  "extensionDependencies": ["be5invis.vscode-custom-css"],
-  "activationEvents": ["onStartupFinished"],
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other",
+    "Themes"
+  ],
+  "extensionDependencies": [
+    "be5invis.vscode-custom-css"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./extension.js",
   "contributes": {
     "commands": [
-      { "command": "moonlightBg.setup", "title": "MoonLight BG: прописать импорт в настройки" },
-      { "command": "moonlightBg.remove", "title": "MoonLight BG: убрать импорт из настроек" }
+      {
+        "command": "moonlightBg.setup",
+        "title": "MoonLight BG: прописать импорт в настройки"
+      },
+      {
+        "command": "moonlightBg.remove",
+        "title": "MoonLight BG: убрать импорт из настроек"
+      }
+    ],
+    "themes": [
+      {
+        "label": "MoonLight Алые кроны",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-alye-krony-color-theme.json"
+      },
+      {
+        "label": "MoonLight Кот и звёзды",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-kot-i-zvezdy-color-theme.json"
+      },
+      {
+        "label": "MoonLight Полночные маки",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-polnochnye-maki-color-theme.json"
+      },
+      {
+        "label": "MoonLight Свиток тумана",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-svitok-tumana-color-theme.json"
+      },
+      {
+        "label": "MoonLight Хрустальное озеро",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-hrustalnoe-ozero-color-theme.json"
+      },
+      {
+        "label": "MoonLight Звёздный причал",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-zvezdnyy-prichal-color-theme.json"
+      },
+      {
+        "label": "MoonLight Багряный портал",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-bagryanyy-portal-color-theme.json"
+      },
+      {
+        "label": "MoonLight Ведьмин чертог",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-vedmin-chertog-color-theme.json"
+      },
+      {
+        "label": "MoonLight Лунная цитадель",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-lunnaya-tsitadel-color-theme.json"
+      },
+      {
+        "label": "MoonLight Тень мастера",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-ten-mastera-color-theme.json"
+      },
+      {
+        "label": "MoonLight Меч в маках",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-mech-v-makah-color-theme.json"
+      },
+      {
+        "label": "MoonLight Ночь падающей звезды",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-noch-padayuschey-zvezdy-color-theme.json"
+      },
+      {
+        "label": "MoonLight Аврора",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-avrora-color-theme.json"
+      },
+      {
+        "label": "MoonLight Закат",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-zakat-color-theme.json"
+      },
+      {
+        "label": "MoonLight Неон",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-neon-color-theme.json"
+      },
+      {
+        "label": "MoonLight Мох",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-moh-color-theme.json"
+      },
+      {
+        "label": "MoonLight Сакура",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-sakura-color-theme.json"
+      },
+      {
+        "label": "MoonLight Янтарь",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-yantar-color-theme.json"
+      },
+      {
+        "label": "MoonLight Звёздное поле",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-zvezdnoe-pole-color-theme.json"
+      },
+      {
+        "label": "MoonLight Дюны",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-dyuny-color-theme.json"
+      },
+      {
+        "label": "MoonLight Грейн",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-greyn-color-theme.json"
+      },
+      {
+        "label": "MoonLight Сетка",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-setka-color-theme.json"
+      },
+      {
+        "label": "MoonLight Топография",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-topografiya-color-theme.json"
+      },
+      {
+        "label": "MoonLight Матрица",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-matritsa-color-theme.json"
+      },
+      {
+        "label": "MoonLight Клетки",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-kletki-color-theme.json"
+      }
     ]
   }
 }

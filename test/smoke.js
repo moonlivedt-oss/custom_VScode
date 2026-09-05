@@ -437,6 +437,25 @@ ok(sandbox.SETS.length === sandbox.GEN_BASE && sandbox.cfg.genSets.length === 0,
     "removeGenSets: сгенерированные наборы убраны (SETS обрезан до GEN_BASE)");
 ok(sandbox.cfg.mode === "0", "removeGenSets: висячий mode на удалённый набор сброшен на 0");
 
+// ---- 17a4b. syncGenSets: импорт/пресет доносят ген-наборы до SETS без перезапуска ----
+// Старт: чистое состояние после removeGenSets выше (SETS === GEN_BASE, genSets пуст, mode "0").
+var genBase = sandbox.GEN_BASE;
+var foreign = { genSets: [{ name: "Ввозной", grad: ["#101010", "#a0a0a0", "#505050"], accent: "#a0a0a0" }], mode: String(genBase) };
+sandbox.cfg = sandbox.mergeForeign(foreign);
+ok(sandbox.cfg.mode === "0",
+    "импорт: mergeCfg зажимает mode на ещё-не-догруженный ген-набор (до syncGenSets)");
+sandbox.syncGenSets();
+ok(sandbox.SETS.length === genBase + 1 && sandbox.cfg.genSets.length === 1,
+    "syncGenSets: импортированный ген-набор дозагружен в хвост SETS без перезапуска");
+// то же восстановление активного набора, что делает importCfg после syncGenSets
+if (/^\d+$/.test(foreign.mode) && parseInt(foreign.mode, 10) < sandbox.SETS.length) sandbox.cfg.mode = foreign.mode;
+ok(sandbox.cfg.mode === String(genBase),
+    "импорт + syncGenSets: активным стал импортированный ген-набор (mode не потерян)");
+sandbox.cfg.genSets = []; sandbox.syncGenSets();
+ok(sandbox.SETS.length === genBase && sandbox.cfg.mode === "0",
+    "syncGenSets: пустые genSets обрезают хвост SETS и зажимают висячий mode на 0");
+sandbox.cfg.mode = "0";
+
 // ---- 17a5. Режим Present / Контраст+ / авто-медиа доступности ----
 sandbox.cfg.mode = "0";
 sandbox.cfg.fx.present = true;
@@ -448,6 +467,29 @@ contains(build(), ".view-line span { text-shadow", "highContrast вкл: уси�
 sandbox.cfg.fx.highContrast = false;
 contains(build(), "@media (prefers-reduced-transparency: reduce)",
     "a11y: медиазапрос уменьшенной прозрачности присутствует всегда (авто, без эффектов)");
+
+// ---- 17a6. Фокус-сессия: CSS под body.mlbg-focus + класс по (эффект && Помидор && running) ----
+sandbox.cfg.mode = "0"; sandbox.cfg.enabled = true;
+["focusSession", "pomodoro"].forEach(function (k) { sandbox.cfg.fx[k] = false; });
+sandbox.cfg.fx.focusSession = true;
+contains(build(), "body.mlbg-focus", "focusSession вкл: правила фокуса под классом body.mlbg-focus");
+sandbox.cfg.fx.focusSession = false;
+ok(build().indexOf("body.mlbg-focus") < 0, "focusSession выкл: правил фокуса нет");
+// syncFocusClass: класс держится ровно когда эффект+«Помидор» включены И таймер идёт.
+// body.classList в стабе — noop, поэтому на время теста подменяем его трекером.
+var _focusCls = {};
+sandbox.document.body.classList = {
+    add: function (n) { _focusCls[n] = 1; }, remove: function (n) { delete _focusCls[n]; },
+    contains: function (n) { return !!_focusCls[n]; }
+};
+sandbox.cfg.fx.focusSession = true; sandbox.cfg.fx.pomodoro = true; sandbox.pomo.running = true;
+sandbox.syncFocusClass();
+ok(_focusCls["mlbg-focus"] === 1, "syncFocusClass: запущенный «Помидор» с фокус-сессией -> класс mlbg-focus добавлен");
+sandbox.pomo.running = false; sandbox.syncFocusClass();
+ok(!_focusCls["mlbg-focus"], "syncFocusClass: на паузе (running=false) класс снят");
+sandbox.pomo.running = true; sandbox.cfg.fx.focusSession = false; sandbox.syncFocusClass();
+ok(!_focusCls["mlbg-focus"], "syncFocusClass: при выключенном эффекте класс не ставится даже во время сессии");
+sandbox.cfg.fx.pomodoro = false; sandbox.pomo.running = false; sandbox.syncFocusClass();
 
 // ---- 17a3. Превью при наведении: previewMode перебивает cfg.mode/фон по проекту ----
 sandbox.cfg.mode = "0"; sandbox.previewMode = 3;
@@ -852,6 +894,89 @@ ok(_diagThrew === null && diag && typeof diag.text === "string" &&
     diag.text.indexOf("диагностика") >= 0 && diag.text.indexOf("Версия") >= 0 &&
     diag.text.indexOf("Всего наборов") >= 0 && typeof diag.ok === "boolean" && Array.isArray(diag.lines),
     "diagnostics: собирает отчёт (версия/набор/итог + флаг ok), не бросает");
+
+// ---- 18b. Экспорт цветовой темы VS Code (buildColorTheme / exportTheme / _slug) ----
+// Тема собирается из палитры активного набора: цвета интерфейса + подсветка синтаксиса.
+// Проверяем структуру, что акцент набора попадает в тему, что смена набора меняет цвета,
+// и что подложка выводится корректно для grad/proc/фото-наборов.
+var HEXA = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" }); // «Алые кроны», акцент #f38ba8 (фото-набор)
+var thm = sandbox.buildColorTheme(0);
+ok(thm && thm.obj && thm.obj.type === "dark" && typeof thm.obj.name === "string" &&
+    thm.obj.colors && Array.isArray(thm.obj.tokenColors) && thm.obj.semanticHighlighting === true,
+    "buildColorTheme: возвращает валидный объект темы (type=dark, colors, tokenColors, semanticHighlighting)");
+ok(thm.obj.colors["editorCursor.foreground"] === "#f38ba8" &&
+    thm.obj.colors["button.background"] === "#f38ba8",
+    "buildColorTheme: акцент набора (#f38ba8) уходит в курсор/кнопки темы");
+ok(HEXA.test(thm.obj.colors["editor.background"]) && HEXA.test(thm.obj.colors["editor.foreground"]),
+    "buildColorTheme: подложка и текст редактора — валидные hex");
+// Все значения colors — валидные hex (#rrggbb или #rrggbbaa): в теме не должно быть мусора.
+var _badColor = Object.keys(thm.obj.colors).filter(function (k) { return !HEXA.test(thm.obj.colors[k]); });
+ok(_badColor.length === 0, "buildColorTheme: все цвета темы — валидные hex" +
+    (_badColor.length ? " (мусор: " + _badColor.slice(0, 3).join(", ") + ")" : ""));
+// Все tokenColors.settings.foreground — валидные hex.
+var _badTok = thm.obj.tokenColors.filter(function (t) { return !(t.settings && HEXA.test(t.settings.foreground)); });
+ok(_badTok.length === 0, "buildColorTheme: у каждого правила tokenColors валидный foreground-hex");
+// Имя темы содержит имя набора.
+ok(thm.obj.name.indexOf("MoonLight") === 0 && thm.name === thm.obj.name,
+    "buildColorTheme: имя темы начинается с «MoonLight» и совпадает в объекте/обёртке");
+// Смена набора меняет акцент темы.
+var thm3 = sandbox.buildColorTheme(3); // «Свиток тумана», акцент #94e2d5
+ok(thm3.obj.colors["editorCursor.foreground"] === "#94e2d5",
+    "buildColorTheme: смена набора меняет акцент темы (#94e2d5)");
+// Grad-набор: подложка темы = первый цвет градиента набора.
+var _gi = -1; for (var _t = 0; _t < sandbox.SETS.length; _t++) if (sandbox.isGradSet(_t)) { _gi = _t; break; }
+ok(_gi >= 0 && sandbox.buildColorTheme(_gi).obj.colors["editor.background"] === sandbox.SETS[_gi].grad[0],
+    "buildColorTheme: у grad-набора подложка = grad[0]");
+// Proc-набор: подложка темы = base набора.
+var _pi = -1; for (var _u = 0; _u < sandbox.SETS.length; _u++) if (sandbox.isProcSet(_u)) { _pi = _u; break; }
+ok(_pi >= 0 && sandbox.buildColorTheme(_pi).obj.colors["editor.background"] === sandbox.SETS[_pi].base,
+    "buildColorTheme: у proc-набора подложка = base");
+// Правка акцента набора (cfg.setAccent) отражается в теме.
+sandbox.cfg.setAccent = { "0": "#abcdef" };
+ok(sandbox.buildColorTheme(0).obj.colors["editorCursor.foreground"] === "#abcdef",
+    "buildColorTheme: пользовательский акцент набора (setAccent) уходит в тему");
+sandbox.cfg.setAccent = {};
+// exportTheme не бросает (Blob/URL/clipboard застабены).
+var _expThrew = null; try { sandbox.cfg.mode = "0"; sandbox.exportTheme(); } catch (e) { _expThrew = e; }
+ok(_expThrew === null, "exportTheme: выгрузка темы не бросает" + (_expThrew ? " (" + _expThrew.message + ")" : ""));
+// _slug: транслит кириллицы -> ASCII-слаг для имени файла; пусто -> "".
+ok(sandbox._slug("Алые кроны") === "alye-krony" && sandbox._slug("Grid 21!") === "grid-21" &&
+    sandbox._slug("---") === "" && /^[a-z0-9-]*$/.test(sandbox._slug("Хрустальное озеро")),
+    "_slug: кириллица транслитерируется в ASCII-слаг (для имени файла)");
+// _hexA: hex + альфа -> #rrggbbaa.
+ok(sandbox._hexA("#112233", 1) === "#112233ff" && sandbox._hexA("#112233", 0) === "#11223300" &&
+    /^#112233[0-9a-f]{2}$/.test(sandbox._hexA("#112233", 0.5)),
+    "_hexA: добавляет 2-значную альфу к hex (#rrggbbaa)");
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" });
+
+// ---- 18c. Устанавливаемые темы расширения (extension/contributes.themes + themes/*.json) ----
+// build-themes.js генерирует по теме на встроенный набор и прописывает их в extension/package.json.
+// Здесь — read-only проверка целостности (без запуска генератора): каждая объявленная тема
+// существует файлом, парсится как JSON и имеет ожидаемую форму (type=dark, есть colors).
+var extPkgPath = path.join(ROOT, "extension", "package.json");
+if (fs.existsSync(extPkgPath)) {
+    var extPkg = JSON.parse(fs.readFileSync(extPkgPath, "utf8"));
+    var themes = (extPkg.contributes && extPkg.contributes.themes) || [];
+    ok(Array.isArray(themes) && themes.length > 0,
+        "extension: contributes.themes непустой (" + themes.length + " тем)");
+    var themeBad = [];
+    themes.forEach(function (t) {
+        try {
+            if (!t || t.uiTheme !== "vs-dark" || typeof t.path !== "string") { themeBad.push(String(t && t.label)); return; }
+            var tp = path.join(ROOT, "extension", t.path);
+            if (!fs.existsSync(tp)) { themeBad.push(t.label + " (нет файла)"); return; }
+            var obj = JSON.parse(fs.readFileSync(tp, "utf8"));
+            if (obj.type !== "dark" || !obj.colors || !obj.colors["editor.background"] || !Array.isArray(obj.tokenColors)) themeBad.push(t.label + " (форма)");
+        } catch (e) { themeBad.push((t && t.label) + " (" + e.message + ")"); }
+    });
+    ok(themeBad.length === 0, "extension: все объявленные темы существуют и валидны" +
+        (themeBad.length ? " (проблемы: " + themeBad.slice(0, 3).join(", ") + " — перегенерируй: node build-themes.js)" : ""));
+    ok(extPkg.categories && extPkg.categories.indexOf("Themes") >= 0,
+        "extension: категория «Themes» объявлена (находимость тем в маркетплейсе)");
+} else {
+    ok(true, "extension: package.json отсутствует — проверка тем пропущена");
+}
 
 // ---- 19. Линтер инвариантов конфига (рассинхрон таблиц UI и DEFAULTS) ----
 // Тумблеры/слайдеры/стили частиц описаны ДВАЖДЫ: раз в таблице для UI (FX_LIST / PARAMS /
