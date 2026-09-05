@@ -1,5 +1,7 @@
 <div align="center">
 
+**Русский** · [English](README.en.md)
+
 # MoonLight custom-bg
 
 ### Живой фон и полноценная панель оформления для VS Code — прямо в редакторе
@@ -7,6 +9,7 @@
 Картинки по зонам · наборы с собственной палитрой · генеративные фоны без ассетов · слайдшоу<br>
 Ken Burns, матовое стекло, Aurora, спотлайт · фон под проект · виджеты статусбара · интерфейс RU / EN
 
+[![CI](https://github.com/moonlivedt-oss/custom_VScode/actions/workflows/ci.yml/badge.svg)](https://github.com/moonlivedt-oss/custom_VScode/actions/workflows/ci.yml)
 ![version](https://img.shields.io/badge/version-v19-cba6f7)
 ![vscode](https://img.shields.io/badge/VS%20Code-custom--css-007ACC?logo=visualstudiocode&logoColor=white)
 ![sets](https://img.shields.io/badge/наборов-25-f5a97f)
@@ -219,21 +222,55 @@ Ken Burns, матовое стекло, Aurora, спотлайт · фон по�
 > В любую зону любого набора можно подложить
 > свою картинку — она перекроет градиент/текстуру.
 
+### Галерея: наборы вживую
+
+Один и тот же код — восемь разных наборов. Каждый перекрашивает интерфейс под свою палитру:
+акцент, скроллбар, курсор, рамки, подсветку строки — всё меняется вместе с фоном.
+
 <table>
-  <tr>
+  <tr valign="top">
+    <td align="center" width="50%">
+      <img src="docs/screenshots/set-bloodmoon.png" alt="Набор «Алые кроны»: багряный замок за кодом, красный акцент" width="420"><br>
+      <sub><b>Алые кроны</b> · фото</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/set-cats.png" alt="Набор «Кот и звёзды»: звёздная ночь и силуэт кота, сиреневый акцент" width="420"><br>
+      <sub><b>Кот и звёзды</b> · фото</sub>
+    </td>
+  </tr>
+  <tr valign="top">
     <td align="center">
-      <img src="docs/screenshots/set-cats.png" alt="Фото-набор с сиреневым акцентом" width="440"><br>
-      <sub>Фото-набор — сиреневый акцент</sub>
+      <img src="docs/screenshots/set-crystal-lake.png" alt="Набор «Хрустальное озеро»: зимнее озеро, голубой акцент" width="420"><br>
+      <sub><b>Хрустальное озеро</b> · фото</sub>
     </td>
     <td align="center">
-      <img src="docs/screenshots/set-bloodmoon.png" alt="Фото-набор с красным акцентом" width="440"><br>
-      <sub>Фото-набор — красный акцент</sub>
+      <img src="docs/screenshots/set-star-pier.png" alt="Набор «Звёздный причал»: кот на крыше и цветущая сакура" width="420"><br>
+      <sub><b>Звёздный причал</b> · фото</sub>
+    </td>
+  </tr>
+  <tr valign="top">
+    <td align="center">
+      <img src="docs/screenshots/set-falling-star.png" alt="Набор «Ночь падающей звезды»: сакура и фигура под ночным небом" width="420"><br>
+      <sub><b>Ночь падающей звезды</b> · фото</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/set-dunes.png" alt="Процедурный набор «Дюны»: тёплые волны-дюны на canvas" width="420"><br>
+      <sub><b>Дюны</b> · процедурный</sub>
+    </td>
+  </tr>
+  <tr valign="top">
+    <td align="center">
+      <img src="docs/screenshots/set-grid.png" alt="Процедурный набор «Сетка»: техно-сетка на canvas" width="420"><br>
+      <sub><b>Сетка</b> · процедурный</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/set-cells.png" alt="Процедурный набор «Клетки»: органичные клетки на canvas" width="420"><br>
+      <sub><b>Клетки</b> · процедурный</sub>
     </td>
   </tr>
 </table>
 
-Каждый набор перекрашивает интерфейс под свою палитру: акцент, скроллбар, курсор, рамки,
-подсветку строки — всё меняется вместе с картинками.
+<sub>Ещё 17 наборов — в таблице выше; фон переключается кнопкой <code>BG</code> или <code>Ctrl+Alt+.</code></sub>
 
 ---
 
