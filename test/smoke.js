@@ -362,12 +362,17 @@ sandbox.cfg.setImg = { }; sandbox.cfg.setImg[gradIdx] = { editor: "file:///d:/o.
 contains(build(), "o.jpg", "генеративный набор: своя картинка зоны перекрывает градиент");
 sandbox.cfg.setImg = {}; sandbox.cfg.mode = "0";
 
-// ---- 17a2. Наборы: 12 фото + 6 генеративных + 3 процедурных, у зон разная форма градиента ----
-ok(sandbox.SETS.length === 21, "SETS: всего 21 набор (12 фото + 6 градиентных + 3 процедурных)");
+// ---- 17a2. Наборы: 12 фото + 6 генеративных + 7 процедурных, у зон разная форма градиента ----
+ok(sandbox.SETS.length === 25, "SETS: всего 25 наборов (12 фото + 6 градиентных + 7 процедурных)");
 var gradCount = 0, procCount = 0;
 for (var gj = 0; gj < sandbox.SETS.length; gj++) { if (sandbox.isGradSet(gj)) gradCount++; if (sandbox.isProcSet(gj)) procCount++; }
 ok(gradCount === 6, "isGradSet: ровно 6 градиентных наборов");
-ok(procCount === 3, "isProcSet: ровно 3 процедурных набора");
+ok(procCount === 7, "isProcSet: ровно 7 процедурных наборов");
+// Новые генераторы: каждый ключ из PROC_KINDS есть в диспетчере PROC_DRAW (иначе откат на грейн).
+var procMissing = Object.keys(sandbox.PROC_KINDS).filter(function (k) { return typeof sandbox.PROC_DRAW[k] !== "function"; });
+ok(procMissing.length === 0, "PROC_DRAW: у каждого вида proc есть функция отрисовки" + (procMissing.length ? " (нет: " + procMissing.join(",") + ")" : ""));
+ok(sandbox.PROC_KINDS.grid && sandbox.PROC_KINDS.topo && sandbox.PROC_KINDS.matrix && sandbox.PROC_KINDS.cells,
+    "PROC_KINDS: добавлены grid/topo/matrix/cells");
 ok(sandbox.gradFor(gradIdx, "editor").indexOf("linear-gradient(135deg") === 0 &&
     sandbox.gradFor(gradIdx, "panel").indexOf("radial-gradient(") === 0,
     "gradFor: у зон разная форма (editor — диагональ, panel — радиальный)");
@@ -404,6 +409,45 @@ ok(sandbox.sanitizeSets([]).length === 1 && sandbox.sanitizeSets("nope").length 
 var fb = sandbox.safeFallbackCSS();
 ok(typeof fb === "string" && fb.indexOf("--mlbg-accent") >= 0,
     "safeFallbackCSS: содержит переменную акцента (кнопка/панель переживут сбой сборки)");
+
+// ---- 17a4. Генератор набора по seed/палитре: sanitizeUserSets + genSetFromSeed + addGenSet ----
+var us = sandbox.sanitizeUserSets([
+    { name: "ok", grad: ["#111111", "#222222"], accent: "#333333" },
+    { name: "пусто" },   // без grad/proc/картинки -> не отрисовывается -> отброшен
+    null, 5
+]);
+ok(us.length === 1 && us[0].grad.length === 2, "sanitizeUserSets: неотрисовываемые/мусорные отброшены");
+ok(sandbox.sanitizeUserSets([]).length === 0, "sanitizeUserSets: пустой вход -> пустой массив (без подстановки дефолта)");
+var g1 = sandbox.genSetFromSeed("moonlight"), g2 = sandbox.genSetFromSeed("moonlight");
+ok(g1.grad && g1.grad.length === 3 && sandbox.isColor(g1.accent) && g1.accent === g2.accent,
+    "genSetFromSeed: seed даёт согласованный набор (3 цвета) и детерминирован");
+var gc = sandbox.genSetFromSeed("#ff0000");
+ok(sandbox.isColor(gc.accent) && gc.name.indexOf("#ff0000") >= 0,
+    "genSetFromSeed: из базового цвета строит набор того же оттенка");
+var lenBefore = sandbox.SETS.length;
+var newIdx = sandbox.addGenSet(sandbox.genSetFromSeed("test-seed"));
+ok(newIdx === lenBefore && sandbox.SETS.length === lenBefore + 1 && sandbox.cfg.genSets.length >= 1,
+    "addGenSet: набор добавлен и в хвост SETS, и в cfg.genSets");
+var reMerged = sandbox.mergeCfg({ genSets: sandbox.cfg.genSets, mode: String(newIdx) });
+ok(reMerged.genSets.length === sandbox.cfg.genSets.length,
+    "mergeCfg: genSets переживают сериализацию/санитизацию (выбор набора уцелеет)");
+sandbox.cfg.mode = String(newIdx);
+sandbox.removeGenSets();
+ok(sandbox.SETS.length === sandbox.GEN_BASE && sandbox.cfg.genSets.length === 0,
+    "removeGenSets: сгенерированные наборы убраны (SETS обрезан до GEN_BASE)");
+ok(sandbox.cfg.mode === "0", "removeGenSets: висячий mode на удалённый набор сброшен на 0");
+
+// ---- 17a5. Режим Present / Контраст+ / авто-медиа доступности ----
+sandbox.cfg.mode = "0";
+sandbox.cfg.fx.present = true;
+contains(build(), ".monaco-editor .minimap { display: none", "present вкл: миникарта скрыта (шум убран)");
+sandbox.cfg.fx.present = false;
+ok(build().indexOf(".monaco-editor .minimap { display: none") < 0, "present выкл: правил Present нет");
+sandbox.cfg.fx.highContrast = true;
+contains(build(), ".view-line span { text-shadow", "highContrast вкл: усиленная тень глифов (читаемость)");
+sandbox.cfg.fx.highContrast = false;
+contains(build(), "@media (prefers-reduced-transparency: reduce)",
+    "a11y: медиазапрос уменьшенной прозрачности присутствует всегда (авто, без эффектов)");
 
 // ---- 17a3. Превью при наведении: previewMode перебивает cfg.mode/фон по проекту ----
 sandbox.cfg.mode = "0"; sandbox.previewMode = 3;

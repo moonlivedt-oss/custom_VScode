@@ -338,6 +338,10 @@ function togglePanel(ev) {
     secSet.appendChild(chips);
     secSet.appendChild(makeSetNameEdit()); // переименование активного набора
 
+    // Генератор набора по seed/палитре: бесконечные согласованные фоны без ассетов.
+    var secGen = collapsible(tSet, "Генератор", "Создать согласованный набор из seed-строки или базового цвета (#rrggbb): тёмная подложка + акцент + гармоничный спутник. Один seed всегда даёт один и тот же набор — им можно делиться. Наборы сохраняются и добавляются в конец списка.");
+    secGen.appendChild(makeGenerator());
+
     // Слайдшоу
     var secSlide = collapsible(tSet, "Слайдшоу", "Автоматическая смена набора по кругу через заданный интервал.");
     secSlide.appendChild(makeSlideToggle());

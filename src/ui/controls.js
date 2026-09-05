@@ -213,6 +213,61 @@ function makeSetNameEdit() {
     return wrap;
 }
 
+// ===== Генератор набора по seed/палитре =====
+// Поле «seed или #rrggbb» + кнопки «Сгенерировать» / «Случайный». Из ввода строим
+// согласованный градиентный набор (genSetFromSeed), кладём его в хвост наборов (addGenSet:
+// правит cfg.genSets + SETS, сохраняется в localStorage) и сразу делаем активным. Пока есть
+// сгенерированные наборы — доступна «Очистить» (removeGenSets убирает их из хвоста и чистит
+// висячие привязки). Один seed всегда даёт один и тот же набор — им можно делиться текстом.
+function makeGenerator() {
+    var wrap = el("div");
+    // маленькая кнопка в стиле «из картинки»
+    function btn(label, title) {
+        var b = el("div", "flex:0 0 auto; padding:3px 9px; border-radius:6px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", label);
+        if (title) b.title = title;
+        keyActivate(b, title || label);
+        return b;
+    }
+    var row = el("div", ST.row);
+    var ip = el("input", fieldStyle(" padding:3px 6px; font-size:11px;"));
+    ip.type = "text"; ip.maxLength = 40; ip.placeholder = "seed или #rrggbb";
+    ip.setAttribute("aria-label", "Seed или базовый цвет набора");
+    row.appendChild(ip);
+    wrap.appendChild(row);
+
+    // Применить сгенерированный набор: добавить в хвост и сделать активным.
+    function makeAndApply(seed) {
+        var idx = addGenSet(genSetFromSeed(seed));
+        if (idx === -2) { toast("Достигнут предел сгенерированных наборов (" + GEN_MAX + ")", false); return; }
+        if (idx < 0) { toast("Не удалось создать набор", false); return; }
+        cfg.mode = String(idx);
+        applyFade(); refreshPanel();
+        toast("Набор создан: " + setName(idx));
+    }
+
+    var gen = btn("Сгенерировать", "Создать набор из seed/цвета в поле");
+    gen.addEventListener("click", function () { makeAndApply(ip.value); });
+    var rnd = btn("Случайный", "Случайный согласованный набор");
+    rnd.addEventListener("click", function () { ip.value = ""; makeAndApply(""); });
+    ip.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); makeAndApply(ip.value); } });
+
+    var btns = el("div", "display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;");
+    btns.appendChild(gen); btns.appendChild(rnd);
+    if (cfg.genSets && cfg.genSets.length) {
+        var clr = btn("Очистить (" + cfg.genSets.length + ")", "Убрать все сгенерированные наборы");
+        clr.style.color = "#f38ba8"; clr.style.background = "rgba(243,139,168,0.14)"; clr.style.borderColor = "rgba(243,139,168,0.3)";
+        clr.addEventListener("click", function () {
+            backupCfg();          // на случай «ой, не то» — «Восстановить» в «Система» вернёт
+            removeGenSets();
+            applyFade(); refreshPanel();
+            toast("Сгенерированные наборы убраны");
+        });
+        btns.appendChild(clr);
+    }
+    wrap.appendChild(btns);
+    return wrap;
+}
+
 function makeOpSlider(key, label) {
     return makeSlider({
         label: label, min: 0, max: 0.6, step: 0.01, dec: 2, labelW: 56, valW: 30, ellipsis: false,

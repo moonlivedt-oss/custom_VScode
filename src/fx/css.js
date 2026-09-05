@@ -154,6 +154,35 @@ function accentTrio(ac, edUrl) {
 function isGradSet(idx) { var s = SETS[idx]; return !!(s && s.grad && s.grad.length); }
 function hasUserImg(idx, zone) { var o = cfg.setImg && cfg.setImg[idx]; return !!(o && typeof o[zone] === "string" && o[zone]); }
 function isGrad(idx, zone) { return isGradSet(idx) && !hasUserImg(idx, zone); }
+
+// ===== Генерация набора по seed/палитре =====
+// Из seed-строки ИЛИ базового цвета (#rrggbb) строим согласованный градиентный набор:
+// тёмная подложка + акцент того же оттенка + гармоничный спутник (поворот на 150°). Всё —
+// детерминировано от seed (одинаковый seed -> одинаковый набор), без ассетов, рендерится
+// сразу как обычный grad-набор. Используется addGenSet (config.js) из UI-генератора.
+// FNV-1a хэш строки -> целое (детерминированный «случайный» оттенок из текста).
+function _seedHash(str) {
+    var h = 2166136261, i;
+    for (i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = (h * 16777619) >>> 0; }
+    return h >>> 0;
+}
+function genSetFromSeed(seed) {
+    seed = (typeof seed === "string" ? seed : "").trim();
+    var hue, name; // hue в долях [0,1) — как ждут rgbToHsl/hslToHex
+    if (isColor(seed)) {
+        var c = hexToRgbArr(seed);
+        hue = rgbToHsl(c[0], c[1], c[2])[0];
+        name = "Из цвета " + seed;
+    } else {
+        var src = seed || ("r" + Math.floor(Math.random() * 1e9)); // пусто -> случайный набор
+        hue = (_seedHash(src) % 3600) / 3600;
+        name = seed ? ("Seed: " + seed.slice(0, 20)) : "Случайный";
+    }
+    var accent = hslToHex(hue, 0.72, 0.66);
+    var base = hslToHex(hue, 0.30, 0.10);
+    var sat = hslToHex((hue + 150 / 360) % 1, 0.55, 0.60);
+    return { name: name.slice(0, 40), grad: [base, accent, sat], accent: accent };
+}
 // Градиент зоны: у каждой зоны своя форма, чтобы редактор/сайдбар/панель не были
 // одинаковыми — редактор идёт по диагонали, сайдбар той же палитрой в обратном порядке
 // (тёмный край смещён к другому углу), панель — радиальный из нижнего правого угла.
@@ -215,6 +244,74 @@ function _procNoise(cx, W, H, acc) {
         cx.fillRect(Math.random() * W, Math.random() * H, 2, 2);
     }
 }
+// Техно-сетка: ровные линии акцентом с редкими яркими узлами на пересечениях.
+function _procGrid(cx, W, H, acc) {
+    var step = 34, x, y;
+    cx.strokeStyle = "rgba(" + acc + ",0.10)"; cx.lineWidth = 1;
+    for (x = 0; x <= W; x += step) { cx.beginPath(); cx.moveTo(x, 0); cx.lineTo(x, H); cx.stroke(); }
+    for (y = 0; y <= H; y += step) { cx.beginPath(); cx.moveTo(0, y); cx.lineTo(W, y); cx.stroke(); }
+    for (x = 0; x <= W; x += step) for (y = 0; y <= H; y += step) {
+        if (Math.random() < 0.12) {
+            cx.fillStyle = "rgba(" + acc + "," + (0.25 + Math.random() * 0.4) + ")";
+            cx.beginPath(); cx.arc(x, y, 1.6, 0, 6.283); cx.fill();
+        }
+    }
+}
+// Топография: набор горизонтальных «контуров высоты» (сумма синусов), как на карте местности.
+function _procTopo(cx, W, H, acc) {
+    var line, x;
+    cx.lineWidth = 1.2;
+    for (line = 0; line < 14; line++) {
+        var yBase = H * (line / 13) * 1.06 - H * 0.03;
+        cx.strokeStyle = "rgba(" + acc + "," + (0.06 + (line % 3) * 0.02) + ")";
+        cx.beginPath();
+        for (x = 0; x <= W; x += 6) {
+            var y = yBase + Math.sin((x / W) * 6.283 * 1.3 + line * 0.6) * (14 + line)
+                          + Math.sin((x / W) * 6.283 * 2.7 + line) * 6;
+            if (x === 0) cx.moveTo(x, y); else cx.lineTo(x, y);
+        }
+        cx.stroke();
+    }
+}
+// «Дождь матрицы»: вертикальные колонки-струи из квадратиков, голова — светлая, хвост гаснет.
+function _procMatrix(cx, W, H, acc) {
+    var colW = 12, col, i;
+    for (col = 0; col * colW < W; col++) {
+        var x = col * colW + 2, headY = Math.random() * H, len = 6 + Math.floor(Math.random() * 16);
+        for (i = 0; i < len; i++) {
+            var y = headY - i * 12; if (y < 0) y += H;
+            cx.fillStyle = i === 0 ? "rgba(235,255,235,0.85)" : "rgba(" + acc + "," + ((1 - i / len) * 0.5) + ")";
+            cx.fillRect(x, y, 6, 8);
+        }
+    }
+}
+// Клетки: сетка точек со случайным сдвигом, между соседями — грани (вороной-подобная сеть),
+// часть клеток мягко залита акцентом, часть вершин — яркими точками.
+function _procCells(cx, W, H, acc) {
+    var cols = 8, rows = 6, gx = W / cols, gy = H / rows, r, c;
+    var pts = [];
+    for (r = 0; r <= rows; r++) {
+        pts[r] = [];
+        for (c = 0; c <= cols; c++) {
+            var jx = (c === 0 || c === cols) ? 0 : (Math.random() - 0.5) * gx * 0.6;
+            var jy = (r === 0 || r === rows) ? 0 : (Math.random() - 0.5) * gy * 0.6;
+            pts[r][c] = [c * gx + jx, r * gy + jy];
+        }
+    }
+    cx.strokeStyle = "rgba(" + acc + ",0.14)"; cx.lineWidth = 1;
+    for (r = 0; r < rows; r++) for (c = 0; c < cols; c++) {
+        var p0 = pts[r][c], p1 = pts[r][c + 1], p2 = pts[r + 1][c + 1], p3 = pts[r + 1][c];
+        cx.beginPath(); cx.moveTo(p0[0], p0[1]); cx.lineTo(p1[0], p1[1]); cx.lineTo(p2[0], p2[1]); cx.lineTo(p3[0], p3[1]); cx.closePath();
+        if (Math.random() < 0.18) { cx.fillStyle = "rgba(" + acc + "," + (0.05 + Math.random() * 0.08) + ")"; cx.fill(); }
+        cx.stroke();
+    }
+    for (r = 0; r <= rows; r++) for (c = 0; c <= cols; c++) {
+        if (Math.random() < 0.10) { cx.fillStyle = "rgba(" + acc + ",0.5)"; cx.beginPath(); cx.arc(pts[r][c][0], pts[r][c][1], 1.4, 0, 6.283); cx.fill(); }
+    }
+}
+// Диспетчер генераторов: ключ proc -> функция отрисовки (неизвестный ключ санитайзер не
+// пропустит, но на всякий случай откатываемся на грейн).
+var PROC_DRAW = { stars: _procStars, waves: _procWaves, noise: _procNoise, grid: _procGrid, topo: _procTopo, matrix: _procMatrix, cells: _procCells };
 function procTexture(idx) {
     var s = SETS[idx]; if (!s || !s.proc) return null;
     var base = isColor(s.base) ? s.base : "#181825", accHex = safeColor(s.accent, DEFAULTS.accent);
@@ -229,9 +326,7 @@ function procTexture(idx) {
         g.addColorStop(0, base); g.addColorStop(1, shadeHex(base, 0.14));
         cx.fillStyle = g; cx.fillRect(0, 0, W, H);
         var acc = hexToRgbArr(accHex).join(",");
-        if (s.proc === "stars") _procStars(cx, W, H, acc);
-        else if (s.proc === "waves") _procWaves(cx, W, H, acc);
-        else _procNoise(cx, W, H, acc);
+        (PROC_DRAW[s.proc] || _procNoise)(cx, W, H, acc);
         url = cv.toDataURL("image/jpeg", 0.82);
     } catch (e) { url = null; }
     _procCache[key] = url;
@@ -709,6 +804,34 @@ function buildCSS() {
             "  0%,100% { box-shadow: inset 0 2px 0 0 rgba(243,139,168,0.5); }",
             "  50%     { box-shadow: inset 0 2px 0 0 rgba(243,139,168,0.95), 0 0 16px 0 rgba(243,139,168,0.4); }",
             "}"
+        ]; }],
+        // v20: Режим Present — «спокойнее фон, крупнее акценты, скрыть шум» для стрима/скринкаста/
+        // курса. Прячем визуальный шум (хлебные крошки, миникарта), приглушаем экшены редактора
+        // (проявляются по наведению), и КРУПНЕЕ подаём акценты: толще подчёркивание активной
+        // вкладки, ярче индикатор активити-бара, контрастнее активная строка. Только CSS —
+        // ничего не двигает и не читает DOM.
+        ["present", function () { return [
+            ".monaco-workbench .monaco-breadcrumbs { display: none !important; }",
+            ".monaco-editor .minimap { display: none !important; }",
+            ".monaco-workbench .editor-actions { opacity: 0.3; transition: opacity 0.2s ease; }",
+            ".monaco-workbench .editor-actions:hover { opacity: 1; }",
+            ".tabs-container > .tab.active { box-shadow: inset 0 -3px 0 0 var(--mlbg-accent) !important; }",
+            ".monaco-workbench .activitybar .action-item.active .active-item-indicator:before {",
+            "  border-left-width: 3px !important; border-left-color: var(--mlbg-accent) !important;",
+            "}",
+            ".monaco-editor .view-overlays .current-line { border: 1px solid rgba(var(--mlbg-accent-rgb),0.45) !important; }"
+        ]; }],
+        // v20: Контраст+ (a11y) — читаемость поверх яркой картинки без сдвига метрик Monaco:
+        // плотная тень под глифами кода (в обе стороны) и под подписями сайдбара/панели, ярче
+        // подсветка выделения, ТОЛЩЕ обводка фокуса (клавиатурная навигация видна лучше).
+        // shadowRGB тема-зависимая: тёмный ореол на тёмной теме, светлый — на светлой.
+        ["highContrast", function () { return [
+            ".monaco-editor .view-line span { text-shadow: 0 0 3px rgba(" + shadowRGB + ",0.95), 0 1px 2px rgba(" + shadowRGB + ",0.9) !important; }",
+            ".monaco-workbench .part.sidebar, .monaco-workbench .part.panel { text-shadow: 0 1px 2px rgba(" + shadowRGB + ",0.85); }",
+            ".monaco-editor .focused .selected-text { outline: 1px solid var(--mlbg-accent); }",
+            "#moonlight-bg-switcher:focus-visible, #moonlight-bg-panel [role=button]:focus-visible,",
+            "#moonlight-bg-panel input:focus-visible, #moonlight-bg-panel select:focus-visible,",
+            "#moonlight-bg-panel textarea:focus-visible { outline-width: 3px !important; outline-offset: 2px !important; }"
         ]; }]
     ];
     for (var bi = 0; bi < FX_BLOCKS.length; bi++) {
@@ -733,6 +856,19 @@ function buildCSS() {
     add(
         "@media (prefers-reduced-motion: reduce) {",
         rmSel.join(",\n") + " { animation: none !important; }",
+        "}"
+    );
+    // Доступность: при системной «уменьшить прозрачность» убираем размытие «матового стекла»
+    // с наших поверхностей (backdrop-filter — источник полупрозрачности, тяжёлой для чтения и
+    // для восприятия при вестибулярных/зрительных особенностях). Сам фон/цвета остаются; уходит
+    // только blur. Всегда в CSS (не зависит от эффектов) — активируется только при системном флаге.
+    add(
+        "@media (prefers-reduced-transparency: reduce) {",
+        "  #moonlight-bg-panel, .quick-input-widget, .suggest-widget, .monaco-hover,",
+        "  .monaco-workbench .part.sidebar, .monaco-workbench .part.panel, .monaco-workbench .part.statusbar,",
+        "  .monaco-workbench .part.titlebar, .tabs-container {",
+        "    backdrop-filter: none !important; -webkit-backdrop-filter: none !important;",
+        "  }",
         "}"
     );
     return out.join("\n");

@@ -60,11 +60,17 @@ var SETS = [
     { name: "Янтарь", grad: ["#1e1e2e", "#fab387", "#f9e2af"], accent: "#fab387" }, // 17
     // ===== Процедурные наборы (proc) — текстура рисуется на canvas в data-URL, БЕЗ картинок =====
     // Как grad, но не плоский градиент, а сгенерированная текстура (см. procTexture в css.js):
-    // stars — звёздное поле, waves — волны-дюны, noise — плёночный грейн с искрами. base —
-    // цвет подложки, accent — акцент интерфейса и цвет деталей текстуры. Ноль ассетов.
+    // stars — звёздное поле, waves — волны-дюны, noise — плёночный грейн с искрами,
+    // grid — техно-сетка с узлами, topo — топографические контуры, matrix — «дождь матрицы»,
+    // cells — органическая сетка клеток (вороной-подобная). base — цвет подложки, accent —
+    // акцент интерфейса и цвет деталей текстуры. Ноль ассетов.
     { name: "Звёздное поле", proc: "stars", base: "#0b0b16", accent: "#89b4fa" }, // 18
     { name: "Дюны",          proc: "waves", base: "#1e1e2e", accent: "#fab387" }, // 19
-    { name: "Грейн",         proc: "noise", base: "#11111b", accent: "#a6e3a1" }  // 20
+    { name: "Грейн",         proc: "noise", base: "#11111b", accent: "#a6e3a1" }, // 20
+    { name: "Сетка",         proc: "grid",   base: "#0d1117", accent: "#89b4fa" }, // 21
+    { name: "Топография",    proc: "topo",   base: "#10151f", accent: "#94e2d5" }, // 22
+    { name: "Матрица",       proc: "matrix", base: "#0a0f0a", accent: "#a6e3a1" }, // 23
+    { name: "Клетки",        proc: "cells",  base: "#141018", accent: "#cba6f7" }  // 24
 ];
 // Короткое имя набора по индексу (для статусбара/тултипов). Приоритет — имя,
 // заданное пользователем в панели (cfg.setName[idx]), затем «родное» имя из SETS,
@@ -98,6 +104,8 @@ var DEFAULTS = {
     setAccent: {},                                      // переопределение акцента конкретного набора: { idx: "#rrggbb" }
     setName: {},                                        // пользовательское имя набора: { idx: "строка" }
     setImg: {},                                         // свои картинки набора по зонам: { idx: { editor?, sidebar?, panel? } }
+    genSets: [],                                        // сгенерированные наборы (по seed/палитре): дозагружаются в хвост SETS
+
     autoDim: true,                                      // авто-занижение яркости editor под светлые картинки (читаемость кода)
     fit: { editor: "cover", side: "cover", panel: "cover" }, // вписывание фоновой картинки по зонам: cover | contain
     // фильтры самой фоновой картинки — отдельно по зонам (редактор / сайдбар / панель)
@@ -147,7 +155,13 @@ var DEFAULTS = {
         // поэтому курсор не сдвигается); errorReact — мягкая красная реакция при ошибках в коде.
         tint: false,                                    // тонировать весь воркбенч акцентом (mix-blend overlay)
         legible: false,                                 // тень глифов кода ради читаемости над фоном (без сдвига курсора)
-        errorReact: false                               // мягкая красная подсветка статусбара, когда в коде есть ошибки
+        errorReact: false,                              // мягкая красная подсветка статусбара, когда в коде есть ошибки
+        // v20: сценарии/доступность. present — «презентационный» режим (стрим/скринкаст/курс):
+        // прячет визуальный шум (хлебные крошки, миникарта, экшены редактора) и крупнее/ярче
+        // подаёт акценты. highContrast — a11y: плотная тень под кодом и подписями панелей +
+        // толще фокус-обводка ради читаемости поверх картинки. Оба opt-in.
+        present: false,                                 // режим Present: спокойный фон, крупнее акценты, скрыть шум
+        highContrast: false                             // контраст+: усиленная читаемость текста и фокуса (a11y)
     },
     // Стиль летящих частиц (fx.particles). Категориальный (не числовой) — санитизируется
     // по белому списку PART_STYLES. dots — прежнее поведение (кружки), остальные меняют
@@ -187,7 +201,8 @@ var FX_LIST = [
     ["minimapFade", "Миникарта сквозь"], ["indentAccent", "Акцент отступов"],
     ["selectionMatch", "Совпадения слова"], ["stickyGlass", "Стекло sticky"],
     ["aurora", "Aurora фон"], ["spotlight", "Спотлайт"], ["typingPulse", "Пульс печати"],
-    ["tint", "Тон акцентом"], ["legible", "Читаемость кода"], ["errorReact", "Реакция на ошибки"]
+    ["tint", "Тон акцентом"], ["legible", "Читаемость кода"], ["errorReact", "Реакция на ошибки"],
+    ["present", "Режим Present"], ["highContrast", "Контраст+"]
 ];
 
 // Стили частиц (fx.particles): ключ + подпись. dots — прежние кружки; stars — искры-звёздочки;
@@ -415,6 +430,9 @@ function mergeCfg(p) {
                 c.setImg[ii] = cleanZ;
             }
         }
+        // сгенерированные наборы: нормализуются как SETS, число ограничено GEN_MAX.
+        // Дозагрузка в хвост SETS — в _appendGenSets (ниже), при старте.
+        if (Array.isArray(p.genSets)) c.genSets = sanitizeUserSets(p.genSets);
         // авто-яркость editor: только булево
         if (typeof p.autoDim === "boolean") c.autoDim = p.autoDim;
         // вписывание по зонам: строго из белого списка cover|contain (в CSS — без кавычек)
@@ -541,25 +559,46 @@ function readBackup() {
 // подставляем один безопасный градиентный набор. Дубликат белого списка proc — намеренно
 // локальный (config не знает про css.js); поля-строки картинок оставляем как есть (их
 // разрешение и проверка сети — уже в imgAllowed/imgUrl).
-var PROC_KINDS = { stars: 1, waves: 1, noise: 1 };
+var PROC_KINDS = { stars: 1, waves: 1, noise: 1, grid: 1, topo: 1, matrix: 1, cells: 1 };
+// Нормализация ОДНОЙ записи набора (общая для sanitizeSets и sanitizeUserSets/addGenSet).
+// Возвращает чистый объект (имя/акцент/тип строго проверены) или null — если это не объект.
+// Поля-строки картинок оставляем как есть (их разрешение и проверка сети — в imgAllowed/imgUrl).
+function _normSetEntry(s, fallbackName) {
+    if (!s || typeof s !== "object") return null;
+    var e = {};
+    e.name = (typeof s.name === "string" && s.name) ? s.name.slice(0, 60) : fallbackName;
+    e.accent = isColor(s.accent) ? s.accent : DEFAULTS.accent;
+    if (Array.isArray(s.grad)) { var g = []; for (var k = 0; k < s.grad.length; k++) if (isColor(s.grad[k])) g.push(s.grad[k]); if (g.length >= 2) e.grad = g; }
+    if (typeof s.proc === "string" && PROC_KINDS[s.proc]) { e.proc = s.proc; e.base = isColor(s.base) ? s.base : "#181825"; }
+    if (typeof s.editor === "string" && s.editor) e.editor = s.editor;
+    if (typeof s.sidebar === "string" && s.sidebar) e.sidebar = s.sidebar;
+    if (typeof s.panel === "string" && s.panel) e.panel = s.panel;
+    return e;
+}
+// Есть ли у записи хоть один источник для отрисовки (иначе зона была бы пустой).
+function _setRenderable(e) { return !!(e && (e.grad || e.proc || e.editor || e.sidebar || e.panel)); }
 function sanitizeSets(list) {
     var out = [];
     if (Array.isArray(list)) {
         for (var i = 0; i < list.length; i++) {
-            var s = list[i];
-            if (!s || typeof s !== "object") continue;
-            var e = {};
-            e.name = (typeof s.name === "string" && s.name) ? s.name.slice(0, 60) : ("Набор " + out.length);
-            e.accent = isColor(s.accent) ? s.accent : DEFAULTS.accent;
-            if (Array.isArray(s.grad)) { var g = []; for (var k = 0; k < s.grad.length; k++) if (isColor(s.grad[k])) g.push(s.grad[k]); if (g.length >= 2) e.grad = g; }
-            if (typeof s.proc === "string" && PROC_KINDS[s.proc]) { e.proc = s.proc; e.base = isColor(s.base) ? s.base : "#181825"; }
-            if (typeof s.editor === "string" && s.editor) e.editor = s.editor;
-            if (typeof s.sidebar === "string" && s.sidebar) e.sidebar = s.sidebar;
-            if (typeof s.panel === "string" && s.panel) e.panel = s.panel;
-            out.push(e);
+            var e = _normSetEntry(list[i], "Набор " + out.length);
+            if (e) out.push(e);
         }
     }
     if (!out.length) out.push({ name: "По умолчанию", grad: ["#1e1e2e", "#89b4fa", "#94e2d5"], accent: "#89b4fa" });
+    return out;
+}
+// Пользовательские (сгенерированные) наборы: как sanitizeSets, но БЕЗ подстановки дефолта
+// для пустого списка и с жёстким лимитом числа записей (защита от раздутого/подменённого
+// конфига). Пропускаем только реально отрисовываемые записи.
+var GEN_MAX = 24;
+function sanitizeUserSets(list) {
+    var out = [];
+    if (!Array.isArray(list)) return out;
+    for (var i = 0; i < list.length && out.length < GEN_MAX; i++) {
+        var e = _normSetEntry(list[i], "Мой набор " + (out.length + 1));
+        if (_setRenderable(e)) out.push(e);
+    }
     return out;
 }
 // Сколько записей отбросил санитайзер (битые) — показываем в диагностике, чтобы правку было
@@ -570,4 +609,48 @@ var SETS_DROPPED = (function () {
     return Math.max(0, before - SETS.length);
 })();
 
+// ===== Сгенерированные наборы (по seed/палитре) =====
+// Пользователь создаёт согласованный набор из seed-строки или базового цвета (genSetFromSeed
+// в css.js). Такие наборы хранятся в cfg.genSets и ДОЗАГРУЖАЮТСЯ в хвост SETS при старте —
+// ПЕРЕД loadCfg(), чтобы санитизация mode/setOp/workspaceSets (проверка индекса < SETS.length)
+// уже учитывала их и выбранный сгенерированный набор переживал перезапуск.
+// GEN_BASE — индекс первого сгенерированного набора (граница «встроенные | пользовательские»).
+var GEN_BASE = SETS.length;
+(function _appendGenSets() {
+    try {
+        var raw = localStorage.getItem(CFG_KEY);
+        if (!raw || raw.length > 256 * 1024) return;
+        var p = safeParse(raw);
+        var us = (p && typeof p === "object") ? sanitizeUserSets(p.genSets) : [];
+        for (var i = 0; i < us.length; i++) SETS.push(us[i]);
+    } catch (e) {}
+})();
+
 var cfg = loadCfg();
+
+// Добавить один сгенерированный набор: нормализуем, кладём и в cfg.genSets (сохранится),
+// и в хвост SETS (виден сразу). Возвращает индекс нового набора или -1 (мусор) / -2 (лимит).
+function addGenSet(s) {
+    var e = _normSetEntry(s, "Мой набор " + (cfg.genSets.length + 1));
+    if (!_setRenderable(e)) return -1;
+    if (cfg.genSets.length >= GEN_MAX) return -2;
+    cfg.genSets.push(e);
+    SETS.push(e);
+    return SETS.length - 1;
+}
+// Убрать ВСЕ сгенерированные наборы (они всегда в хвосте, поэтому обрезаем SETS до GEN_BASE).
+// Чистим привязки к удалённым индексам (яркость/акцент/имя/картинки/выбранный набор), чтобы
+// не осталось «висячих» ссылок на несуществующие наборы.
+function removeGenSets() {
+    SETS.length = GEN_BASE;
+    cfg.genSets = [];
+    [cfg.setOp, cfg.setAccent, cfg.setName, cfg.setImg].forEach(function (o) {
+        if (o) for (var k in o) if (/^\d+$/.test(k) && parseInt(k, 10) >= SETS.length) delete o[k];
+    });
+    if (cfg.workspaceSets) for (var wk in cfg.workspaceSets) {
+        var wv = cfg.workspaceSets[wk];
+        if (typeof wv === "string" && parseInt(wv, 10) >= SETS.length) delete cfg.workspaceSets[wk];
+    }
+    var mi = parseInt(cfg.mode, 10);
+    if (!isNaN(mi) && mi >= SETS.length) cfg.mode = "0";
+}

@@ -69,11 +69,17 @@
         { name: "Янтарь", grad: ["#1e1e2e", "#fab387", "#f9e2af"], accent: "#fab387" }, // 17
         // ===== Процедурные наборы (proc) — текстура рисуется на canvas в data-URL, БЕЗ картинок =====
         // Как grad, но не плоский градиент, а сгенерированная текстура (см. procTexture в css.js):
-        // stars — звёздное поле, waves — волны-дюны, noise — плёночный грейн с искрами. base —
-        // цвет подложки, accent — акцент интерфейса и цвет деталей текстуры. Ноль ассетов.
+        // stars — звёздное поле, waves — волны-дюны, noise — плёночный грейн с искрами,
+        // grid — техно-сетка с узлами, topo — топографические контуры, matrix — «дождь матрицы»,
+        // cells — органическая сетка клеток (вороной-подобная). base — цвет подложки, accent —
+        // акцент интерфейса и цвет деталей текстуры. Ноль ассетов.
         { name: "Звёздное поле", proc: "stars", base: "#0b0b16", accent: "#89b4fa" }, // 18
         { name: "Дюны",          proc: "waves", base: "#1e1e2e", accent: "#fab387" }, // 19
-        { name: "Грейн",         proc: "noise", base: "#11111b", accent: "#a6e3a1" }  // 20
+        { name: "Грейн",         proc: "noise", base: "#11111b", accent: "#a6e3a1" }, // 20
+        { name: "Сетка",         proc: "grid",   base: "#0d1117", accent: "#89b4fa" }, // 21
+        { name: "Топография",    proc: "topo",   base: "#10151f", accent: "#94e2d5" }, // 22
+        { name: "Матрица",       proc: "matrix", base: "#0a0f0a", accent: "#a6e3a1" }, // 23
+        { name: "Клетки",        proc: "cells",  base: "#141018", accent: "#cba6f7" }  // 24
     ];
     // Короткое имя набора по индексу (для статусбара/тултипов). Приоритет — имя,
     // заданное пользователем в панели (cfg.setName[idx]), затем «родное» имя из SETS,
@@ -107,6 +113,8 @@
         setAccent: {},                                      // переопределение акцента конкретного набора: { idx: "#rrggbb" }
         setName: {},                                        // пользовательское имя набора: { idx: "строка" }
         setImg: {},                                         // свои картинки набора по зонам: { idx: { editor?, sidebar?, panel? } }
+        genSets: [],                                        // сгенерированные наборы (по seed/палитре): дозагружаются в хвост SETS
+
         autoDim: true,                                      // авто-занижение яркости editor под светлые картинки (читаемость кода)
         fit: { editor: "cover", side: "cover", panel: "cover" }, // вписывание фоновой картинки по зонам: cover | contain
         // фильтры самой фоновой картинки — отдельно по зонам (редактор / сайдбар / панель)
@@ -156,7 +164,13 @@
             // поэтому курсор не сдвигается); errorReact — мягкая красная реакция при ошибках в коде.
             tint: false,                                    // тонировать весь воркбенч акцентом (mix-blend overlay)
             legible: false,                                 // тень глифов кода ради читаемости над фоном (без сдвига курсора)
-            errorReact: false                               // мягкая красная подсветка статусбара, когда в коде есть ошибки
+            errorReact: false,                              // мягкая красная подсветка статусбара, когда в коде есть ошибки
+            // v20: сценарии/доступность. present — «презентационный» режим (стрим/скринкаст/курс):
+            // прячет визуальный шум (хлебные крошки, миникарта, экшены редактора) и крупнее/ярче
+            // подаёт акценты. highContrast — a11y: плотная тень под кодом и подписями панелей +
+            // толще фокус-обводка ради читаемости поверх картинки. Оба opt-in.
+            present: false,                                 // режим Present: спокойный фон, крупнее акценты, скрыть шум
+            highContrast: false                             // контраст+: усиленная читаемость текста и фокуса (a11y)
         },
         // Стиль летящих частиц (fx.particles). Категориальный (не числовой) — санитизируется
         // по белому списку PART_STYLES. dots — прежнее поведение (кружки), остальные меняют
@@ -196,7 +210,8 @@
         ["minimapFade", "Миникарта сквозь"], ["indentAccent", "Акцент отступов"],
         ["selectionMatch", "Совпадения слова"], ["stickyGlass", "Стекло sticky"],
         ["aurora", "Aurora фон"], ["spotlight", "Спотлайт"], ["typingPulse", "Пульс печати"],
-        ["tint", "Тон акцентом"], ["legible", "Читаемость кода"], ["errorReact", "Реакция на ошибки"]
+        ["tint", "Тон акцентом"], ["legible", "Читаемость кода"], ["errorReact", "Реакция на ошибки"],
+        ["present", "Режим Present"], ["highContrast", "Контраст+"]
     ];
 
     // Стили частиц (fx.particles): ключ + подпись. dots — прежние кружки; stars — искры-звёздочки;
@@ -424,6 +439,9 @@
                     c.setImg[ii] = cleanZ;
                 }
             }
+            // сгенерированные наборы: нормализуются как SETS, число ограничено GEN_MAX.
+            // Дозагрузка в хвост SETS — в _appendGenSets (ниже), при старте.
+            if (Array.isArray(p.genSets)) c.genSets = sanitizeUserSets(p.genSets);
             // авто-яркость editor: только булево
             if (typeof p.autoDim === "boolean") c.autoDim = p.autoDim;
             // вписывание по зонам: строго из белого списка cover|contain (в CSS — без кавычек)
@@ -550,25 +568,46 @@
     // подставляем один безопасный градиентный набор. Дубликат белого списка proc — намеренно
     // локальный (config не знает про css.js); поля-строки картинок оставляем как есть (их
     // разрешение и проверка сети — уже в imgAllowed/imgUrl).
-    var PROC_KINDS = { stars: 1, waves: 1, noise: 1 };
+    var PROC_KINDS = { stars: 1, waves: 1, noise: 1, grid: 1, topo: 1, matrix: 1, cells: 1 };
+    // Нормализация ОДНОЙ записи набора (общая для sanitizeSets и sanitizeUserSets/addGenSet).
+    // Возвращает чистый объект (имя/акцент/тип строго проверены) или null — если это не объект.
+    // Поля-строки картинок оставляем как есть (их разрешение и проверка сети — в imgAllowed/imgUrl).
+    function _normSetEntry(s, fallbackName) {
+        if (!s || typeof s !== "object") return null;
+        var e = {};
+        e.name = (typeof s.name === "string" && s.name) ? s.name.slice(0, 60) : fallbackName;
+        e.accent = isColor(s.accent) ? s.accent : DEFAULTS.accent;
+        if (Array.isArray(s.grad)) { var g = []; for (var k = 0; k < s.grad.length; k++) if (isColor(s.grad[k])) g.push(s.grad[k]); if (g.length >= 2) e.grad = g; }
+        if (typeof s.proc === "string" && PROC_KINDS[s.proc]) { e.proc = s.proc; e.base = isColor(s.base) ? s.base : "#181825"; }
+        if (typeof s.editor === "string" && s.editor) e.editor = s.editor;
+        if (typeof s.sidebar === "string" && s.sidebar) e.sidebar = s.sidebar;
+        if (typeof s.panel === "string" && s.panel) e.panel = s.panel;
+        return e;
+    }
+    // Есть ли у записи хоть один источник для отрисовки (иначе зона была бы пустой).
+    function _setRenderable(e) { return !!(e && (e.grad || e.proc || e.editor || e.sidebar || e.panel)); }
     function sanitizeSets(list) {
         var out = [];
         if (Array.isArray(list)) {
             for (var i = 0; i < list.length; i++) {
-                var s = list[i];
-                if (!s || typeof s !== "object") continue;
-                var e = {};
-                e.name = (typeof s.name === "string" && s.name) ? s.name.slice(0, 60) : ("Набор " + out.length);
-                e.accent = isColor(s.accent) ? s.accent : DEFAULTS.accent;
-                if (Array.isArray(s.grad)) { var g = []; for (var k = 0; k < s.grad.length; k++) if (isColor(s.grad[k])) g.push(s.grad[k]); if (g.length >= 2) e.grad = g; }
-                if (typeof s.proc === "string" && PROC_KINDS[s.proc]) { e.proc = s.proc; e.base = isColor(s.base) ? s.base : "#181825"; }
-                if (typeof s.editor === "string" && s.editor) e.editor = s.editor;
-                if (typeof s.sidebar === "string" && s.sidebar) e.sidebar = s.sidebar;
-                if (typeof s.panel === "string" && s.panel) e.panel = s.panel;
-                out.push(e);
+                var e = _normSetEntry(list[i], "Набор " + out.length);
+                if (e) out.push(e);
             }
         }
         if (!out.length) out.push({ name: "По умолчанию", grad: ["#1e1e2e", "#89b4fa", "#94e2d5"], accent: "#89b4fa" });
+        return out;
+    }
+    // Пользовательские (сгенерированные) наборы: как sanitizeSets, но БЕЗ подстановки дефолта
+    // для пустого списка и с жёстким лимитом числа записей (защита от раздутого/подменённого
+    // конфига). Пропускаем только реально отрисовываемые записи.
+    var GEN_MAX = 24;
+    function sanitizeUserSets(list) {
+        var out = [];
+        if (!Array.isArray(list)) return out;
+        for (var i = 0; i < list.length && out.length < GEN_MAX; i++) {
+            var e = _normSetEntry(list[i], "Мой набор " + (out.length + 1));
+            if (_setRenderable(e)) out.push(e);
+        }
         return out;
     }
     // Сколько записей отбросил санитайзер (битые) — показываем в диагностике, чтобы правку было
@@ -579,7 +618,51 @@
         return Math.max(0, before - SETS.length);
     })();
 
+    // ===== Сгенерированные наборы (по seed/палитре) =====
+    // Пользователь создаёт согласованный набор из seed-строки или базового цвета (genSetFromSeed
+    // в css.js). Такие наборы хранятся в cfg.genSets и ДОЗАГРУЖАЮТСЯ в хвост SETS при старте —
+    // ПЕРЕД loadCfg(), чтобы санитизация mode/setOp/workspaceSets (проверка индекса < SETS.length)
+    // уже учитывала их и выбранный сгенерированный набор переживал перезапуск.
+    // GEN_BASE — индекс первого сгенерированного набора (граница «встроенные | пользовательские»).
+    var GEN_BASE = SETS.length;
+    (function _appendGenSets() {
+        try {
+            var raw = localStorage.getItem(CFG_KEY);
+            if (!raw || raw.length > 256 * 1024) return;
+            var p = safeParse(raw);
+            var us = (p && typeof p === "object") ? sanitizeUserSets(p.genSets) : [];
+            for (var i = 0; i < us.length; i++) SETS.push(us[i]);
+        } catch (e) {}
+    })();
+
     var cfg = loadCfg();
+
+    // Добавить один сгенерированный набор: нормализуем, кладём и в cfg.genSets (сохранится),
+    // и в хвост SETS (виден сразу). Возвращает индекс нового набора или -1 (мусор) / -2 (лимит).
+    function addGenSet(s) {
+        var e = _normSetEntry(s, "Мой набор " + (cfg.genSets.length + 1));
+        if (!_setRenderable(e)) return -1;
+        if (cfg.genSets.length >= GEN_MAX) return -2;
+        cfg.genSets.push(e);
+        SETS.push(e);
+        return SETS.length - 1;
+    }
+    // Убрать ВСЕ сгенерированные наборы (они всегда в хвосте, поэтому обрезаем SETS до GEN_BASE).
+    // Чистим привязки к удалённым индексам (яркость/акцент/имя/картинки/выбранный набор), чтобы
+    // не осталось «висячих» ссылок на несуществующие наборы.
+    function removeGenSets() {
+        SETS.length = GEN_BASE;
+        cfg.genSets = [];
+        [cfg.setOp, cfg.setAccent, cfg.setName, cfg.setImg].forEach(function (o) {
+            if (o) for (var k in o) if (/^\d+$/.test(k) && parseInt(k, 10) >= SETS.length) delete o[k];
+        });
+        if (cfg.workspaceSets) for (var wk in cfg.workspaceSets) {
+            var wv = cfg.workspaceSets[wk];
+            if (typeof wv === "string" && parseInt(wv, 10) >= SETS.length) delete cfg.workspaceSets[wk];
+        }
+        var mi = parseInt(cfg.mode, 10);
+        if (!isNaN(mi) && mi >= SETS.length) cfg.mode = "0";
+    }
 
     // ===================== src/core/state.js =====================
     // ===== Активный набор и его яркость =====
@@ -852,6 +935,35 @@
     function isGradSet(idx) { var s = SETS[idx]; return !!(s && s.grad && s.grad.length); }
     function hasUserImg(idx, zone) { var o = cfg.setImg && cfg.setImg[idx]; return !!(o && typeof o[zone] === "string" && o[zone]); }
     function isGrad(idx, zone) { return isGradSet(idx) && !hasUserImg(idx, zone); }
+
+    // ===== Генерация набора по seed/палитре =====
+    // Из seed-строки ИЛИ базового цвета (#rrggbb) строим согласованный градиентный набор:
+    // тёмная подложка + акцент того же оттенка + гармоничный спутник (поворот на 150°). Всё —
+    // детерминировано от seed (одинаковый seed -> одинаковый набор), без ассетов, рендерится
+    // сразу как обычный grad-набор. Используется addGenSet (config.js) из UI-генератора.
+    // FNV-1a хэш строки -> целое (детерминированный «случайный» оттенок из текста).
+    function _seedHash(str) {
+        var h = 2166136261, i;
+        for (i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = (h * 16777619) >>> 0; }
+        return h >>> 0;
+    }
+    function genSetFromSeed(seed) {
+        seed = (typeof seed === "string" ? seed : "").trim();
+        var hue, name; // hue в долях [0,1) — как ждут rgbToHsl/hslToHex
+        if (isColor(seed)) {
+            var c = hexToRgbArr(seed);
+            hue = rgbToHsl(c[0], c[1], c[2])[0];
+            name = "Из цвета " + seed;
+        } else {
+            var src = seed || ("r" + Math.floor(Math.random() * 1e9)); // пусто -> случайный набор
+            hue = (_seedHash(src) % 3600) / 3600;
+            name = seed ? ("Seed: " + seed.slice(0, 20)) : "Случайный";
+        }
+        var accent = hslToHex(hue, 0.72, 0.66);
+        var base = hslToHex(hue, 0.30, 0.10);
+        var sat = hslToHex((hue + 150 / 360) % 1, 0.55, 0.60);
+        return { name: name.slice(0, 40), grad: [base, accent, sat], accent: accent };
+    }
     // Градиент зоны: у каждой зоны своя форма, чтобы редактор/сайдбар/панель не были
     // одинаковыми — редактор идёт по диагонали, сайдбар той же палитрой в обратном порядке
     // (тёмный край смещён к другому углу), панель — радиальный из нижнего правого угла.
@@ -913,6 +1025,74 @@
             cx.fillRect(Math.random() * W, Math.random() * H, 2, 2);
         }
     }
+    // Техно-сетка: ровные линии акцентом с редкими яркими узлами на пересечениях.
+    function _procGrid(cx, W, H, acc) {
+        var step = 34, x, y;
+        cx.strokeStyle = "rgba(" + acc + ",0.10)"; cx.lineWidth = 1;
+        for (x = 0; x <= W; x += step) { cx.beginPath(); cx.moveTo(x, 0); cx.lineTo(x, H); cx.stroke(); }
+        for (y = 0; y <= H; y += step) { cx.beginPath(); cx.moveTo(0, y); cx.lineTo(W, y); cx.stroke(); }
+        for (x = 0; x <= W; x += step) for (y = 0; y <= H; y += step) {
+            if (Math.random() < 0.12) {
+                cx.fillStyle = "rgba(" + acc + "," + (0.25 + Math.random() * 0.4) + ")";
+                cx.beginPath(); cx.arc(x, y, 1.6, 0, 6.283); cx.fill();
+            }
+        }
+    }
+    // Топография: набор горизонтальных «контуров высоты» (сумма синусов), как на карте местности.
+    function _procTopo(cx, W, H, acc) {
+        var line, x;
+        cx.lineWidth = 1.2;
+        for (line = 0; line < 14; line++) {
+            var yBase = H * (line / 13) * 1.06 - H * 0.03;
+            cx.strokeStyle = "rgba(" + acc + "," + (0.06 + (line % 3) * 0.02) + ")";
+            cx.beginPath();
+            for (x = 0; x <= W; x += 6) {
+                var y = yBase + Math.sin((x / W) * 6.283 * 1.3 + line * 0.6) * (14 + line)
+                              + Math.sin((x / W) * 6.283 * 2.7 + line) * 6;
+                if (x === 0) cx.moveTo(x, y); else cx.lineTo(x, y);
+            }
+            cx.stroke();
+        }
+    }
+    // «Дождь матрицы»: вертикальные колонки-струи из квадратиков, голова — светлая, хвост гаснет.
+    function _procMatrix(cx, W, H, acc) {
+        var colW = 12, col, i;
+        for (col = 0; col * colW < W; col++) {
+            var x = col * colW + 2, headY = Math.random() * H, len = 6 + Math.floor(Math.random() * 16);
+            for (i = 0; i < len; i++) {
+                var y = headY - i * 12; if (y < 0) y += H;
+                cx.fillStyle = i === 0 ? "rgba(235,255,235,0.85)" : "rgba(" + acc + "," + ((1 - i / len) * 0.5) + ")";
+                cx.fillRect(x, y, 6, 8);
+            }
+        }
+    }
+    // Клетки: сетка точек со случайным сдвигом, между соседями — грани (вороной-подобная сеть),
+    // часть клеток мягко залита акцентом, часть вершин — яркими точками.
+    function _procCells(cx, W, H, acc) {
+        var cols = 8, rows = 6, gx = W / cols, gy = H / rows, r, c;
+        var pts = [];
+        for (r = 0; r <= rows; r++) {
+            pts[r] = [];
+            for (c = 0; c <= cols; c++) {
+                var jx = (c === 0 || c === cols) ? 0 : (Math.random() - 0.5) * gx * 0.6;
+                var jy = (r === 0 || r === rows) ? 0 : (Math.random() - 0.5) * gy * 0.6;
+                pts[r][c] = [c * gx + jx, r * gy + jy];
+            }
+        }
+        cx.strokeStyle = "rgba(" + acc + ",0.14)"; cx.lineWidth = 1;
+        for (r = 0; r < rows; r++) for (c = 0; c < cols; c++) {
+            var p0 = pts[r][c], p1 = pts[r][c + 1], p2 = pts[r + 1][c + 1], p3 = pts[r + 1][c];
+            cx.beginPath(); cx.moveTo(p0[0], p0[1]); cx.lineTo(p1[0], p1[1]); cx.lineTo(p2[0], p2[1]); cx.lineTo(p3[0], p3[1]); cx.closePath();
+            if (Math.random() < 0.18) { cx.fillStyle = "rgba(" + acc + "," + (0.05 + Math.random() * 0.08) + ")"; cx.fill(); }
+            cx.stroke();
+        }
+        for (r = 0; r <= rows; r++) for (c = 0; c <= cols; c++) {
+            if (Math.random() < 0.10) { cx.fillStyle = "rgba(" + acc + ",0.5)"; cx.beginPath(); cx.arc(pts[r][c][0], pts[r][c][1], 1.4, 0, 6.283); cx.fill(); }
+        }
+    }
+    // Диспетчер генераторов: ключ proc -> функция отрисовки (неизвестный ключ санитайзер не
+    // пропустит, но на всякий случай откатываемся на грейн).
+    var PROC_DRAW = { stars: _procStars, waves: _procWaves, noise: _procNoise, grid: _procGrid, topo: _procTopo, matrix: _procMatrix, cells: _procCells };
     function procTexture(idx) {
         var s = SETS[idx]; if (!s || !s.proc) return null;
         var base = isColor(s.base) ? s.base : "#181825", accHex = safeColor(s.accent, DEFAULTS.accent);
@@ -927,9 +1107,7 @@
             g.addColorStop(0, base); g.addColorStop(1, shadeHex(base, 0.14));
             cx.fillStyle = g; cx.fillRect(0, 0, W, H);
             var acc = hexToRgbArr(accHex).join(",");
-            if (s.proc === "stars") _procStars(cx, W, H, acc);
-            else if (s.proc === "waves") _procWaves(cx, W, H, acc);
-            else _procNoise(cx, W, H, acc);
+            (PROC_DRAW[s.proc] || _procNoise)(cx, W, H, acc);
             url = cv.toDataURL("image/jpeg", 0.82);
         } catch (e) { url = null; }
         _procCache[key] = url;
@@ -1407,6 +1585,34 @@
                 "  0%,100% { box-shadow: inset 0 2px 0 0 rgba(243,139,168,0.5); }",
                 "  50%     { box-shadow: inset 0 2px 0 0 rgba(243,139,168,0.95), 0 0 16px 0 rgba(243,139,168,0.4); }",
                 "}"
+            ]; }],
+            // v20: Режим Present — «спокойнее фон, крупнее акценты, скрыть шум» для стрима/скринкаста/
+            // курса. Прячем визуальный шум (хлебные крошки, миникарта), приглушаем экшены редактора
+            // (проявляются по наведению), и КРУПНЕЕ подаём акценты: толще подчёркивание активной
+            // вкладки, ярче индикатор активити-бара, контрастнее активная строка. Только CSS —
+            // ничего не двигает и не читает DOM.
+            ["present", function () { return [
+                ".monaco-workbench .monaco-breadcrumbs { display: none !important; }",
+                ".monaco-editor .minimap { display: none !important; }",
+                ".monaco-workbench .editor-actions { opacity: 0.3; transition: opacity 0.2s ease; }",
+                ".monaco-workbench .editor-actions:hover { opacity: 1; }",
+                ".tabs-container > .tab.active { box-shadow: inset 0 -3px 0 0 var(--mlbg-accent) !important; }",
+                ".monaco-workbench .activitybar .action-item.active .active-item-indicator:before {",
+                "  border-left-width: 3px !important; border-left-color: var(--mlbg-accent) !important;",
+                "}",
+                ".monaco-editor .view-overlays .current-line { border: 1px solid rgba(var(--mlbg-accent-rgb),0.45) !important; }"
+            ]; }],
+            // v20: Контраст+ (a11y) — читаемость поверх яркой картинки без сдвига метрик Monaco:
+            // плотная тень под глифами кода (в обе стороны) и под подписями сайдбара/панели, ярче
+            // подсветка выделения, ТОЛЩЕ обводка фокуса (клавиатурная навигация видна лучше).
+            // shadowRGB тема-зависимая: тёмный ореол на тёмной теме, светлый — на светлой.
+            ["highContrast", function () { return [
+                ".monaco-editor .view-line span { text-shadow: 0 0 3px rgba(" + shadowRGB + ",0.95), 0 1px 2px rgba(" + shadowRGB + ",0.9) !important; }",
+                ".monaco-workbench .part.sidebar, .monaco-workbench .part.panel { text-shadow: 0 1px 2px rgba(" + shadowRGB + ",0.85); }",
+                ".monaco-editor .focused .selected-text { outline: 1px solid var(--mlbg-accent); }",
+                "#moonlight-bg-switcher:focus-visible, #moonlight-bg-panel [role=button]:focus-visible,",
+                "#moonlight-bg-panel input:focus-visible, #moonlight-bg-panel select:focus-visible,",
+                "#moonlight-bg-panel textarea:focus-visible { outline-width: 3px !important; outline-offset: 2px !important; }"
             ]; }]
         ];
         for (var bi = 0; bi < FX_BLOCKS.length; bi++) {
@@ -1431,6 +1637,19 @@
         add(
             "@media (prefers-reduced-motion: reduce) {",
             rmSel.join(",\n") + " { animation: none !important; }",
+            "}"
+        );
+        // Доступность: при системной «уменьшить прозрачность» убираем размытие «матового стекла»
+        // с наших поверхностей (backdrop-filter — источник полупрозрачности, тяжёлой для чтения и
+        // для восприятия при вестибулярных/зрительных особенностях). Сам фон/цвета остаются; уходит
+        // только blur. Всегда в CSS (не зависит от эффектов) — активируется только при системном флаге.
+        add(
+            "@media (prefers-reduced-transparency: reduce) {",
+            "  #moonlight-bg-panel, .quick-input-widget, .suggest-widget, .monaco-hover,",
+            "  .monaco-workbench .part.sidebar, .monaco-workbench .part.panel, .monaco-workbench .part.statusbar,",
+            "  .monaco-workbench .part.titlebar, .tabs-container {",
+            "    backdrop-filter: none !important; -webkit-backdrop-filter: none !important;",
+            "  }",
             "}"
         );
         return out.join("\n");
@@ -1633,6 +1852,8 @@
         fx_tint: "Полупрозрачная тонировка всего воркбенча в цвет акцента набора (режим наложения overlay — как светофильтр). Сила — ползунком «Тон сила». Клики проходят сквозь.",
         fx_legible: "Мягкая тень под глифами кода, чтобы текст читался поверх яркой картинки. Не меняет ширину символов (метрики Monaco не трогаются), поэтому курсор и выделение не сдвигаются.",
         fx_errorReact: "Когда в коде есть ошибки (счётчик у иконки ошибок в статусбаре > 0), статусбар мягко подсвечивается красным. Ветку/счётчик читаем из DOM статусбара, как и индикатор git-ветки.",
+        fx_present: "Режим для стрима / скринкаста / записи курса: прячет визуальный шум (хлебные крошки, миникарту, экшены редактора — проявляются по наведению) и КРУПНЕЕ подаёт акценты (толще подчёркивание активной вкладки, ярче индикатор актив-бара и активная строка). Только CSS — ничего не двигает.",
+        fx_highContrast: "Доступность: плотная тень под глифами кода и подписями сайдбара/панели ради читаемости поверх яркой картинки (метрики Monaco не трогаются) и толще обводка фокуса для клавиатурной навигации. Дополняет системные «уменьшить движение» и «уменьшить прозрачность», которые плагин учитывает автоматически.",
         part_style: "Форма летящих частиц: точки, звёзды-искры, снег, лепестки сакуры, контуры-пузыри, светлячки (пульсируют яркостью), дождь (струи) или конфетти (цветные прямоугольники). Снег, сакура, дождь и конфетти падают сверху вниз, остальные всплывают снизу вверх. «Сезон (авто)» сам подбирает форму по времени года: зима — снег, весна — сакура, лето — светлячки, осень — дождь.",
         term_font: "Шрифт терминала. В списке — совместимые по ширине Nerd-шрифты, чтобы не разъезжались колонки и сохранялись иконки oh-my-posh.",
         term_ligatures: "Слитное начертание пар символов (->, =>, != и т.п.).",
@@ -1893,6 +2114,61 @@
         ip.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commit(); ip.blur(); } });
         wrap.appendChild(ip);
         var d = infoDot(INFO.set_name); if (d) wrap.appendChild(d);
+        return wrap;
+    }
+
+    // ===== Генератор набора по seed/палитре =====
+    // Поле «seed или #rrggbb» + кнопки «Сгенерировать» / «Случайный». Из ввода строим
+    // согласованный градиентный набор (genSetFromSeed), кладём его в хвост наборов (addGenSet:
+    // правит cfg.genSets + SETS, сохраняется в localStorage) и сразу делаем активным. Пока есть
+    // сгенерированные наборы — доступна «Очистить» (removeGenSets убирает их из хвоста и чистит
+    // висячие привязки). Один seed всегда даёт один и тот же набор — им можно делиться текстом.
+    function makeGenerator() {
+        var wrap = el("div");
+        // маленькая кнопка в стиле «из картинки»
+        function btn(label, title) {
+            var b = el("div", "flex:0 0 auto; padding:3px 9px; border-radius:6px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", label);
+            if (title) b.title = title;
+            keyActivate(b, title || label);
+            return b;
+        }
+        var row = el("div", ST.row);
+        var ip = el("input", fieldStyle(" padding:3px 6px; font-size:11px;"));
+        ip.type = "text"; ip.maxLength = 40; ip.placeholder = "seed или #rrggbb";
+        ip.setAttribute("aria-label", "Seed или базовый цвет набора");
+        row.appendChild(ip);
+        wrap.appendChild(row);
+
+        // Применить сгенерированный набор: добавить в хвост и сделать активным.
+        function makeAndApply(seed) {
+            var idx = addGenSet(genSetFromSeed(seed));
+            if (idx === -2) { toast("Достигнут предел сгенерированных наборов (" + GEN_MAX + ")", false); return; }
+            if (idx < 0) { toast("Не удалось создать набор", false); return; }
+            cfg.mode = String(idx);
+            applyFade(); refreshPanel();
+            toast("Набор создан: " + setName(idx));
+        }
+
+        var gen = btn("Сгенерировать", "Создать набор из seed/цвета в поле");
+        gen.addEventListener("click", function () { makeAndApply(ip.value); });
+        var rnd = btn("Случайный", "Случайный согласованный набор");
+        rnd.addEventListener("click", function () { ip.value = ""; makeAndApply(""); });
+        ip.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); makeAndApply(ip.value); } });
+
+        var btns = el("div", "display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;");
+        btns.appendChild(gen); btns.appendChild(rnd);
+        if (cfg.genSets && cfg.genSets.length) {
+            var clr = btn("Очистить (" + cfg.genSets.length + ")", "Убрать все сгенерированные наборы");
+            clr.style.color = "#f38ba8"; clr.style.background = "rgba(243,139,168,0.14)"; clr.style.borderColor = "rgba(243,139,168,0.3)";
+            clr.addEventListener("click", function () {
+                backupCfg();          // на случай «ой, не то» — «Восстановить» в «Система» вернёт
+                removeGenSets();
+                applyFade(); refreshPanel();
+                toast("Сгенерированные наборы убраны");
+            });
+            btns.appendChild(clr);
+        }
+        wrap.appendChild(btns);
         return wrap;
     }
 
@@ -3046,6 +3322,10 @@
         chips.appendChild(makeChip("random", "случайно"));
         secSet.appendChild(chips);
         secSet.appendChild(makeSetNameEdit()); // переименование активного набора
+
+        // Генератор набора по seed/палитре: бесконечные согласованные фоны без ассетов.
+        var secGen = collapsible(tSet, "Генератор", "Создать согласованный набор из seed-строки или базового цвета (#rrggbb): тёмная подложка + акцент + гармоничный спутник. Один seed всегда даёт один и тот же набор — им можно делиться. Наборы сохраняются и добавляются в конец списка.");
+        secGen.appendChild(makeGenerator());
 
         // Слайдшоу
         var secSlide = collapsible(tSet, "Слайдшоу", "Автоматическая смена набора по кругу через заданный интервал.");
