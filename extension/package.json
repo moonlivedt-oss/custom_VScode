@@ -4,6 +4,7 @@
   "description": "Автоматически прописывает MoonLight custom-bg в vscode_custom_css.imports и подсказывает включить Custom CSS. Сам фон рисует be5invis.vscode-custom-css.",
   "version": "0.2.0",
   "publisher": "moonlivedt",
+  "icon": "icon.png",
   "license": "MIT",
   "engines": {
     "vscode": "^1.75.0"

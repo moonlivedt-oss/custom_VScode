@@ -2,6 +2,8 @@
 
 [Русский](README.md) · **English**
 
+<img src="docs/screenshots/logo.png" alt="MoonLight custom-bg logo: a cat under a starry sky and the VS Code mark" width="120">
+
 # MoonLight custom-bg
 
 ### A living background and a full theming panel for VS Code — right inside the editor

@@ -2,6 +2,8 @@
 
 **Русский** · [English](README.en.md)
 
+<img src="docs/screenshots/logo.png" alt="Логотип MoonLight custom-bg: кот под звёздным небом и логотип VS Code" width="120">
+
 # MoonLight custom-bg
 
 ### Живой фон и полноценная панель оформления для VS Code — прямо в редакторе
