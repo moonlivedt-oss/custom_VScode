@@ -1,7 +1,12 @@
+
+
 // ===== Панель настроек =====
 // Централизованное закрытие: снимает документные слушатели (Esc/клик-мимо), прячет «?»,
 // удаляет саму панель. panelCleanup хранит отписку слушателей текущей панели.
 var panelCleanup = null, panelPrevFocus = null;
+// Категории панели. Порядок = порядок вкладок и порядок функций наполнения в
+// src/ui/panel-tabs.js; на эти же имена опирается менеджер «Настройка меню».
+var TABS = ["Набор", "Вид", "Терминал", "Система", "Данные"];
 // Активная вкладка-категория панели (см. TABS в togglePanel). Модульная переменная, а не
 // поле cfg: переживает refreshPanel (пересборку панели таймерами/действиями) в пределах
 // сессии, но не тянет за собой миграцию схемы конфига. Индекс валидируется при выборе.
@@ -10,13 +15,47 @@ var panelTab = 0;
 // ({title, parent-вкладка, head, expand}). Обнуляется в начале togglePanel (панель строится
 // заново), наполняется по мере создания секций, читается обработчиком поиска над баром вкладок.
 var panelSections = [];
-// Состояние фильтра секции «Эффекты» (текст поиска + «только включённые»). Тоже модульное,
-// как panelTab: переживает refreshPanel в пределах сессии, поэтому фоновая пересборка панели
-// (слайдшоу/по времени) не сбрасывает набранный фильтр под руками пользователя.
-var fxFilterQ = "", fxOnlyOn = false;
+// Все секции текущей сборки, включая СКРЫТЫЕ (для менеджера «Настройка меню»). Наполняется
+// collapsible(), обнуляется в начале togglePanel. panelEditMenu — режим настройки меню (кнопки
+// «скрыть» у секций и эффектов); модульный, переживает refreshPanel в пределах сессии.
+var panelAllSections = [], panelEditMenu = false;
+// ===== Каталог для глубокого поиска =====
+// Поиск по панели раньше знал только заголовки секций и имена эффектов — отдельные контролы
+// («язык», «курсор», «яркость», «интервал») не находились. Этот каталог добавляет их в индекс:
+// [подпись, индекс вкладки, заголовок секции ("" — контрол вне секции), синонимы (RU+EN)].
+// Совпадение по подписи ИЛИ синониму ведёт к секции (разворот+подсветка) или просто к вкладке.
+var PANEL_SEARCH_CATALOG = [
+    ["Яркость: редактор", 1, "Яркость набора", "прозрачность opacity фон код editor brightness"],
+    ["Яркость: сайдбар", 1, "Яркость набора", "прозрачность opacity sidebar проводник"],
+    ["Яркость: панель", 1, "Яркость набора", "прозрачность opacity panel терминал"],
+    ["Авто-яркость", 1, "Яркость набора", "autodim читаемость светлая картинка"],
+    ["Акцентный цвет", 1, "Картинка", "accent цвет hex палитра из картинки"],
+    ["Читаемость кода", 1, "Яркость набора", "контраст wcag читаемость скрим адаптивный исправить"],
+    ["Загрузчик", 3, "Загрузчик", "custom-css custom-ui-style прозрачность mica vibrancy импорт settings"],
+    ["Свой шейдер", 0, "Шейдер", "glsl webgl шейдер фон gpu"],
+    ["Безопасные акценты", 1, "Картинка", "дальтоник контраст wcag colorblind окабэ"],
+    ["Фильтры картинки", 1, "Картинка", "размытие blur яркость brightness насыщенность saturate вписывание fit путь"],
+    ["Сила эффектов", 1, "Эффекты", "размытие стекла ken burns виньетка помидор aurora спот тон strength ползунок"],
+    ["Стиль частиц", 1, "Эффекты", "particles форма снег сакура дождь конфетти звёзды"],
+    ["Сброс эффектов", 1, "Эффекты", "reset дефолт по умолчанию"],
+    ["Шрифт терминала", 2, "Терминал", "font nerd jetbrains моноширинный"],
+    ["Лигатуры", 2, "Терминал", "ligatures слитные символы"],
+    ["Курсор терминала", 2, "Терминал", "cursor цвет ширина высота"],
+    ["Выделение терминала", 2, "Терминал", "selection цвет"],
+    ["Свечение терминала", 2, "Терминал", "glow тень"],
+    ["Интервал слайдшоу", 0, "Слайдшоу", "минуты interval таймер смена"],
+    ["Границы дня", 0, "По времени суток", "рассвет закат часы sun день ночь"],
+    ["Язык панели", 3, "", "language ru en english русский интерфейс"],
+    ["Экспорт настроек", 4, "", "export json файл сохранить бэкап"],
+    ["Импорт настроек", 4, "", "import json файл загрузить"],
+    ["Отменить / Повторить", 4, "", "undo redo история отменить повторить"],
+    ["Сбросить к дефолту", 4, "", "reset сброс всё по умолчанию"]
+];
 function closePanel() {
     hideInfo();
     try { previewEnd(); } catch (e) {} // снять «залипшее» превью и вернуть реальный набор: удалённый чип может не прислать mouseleave
+    try { previewFxEnd(); } catch (e) {} // снять «залипшее» превью эффекта (строка могла не прислать mouseleave)
+    try { endLookPreview(); } catch (e) {} // снять «залипшее» превью образа (профиль/пресет мог не прислать mouseleave)
     if (panelCleanup) { try { panelCleanup(); } catch (e) {} panelCleanup = null; }
     var ex = document.getElementById(PANEL_ID); if (ex) ex.remove();
     // Вернуть фокус туда, откуда открыли панель (обычно кнопка BG) — для клавиатуры.
@@ -39,82 +78,13 @@ function panelFocusables(p) {
     } catch (e) {}
     return list;
 }
-// Секция «Эффекты» (наполнение готового тела secFx). Вынесена из togglePanel: логика
-// разрослась (счётчик включённых, фильтры поиск/«только включённые», сетка тумблеров,
-// слайдеры «силы», стиль частиц), и держать её отдельно чище. Зависит только от secFx +
-// модульного/глобального окружения (FX_LIST, PARAMS, cfg, makeCheck/makeParamSlider,
-// makePartStyleSelect, fxFilterQ/fxOnlyOn), поэтому не тянет за собой локали togglePanel.
-function buildEffectsSection(secFx) {
-    // Шапка секции: счётчик включённых эффектов + быстрый фильтр «только включённые».
-    // Помогает ориентироваться в трёх десятках тумблеров и одним кликом свернуть список
-    // до активных. Счётчик пересчитывается при переключении любого тумблера (см. updateFxView).
-    var onlyOn = fxOnlyOn; // восстановить состояние фильтра, переживающее refreshPanel
-    var fxHead = el("div", "display:flex; align-items:center; gap:8px; margin-bottom:5px;");
-    var fxCount = el("span", "flex:0 0 auto; font-size:11px; color:var(--mlp-muted,#a6adc8);", "");
-    var onlyBtn = el("div", "flex:0 0 auto; margin-left:auto; padding:3px 9px; border-radius:6px; cursor:pointer; font-size:11px;", t("только включённые"));
-    function styleOnlyBtn() {
-        onlyBtn.style.color = onlyOn ? "var(--mlbg-accent)" : "var(--mlp-muted,#a6adc8)";
-        onlyBtn.style.background = onlyOn ? "rgba(var(--mlbg-accent-rgb),0.18)" : "rgba(var(--mlbg-accent-rgb),0.06)";
-        onlyBtn.style.border = "1px solid " + (onlyOn ? "rgba(var(--mlbg-accent-rgb),0.5)" : "var(--mlp-border-faint,rgba(205,214,244,0.12))");
-        onlyBtn.setAttribute("aria-pressed", onlyOn ? "true" : "false");
-    }
-    fxHead.appendChild(fxCount); fxHead.appendChild(onlyBtn);
-
-    var fxSearch = el("input", fieldStyle(" padding:4px 7px; font-size:11px; margin-bottom:5px;"));
-    fxSearch.type = "text"; fxSearch.placeholder = t("Фильтр эффектов…"); fxSearch.setAttribute("aria-label", t("Фильтр эффектов…"));
-    fxSearch.value = fxFilterQ; // восстановить набранный фильтр после пересборки панели
-    var grid = el("div", "display:grid; grid-template-columns:1fr 1fr; gap:1px 10px;");
-    var fxEmpty = el("div", "padding:6px 3px; font-size:11px; color:var(--mlp-faint,#6c7086);", t("Ничего не найдено."));
-    fxEmpty.hidden = true;
-    var fxRows = FX_LIST.map(function (o) {
-        var node = makeCheck(o[0], o[1]); grid.appendChild(node);
-        // Чекбокс — input внутри строки-тумблера. При его переключении пересчитываем счётчик
-        // и (если активен «только включённые») перефильтровываем — без пересборки панели.
-        var cb = node.querySelector ? node.querySelector("input") : null;
-        if (cb) cb.addEventListener("change", function () { updateFxView(); });
-        return { node: node, key: o[0], label: t(o[1]).toLowerCase() };
-    });
-    function updateFxView() {
-        fxFilterQ = fxSearch.value || ""; // запомнить фильтр на время сессии (переживёт refresh)
-        var q = fxFilterQ.trim().toLowerCase(), shown = 0, on = 0;
-        fxRows.forEach(function (r) {
-            var isOn = !!cfg.fx[r.key]; if (isOn) on++;
-            var hide = (q && r.label.indexOf(q) < 0) || (onlyOn && !isOn);
-            r.node.hidden = hide; if (!hide) shown++;
-        });
-        fxCount.textContent = t("Включено: ") + on + " / " + fxRows.length;
-        fxEmpty.hidden = shown > 0;
-    }
-    fxSearch.addEventListener("input", updateFxView);
-    onlyBtn.addEventListener("click", function () { onlyOn = !onlyOn; fxOnlyOn = onlyOn; styleOnlyBtn(); updateFxView(); });
-    keyActivate(onlyBtn, "Показывать только включённые эффекты");
-    styleOnlyBtn(); updateFxView();
-    secFx.appendChild(fxHead);
-    secFx.appendChild(fxSearch);
-    secFx.appendChild(grid);
-    secFx.appendChild(fxEmpty);
-
-    // Числовая «сила» эффектов — под тумблерами. Параметры, зависящие от выключенного
-    // эффекта, не показываем: «Частиц» — только когда включены «Частицы», «Помидор, мин» —
-    // когда включён «Помидор» (тумблеры particles/pomodoro пересобирают панель, см. makeCheck).
-    secFx.appendChild(el("div", "margin-top:8px; padding:3px 3px 1px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--mlp-head,#bac2de);", t("Сила")));
-    PARAMS.forEach(function (d) {
-        if (d[0] === "partCount" && !cfg.fx.particles) return;
-        if (d[0] === "pomoMin" && !cfg.fx.pomodoro) return;
-        if (d[0] === "auroraSpeed" && !cfg.fx.aurora) return;
-        if (d[0] === "spotRadius" && !cfg.fx.spotlight) return;
-        if (d[0] === "tintStrength" && !cfg.fx.tint) return;
-        secFx.appendChild(makeParamSlider(d));
-    });
-    if (cfg.fx.particles) secFx.appendChild(makePartStyleSelect()); // форма частиц — только когда частицы включены
-    secFx.appendChild(makePerfGuardToggle()); // авто-приглушение тяжёлых эффектов при низком FPS
-}
-
 function togglePanel(ev) {
     ev.stopPropagation();
     if (document.getElementById(PANEL_ID)) { closePanel(); return; }
 
     panelSections = []; // индекс секций для поиска — заново под текущую сборку панели
+    panelAllSections = []; // полный список секций (в т.ч. скрытых) для менеджера «Настройка меню»
+    panelFxNodes = {}; // карта key -> строка-тумблер эффекта (для прокрутки к эффекту из поиска)
     panelPrevFocus = document.activeElement; // куда вернуть фокус при закрытии
     var p = el("div", null);
     p.id = PANEL_ID;
@@ -122,8 +92,13 @@ function togglePanel(ev) {
     p.setAttribute("aria-modal", "true");
     p.setAttribute("aria-label", "Фон и дизайн — настройки");
     p.tabIndex = -1; // чтобы можно было сфокусировать сам диалог при открытии
+    // Ширина панели: запомненная (cfg.ui.width) или дефолт 380, зажатая в
+    // разумные пределы и под ширину окна. Тянется за левый край (ручка ниже).
+    var PANEL_W_MIN = 320, PANEL_W_MAX = 760, panelW = 380;
+    if (typeof cfg.ui.width === "number") panelW = Math.max(PANEL_W_MIN, Math.min(PANEL_W_MAX, cfg.ui.width));
+    try { panelW = Math.min(panelW, (window.innerWidth || 800) - 16); } catch (e) {}
     p.style.cssText =
-        "position:fixed; z-index:100000; width:380px; max-height:82vh; overflow-y:auto; overflow-x:hidden;" +
+        "position:fixed; z-index:100000; width:" + panelW + "px; max-height:82vh; overflow-y:auto; overflow-x:hidden;" +
         "background:var(--mlp-bg,rgba(24,24,37,0.98)); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);" +
         "border:1px solid rgba(var(--mlbg-accent-rgb),0.35); border-radius:12px; padding:10px 13px 13px;" +
         "box-shadow:0 14px 40px rgba(0,0,0,0.6); font-size:12px; line-height:1.35; color:var(--mlp-fg,#cdd6f4);" +
@@ -162,6 +137,15 @@ function togglePanel(ev) {
     var head = el("div", "display:flex; align-items:center; justify-content:space-between; cursor:move; user-select:none; padding:2px 2px 7px;");
     head.appendChild(el("div", "font-weight:700; font-size:13px; letter-spacing:0.3px;", t("⠿  Фон и дизайн")));
     var hr = el("div", "display:flex; align-items:center; gap:5px;");
+    // Кнопка «Настроить» — режим настройки меню: у секций и эффектов появляются кнопки «скрыть».
+    var editB = el("div", "flex:0 0 auto; padding:2px 8px; border-radius:6px; cursor:pointer; font-size:11px; " +
+        (panelEditMenu ? "color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.18); border:1px solid rgba(var(--mlbg-accent-rgb),0.4);"
+                       : "color:var(--mlp-muted,#a6adc8); background:rgba(var(--mlbg-accent-rgb),0.06); border:1px solid var(--mlp-border-faint,rgba(205,214,244,0.12));"),
+        t("Настроить"));
+    editB.title = t("Настроить меню: показать кнопки «скрыть» у секций и эффектов");
+    editB.addEventListener("click", function (e) { e.stopPropagation(); panelEditMenu = !panelEditMenu; try { refreshPanel(); } catch (er) {} });
+    keyActivate(editB, t("Настроить меню"));
+    hr.appendChild(editB);
     var infoAll = infoDot(t("Перетаскивай окно за заголовок. Секции сворачиваются кликом по названию. У настроек «?» — клик показывает пояснение. Положение и свёрнутость запоминаются."));
     if (infoAll) hr.appendChild(infoAll);
     var close = el("div", "flex:0 0 auto; width:20px; height:20px; line-height:18px; text-align:center; border-radius:6px; cursor:pointer; color:var(--mlp-muted,#a6adc8);", "×");
@@ -191,7 +175,7 @@ function togglePanel(ev) {
         cfg.ui.posX = Math.round(r.left); cfg.ui.posY = Math.round(r.top); saveCfg();
     }
     head.addEventListener("mousedown", function (e) {
-        if (e.button !== 0 || close.contains(e.target) || (infoAll && infoAll.contains(e.target))) return;
+        if (e.button !== 0 || close.contains(e.target) || (infoAll && infoAll.contains(e.target)) || (editB && editB.contains(e.target))) return;
         hideInfo();
         var r = p.getBoundingClientRect();
         drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
@@ -202,55 +186,127 @@ function togglePanel(ev) {
         document.addEventListener("mouseup", onUp);
     });
 
+    // Ручка изменения ширины: тонкая полоса у левого края панели. Тянешь влево —
+    // шире, вправо — уже; правый край при этом закреплён (рост идёт влево). Ширина сохраняется.
+    var grip = el("div", "position:absolute; left:0; top:0; bottom:0; width:6px; cursor:ew-resize; z-index:5;");
+    grip.title = t("Потянуть — ширина панели");
+    grip.setAttribute("aria-hidden", "true");
+    var rz = null;
+    function onRz(e) {
+        if (!rz) return;
+        var w = Math.max(PANEL_W_MIN, Math.min(PANEL_W_MAX, rz.w + (rz.x - e.clientX)));
+        try { w = Math.min(w, (window.innerWidth || 800) - 16); } catch (er) {}
+        p.style.width = w + "px";
+    }
+    function onRzUp() {
+        if (!rz) return;
+        rz = null;
+        document.removeEventListener("mousemove", onRz);
+        document.removeEventListener("mouseup", onRzUp);
+        var r = p.getBoundingClientRect();
+        cfg.ui.width = Math.round(r.width); saveCfg();
+    }
+    grip.addEventListener("mousedown", function (e) {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        hideInfo();
+        var r = p.getBoundingClientRect();
+        rz = { x: e.clientX, w: r.width };
+        // Закрепляем правый край, чтобы панель росла/сжималась влево, а не «уползала».
+        p.style.left = "auto"; p.style.right = Math.max(0, (window.innerWidth || 800) - r.right) + "px";
+        document.addEventListener("mousemove", onRz);
+        document.addEventListener("mouseup", onRzUp);
+    });
+    p.appendChild(grip);
+
     // Мастер-выключатель фона/эффектов (вверху, до секций и вкладок — он глобальный)
     p.appendChild(makeMasterToggle());
 
+    // Блок «Избранное»: закреплённые секции и эффекты, поднятые наверх панели.
+    // Позицию (сразу под мастер-выключателем) фиксируем здесь, а наполняем в конце (buildFavorites),
+    // когда известны секции (panelAllSections) и навигация (selectTab/sectionByTitle). Пуст и не в
+    // режиме «Настроить» — скрыт целиком.
+    var favBox = el("div", null); favBox.hidden = true;
+    p.appendChild(favBox);
+
     // ===== Вкладки-категории =====
-    // Панель разрослась до дюжины секций — раскладываем их по 5 категориям, чтобы
-    // одновременно была видна ТОЛЬКО одна группа (панель короче, меньше скролла).
-    // Секции внутри вкладки остаются сворачиваемыми (их свёрнутость по-прежнему копится
-    // в cfg.ui.collapsed по уникальным заголовкам). Активная вкладка помнится в panelTab
-    // (переживает refreshPanel). Скрытые вкладки — hidden, поэтому и ловушка Tab, и стартовый
-    // фокус (panelFocusables фильтрует offsetParent===null) их не видят.
-    // «Данные» вынесены из «Системы» отдельной вкладкой: управление образами/конфигом
-    // (профили, пресеты, синхронизация, обмен, экспорт/импорт, история, сброс) — их много,
-    // и в «Системе» они перегружали список. Теперь «Система» — только установка и справка.
-    var TABS = ["Набор", "Вид", "Терминал", "Система", "Данные"];
-    // Стартовая вкладка — запомненная между сессиями (cfg.ui.tab), клампим под число вкладок.
+    // Полтора десятка секций разложены по пяти вкладкам, чтобы одновременно была видна только
+    // одна группа. Скрытые вкладки помечены hidden — их не видят ни ловушка Tab, ни стартовый
+    // фокус (panelFocusables отсеивает offsetParent === null). Активная вкладка помнится между
+    // сессиями в cfg.ui.tab; клампим её под текущее число вкладок.
     if (typeof cfg.ui.tab === "number") panelTab = cfg.ui.tab;
     if (panelTab < 0 || panelTab >= TABS.length) panelTab = 0;
     var tabPanes = [], tabBtns = [];
     function styleTabBtn(btn, active) {
         btn.style.cssText =
-            "flex:1 1 0; text-align:center; padding:6px 3px; border-radius:8px 8px 0 0; cursor:pointer;" +
+            "position:relative; flex:1 1 0; text-align:center; padding:6px 3px; border-radius:8px 8px 0 0; cursor:pointer;" +
             "font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" +
             "font-weight:" + (active ? "700" : "500") + ";" +
             "color:" + (active ? "var(--mlbg-accent)" : "var(--mlp-muted,#a6adc8)") + ";" +
             "background:" + (active ? "rgba(var(--mlbg-accent-rgb),0.16)" : "transparent") + ";" +
             "border-bottom:2px solid " + (active ? "var(--mlbg-accent)" : "var(--mlp-border-faint,rgba(205,214,244,0.12))") + ";";
         btn.setAttribute("aria-selected", active ? "true" : "false");
+        btn.tabIndex = active ? 0 : -1; // роуминг-tabindex: Tab заходит на активную вкладку, стрелки ходят между ними
     }
-    function selectTab(ti) {
+    function selectTab(ti, focusBtn) {
         if (ti < 0 || ti >= tabPanes.length) return;
         panelTab = ti;
         cfg.ui.tab = ti; saveCfg(); // запомнить вкладку между сессиями
         for (var i = 0; i < tabPanes.length; i++) tabPanes[i].hidden = (i !== ti);
         for (var b = 0; b < tabBtns.length; b++) styleTabBtn(tabBtns[b], b === ti);
+        if (focusBtn) { try { tabBtns[ti].focus(); } catch (e) {} }
         try { p.scrollTop = 0; } catch (e) {}
+    }
+    // Счётчик-бейдж вкладки: сколько на вкладке активного/не-по-умолчанию — чтобы
+    // с одного взгляда понять, где что включено, не открывая каждую. 0 -> бейджа нет.
+    function tabBadgeCount(ti) {
+        try {
+            if (ti === 0) { // Набор: включённые авто/контекст-режимы выбора набора
+                var n = 0;
+                if (cfg.slideshow && cfg.slideshow.on) n++;
+                if (cfg.autoTime && cfg.autoTime.on) n++;
+                if (cfg.autoWorkspace) n++;
+                if (cfg.autoBranch) n++;
+                if (cfg.autoLang) n++;
+                if (cfg.librarySlideshow) n++;
+                return n;
+            }
+            if (ti === 1) { var c = 0, k; for (k in cfg.fx) if (cfg.fx[k]) c++; return c; }          // Вид: включённые эффекты
+            if (ti === 2) { var d = 0, t2; for (t2 in DEFAULTS.term) if (cfg.term[t2] !== DEFAULTS.term[t2]) d++; return d; } // Терминал: не-дефолтные настройки
+            if (ti === 3) { return (cfg.ui.hidden ? Object.keys(cfg.ui.hidden).length : 0) + (cfg.ui.hiddenFx ? Object.keys(cfg.ui.hiddenFx).length : 0); } // Система: скрытые пункты меню
+            if (ti === 4) { try { return Object.keys(loadPresets()).length; } catch (e) { return 0; } } // Данные: сохранённые пресеты
+        } catch (e) {}
+        return 0;
     }
     // Бар вкладок «прилипает» к верху при прокрутке длинной вкладки (напр. «Вид» с сеткой
     // эффектов), чтобы переключаться, не мотая вверх. Фон бара = фон панели (нет просвечивания).
     var tabBar = el("div",
         "display:flex; gap:3px; margin:6px 0 2px; position:sticky; top:0; z-index:3;" +
         "background:var(--mlp-bg,rgba(24,24,37,0.98));");
+    tabBar.setAttribute("role", "tablist");
+    tabBar.setAttribute("aria-label", t("Категории настроек"));
     TABS.forEach(function (tabName, ti) {
-        var btn = el("div", null, t(tabName));
-        keyActivate(btn, t(tabName));
+        var btn = el("div", null);
+        btn.id = PANEL_ID + "-tab-" + ti;
+        btn.appendChild(el("span", "vertical-align:middle;", t(tabName)));
+        var cnt = tabBadgeCount(ti);
+        if (cnt > 0) {
+            var badge = el("span",
+                "position:absolute; top:1px; right:2px; min-width:14px; height:13px; line-height:11px; padding:0 3px; box-sizing:border-box;" +
+                "border-radius:7px; font-size:8px; font-weight:700; text-align:center;" +
+                "color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.22); border:1px solid rgba(var(--mlbg-accent-rgb),0.5);", String(cnt));
+            badge.setAttribute("aria-hidden", "true");
+            btn.appendChild(badge);
+        }
+        keyActivate(btn, t(tabName) + (cnt ? " (" + cnt + ")" : ""));
         btn.setAttribute("role", "tab");
         styleTabBtn(btn, ti === panelTab);
         btn.addEventListener("click", function () { selectTab(ti); });
         tabBtns.push(btn); tabBar.appendChild(btn);
         var pane = el("div", null); pane.setAttribute("role", "tabpanel");
+        pane.id = PANEL_ID + "-pane-" + ti;
+        pane.setAttribute("aria-labelledby", btn.id);
+        btn.setAttribute("aria-controls", pane.id);
         pane.hidden = (ti !== panelTab);
         tabPanes.push(pane);
     });
@@ -277,14 +333,22 @@ function togglePanel(ev) {
             setTimeout(function () { try { head.style.boxShadow = prev; } catch (e) {} }, 1200);
         } catch (e) {}
     }
-    function goSection(entry, fxTerm) {
+    function goSection(entry) {
         var ti = tabPanes.indexOf(entry.parent);
         if (ti >= 0) selectTab(ti);
         try { entry.expand(); } catch (e) {}
         searchRes.hidden = true; searchInp.value = "";
-        // Для эффекта — проставляем фильтр внутри секции «Эффекты» и пересобираем панель.
-        if (fxTerm) { fxFilterQ = fxTerm; fxOnlyOn = false; try { refreshPanel(); } catch (e) {} return; }
         flashSection(entry.head);
+    }
+    // Переход из поиска к КОНКРЕТНОМУ эффекту: открываем «Вид», разворачиваем
+    // «Эффекты», снимаем «только включённые» (чтобы цель не была спрятана) и запоминаем ключ —
+    // после пересборки панели блок фокуса (в конце togglePanel) прокрутит к нему и подсветит.
+    function goEffect(key) {
+        fxFocusKey = key; fxOnlyOn = false;
+        if (cfg.ui.collapsed) delete cfg.ui.collapsed["Эффекты"]; // развернуть секцию эффектов
+        cfg.ui.tab = 1; // вкладка «Вид»
+        searchRes.hidden = true; searchInp.value = "";
+        saveCfg(); try { refreshPanel(); } catch (e) {}
     }
     function sectionByTitle(t) {
         for (var si = 0; si < panelSections.length; si++) if (panelSections[si].title === t) return panelSections[si];
@@ -298,18 +362,35 @@ function togglePanel(ev) {
         panelSections.forEach(function (s) { // секции по названию (совпадение по переводу или по русскому ключу)
             var disp = s.label || s.title;
             if ((disp.toLowerCase().indexOf(q) >= 0 || s.title.toLowerCase().indexOf(q) >= 0) && !seen["s:" + s.title]) {
-                seen["s:" + s.title] = 1;
+                seen["s:" + s.title] = 1; seen["l:" + disp] = 1;
                 var ti = tabPanes.indexOf(s.parent);
                 rows.push({ label: disp, sub: ti >= 0 ? t(TABS[ti]) : "", act: (function (sec) { return function () { goSection(sec); }; })(s) });
             }
         });
-        var fxSec = sectionByTitle("Эффекты"); // отдельные эффекты -> секция «Эффекты» с фильтром
-        if (fxSec) FX_LIST.forEach(function (o) {
-            var disp = t(o[1]); // переведённое имя эффекта (для поиска и фильтра секции)
+        FX_LIST.forEach(function (o) { // отдельные эффекты -> переход прямо к их тумблеру (goEffect)
+            var disp = t(o[1]); // переведённое имя эффекта
             if ((disp.toLowerCase().indexOf(q) >= 0 || o[1].toLowerCase().indexOf(q) >= 0) && !seen["f:" + o[0]]) {
                 seen["f:" + o[0]] = 1;
-                rows.push({ label: t("Эффект: ") + disp, sub: t("Вид"), act: (function (term) { return function () { goSection(fxSec, term); }; })(disp.toLowerCase()) });
+                rows.push({ label: t("Эффект: ") + disp, sub: t("Вид"), act: (function (key) { return function () { goEffect(key); }; })(o[0]) });
             }
+        });
+        // Глубокий поиск: отдельные контролы из каталога (по подписи ИЛИ синониму RU/EN).
+        PANEL_SEARCH_CATALOG.forEach(function (c) {
+            var label = c[0], tab = c[1], secTitle = c[2], syn = c[3] || "";
+            var disp = t(label);
+            if ((disp + " " + label + " " + syn).toLowerCase().indexOf(q) < 0) return;
+            if (seen["c:" + label] || seen["l:" + disp]) return; // дубли с самим собой и с секцией того же имени
+            seen["c:" + label] = 1;
+            rows.push({
+                label: disp, sub: (tab >= 0 && tab < TABS.length) ? t(TABS[tab]) : "",
+                act: (function (tb, st) {
+                    return function () {
+                        var sec = st ? sectionByTitle(st) : null;
+                        if (sec) { goSection(sec); return; }
+                        selectTab(tb); searchRes.hidden = true; searchInp.value = ""; try { p.scrollTop = 0; } catch (e) {}
+                    };
+                })(tab, secTitle)
+            });
         });
         searchRes.hidden = false;
         if (!rows.length) { searchRes.appendChild(el("div", "padding:7px 9px; font-size:11px; color:var(--mlp-faint,#6c7086);", t("Ничего не найдено"))); return; }
@@ -335,167 +416,18 @@ function togglePanel(ev) {
     tabPanes.forEach(function (pane) { p.appendChild(pane); });
     var tSet = tabPanes[0], tView = tabPanes[1], tTerm = tabPanes[2], tSys = tabPanes[3], tData = tabPanes[4];
 
-    // ===== Вкладка «Набор»: какой фон и когда =====
-    // Набор (превью-чипы)
-    var secSet = collapsible(tSet, "Набор", "Выбор набора фоновых картинок (редактор / сайдбар / панель). «случайно» — новый набор при каждом запуске.");
-    var chips = el("div", "display:flex; flex-wrap:wrap; gap:6px; align-items:center;");
-    for (var i = 0; i < SETS.length; i++) chips.appendChild(makeChip(String(i), String(i)));
-    chips.appendChild(makeChip("random", "случайно"));
-    secSet.appendChild(chips);
-    secSet.appendChild(makeSetNameEdit()); // переименование активного набора
+    // Секции вкладок живут в src/ui/panel-tabs.js: там видно, что где лежит, без 300 строк
+    // посреди сборки каркаса. «Система» возвращает тело секции «Настройка меню» — его
+    // наполняет менеджер ниже, когда все секции уже созданы.
+    buildTabSets(tSet);
+    buildTabView(tView);
+    buildTabTerm(tTerm);
+    var secMenuBody = buildTabSys(tSys);
+    buildTabData(tData);
 
-    // Генератор набора по seed/палитре: бесконечные согласованные фоны без ассетов.
-    var secGen = collapsible(tSet, "Генератор", "Создать согласованный набор из seed-строки или базового цвета (#rrggbb): тёмная подложка + акцент + гармоничный спутник. Один seed всегда даёт один и тот же набор — им можно делиться. Наборы сохраняются и добавляются в конец списка.");
-    secGen.appendChild(makeGenerator());
+    buildMenuManager(secMenuBody, tabPanes);
 
-    // Слайдшоу
-    var secSlide = collapsible(tSet, "Слайдшоу", "Автоматическая смена набора по кругу через заданный интервал.");
-    secSlide.appendChild(makeSlideToggle());
-    secSlide.appendChild(makeObjSlider(cfg.slideshow, "min", "Интервал, мин", 1, 120, 1, 0, INFO.slide_min, DEFAULTS.slideshow.min));
-
-    // Авто-набор по времени суток
-    var secTime = collapsible(tSet, "По времени суток", "Днём — дневной набор, ночью — ночной. Имеет приоритет над слайдшоу; не работает в режиме «случайно».");
-    secTime.appendChild(makeAutoTimeToggle());
-    secTime.appendChild(makeSetPicker("day", "Дневной"));
-    secTime.appendChild(makeSetPicker("night", "Ночной"));
-    secTime.appendChild(makeObjSlider(cfg.autoTime, "from", "День с, ч", 0, 23, 1, 0, INFO.autotime_from, DEFAULTS.autoTime.from));
-    secTime.appendChild(makeObjSlider(cfg.autoTime, "to", "День до, ч", 0, 23, 1, 0, INFO.autotime_to, DEFAULTS.autoTime.to));
-
-    // Контекст: фон под открытый проект + индикатор git-ветки (оба читают заголовок/статусбар).
-    var secWs = collapsible(tSet, "По проекту", "Набор под открытый проект и полоска-индикатор git-ветки. Держатся на чтении заголовка и статусбара VS Code.");
-    secWs.appendChild(makeWorkspaceUI());
-    secWs.appendChild(makeAmbientBranchToggle());
-
-    // ===== Вкладка «Вид»: как всё выглядит =====
-    // Яркость набора
-    var secOp = collapsible(tView, "Яркость набора", "Насколько ярко проступают фоновые картинки в каждой зоне.");
-    [["editor", "Редактор"], ["side", "Сайдбар"], ["panel", "Панель"]].forEach(function (o) { secOp.appendChild(makeOpSlider(o[0], o[1])); });
-    secOp.appendChild(makeAutoDim());
-
-    // Картинка: акцентный цвет + фильтры фоновой картинки по зонам
-    var secImg = collapsible(tView, "Картинка", "Акцентный цвет интерфейса и фильтры фоновой картинки по зонам.");
-    secImg.appendChild(makeAccentColor());
-    secImg.appendChild(makeImgFilters());
-
-    // Эффекты (тумблеры + сила + стиль частиц — одной секцией, чтобы включение и сила
-    // эффекта жили рядом). Эффектов за 30 — сверху поле-фильтр по названию (чистый UI).
-    var secFx = collapsible(tView, "Эффекты", "Включение/выключение визуальных эффектов и их сила. Наведи на пункт — всплывёт пояснение. Поле поиска фильтрует тумблеры по названию, «только включённые» — прячет выключенные.");
-    buildEffectsSection(secFx);
-
-    // ===== Вкладка «Терминал» =====
-    var secTerm = collapsible(tTerm, "Терминал", "Оформление интегрированного терминала: шрифт, лигатуры, свечение, курсор, выделение.");
-    secTerm.appendChild(makeTermSelect());
-    var tgrid = el("div", "display:grid; grid-template-columns:1fr 1fr; gap:1px 10px;");
-    tgrid.appendChild(makeTermCheck("ligatures", "Лигатуры"));
-    tgrid.appendChild(makeTermCheck("cursorGlow", "Свеч. курсора"));
-    secTerm.appendChild(tgrid);
-    secTerm.appendChild(makeTermSlider("glow", "Свечение", 0, 6, 0.5, 1));
-    secTerm.appendChild(makeTermSlider("weight", "Жирность", 400, 800, 100, 0));
-    secTerm.appendChild(makeTermSlider("cursorSize", "Кур. шир.", 0, 2.5, 0.1, 1));
-    secTerm.appendChild(makeTermSlider("cursorHeight", "Кур. выс.", 0, 2.5, 0.1, 1));
-    secTerm.appendChild(makeTermColor("cursorColor", "Курсор"));
-    secTerm.appendChild(makeTermColor("selColor", "Выделение"));
-
-    // ===== Вкладка «Система»: установка, диагностика, справка =====
-    // Осталась лёгкой: только то, что относится к работоспособности плагина, — а управление
-    // образами и конфигом переехало в отдельную вкладку «Данные» (ниже), чтобы «Система» не
-    // была стеной из секций и кнопок.
-    // Язык панели — самой первой строкой (высокая заметность): переключение RU/EN/Авто.
-    tSys.appendChild(makeLangSelect());
-
-    // Диагностика установки — первой: если фон «не появился», сюда заглядывают в первую
-    // очередь. Кнопка собирает отчёт (версия, тема, набор, пути картинок, найден ли стиль)
-    // и копирует его в буфер — удобно приложить к issue. Ничего не меняет.
-    var secDiag = collapsible(tSys, "Диагностика", "Проверка установки: что плагин видит о себе (версия, тема, набор, папка и загрузка картинок, активен ли custom-css). Отчёт копируется в буфер для issue. Загляни сюда, если фон не появился.");
-    secDiag.appendChild(makeDiagnosticsUI());
-
-    // Папка плагина: база для картинок набора. Нужна при переносе плагина (иначе фон
-    // пропадает — плитки набора с «!»). Отдельная секция, чтобы не путать с путём картинки.
-    var secBase = collapsible(tSys, "Папка плагина", "Откуда брать картинки наборов. Меняй, если перенёс плагин и фон пропал. Пусто — путь определяется автоматически.");
-    secBase.appendChild(makeImgBaseField());
-    secBase.appendChild(makeRemoteImagesToggle());
-
-    // Горячие клавиши: сами хоткеи заданы в boot.js (onHotkey) — здесь только напоминание,
-    // чтобы их можно было узнать, не заглядывая в код/README. Свёрнуто по умолчанию.
-    var secKeys = collapsible(tSys, "Горячие клавиши", "Быстрые действия без открытия панели. Работают на любой раскладке (RU/EN).");
-    [
-        ["Ctrl+Alt+B", "Открыть / закрыть панель"],
-        ["Ctrl+Alt+.", "Следующий набор"],
-        ["Ctrl+Alt+,", "Предыдущий набор"],
-        ["Ctrl+Alt+0", "Фон и эффекты вкл / выкл"],
-        ["Ctrl+Alt+R", "Режим чтения вкл / выкл"],
-        ["Ctrl+Alt+Z", "Отменить изменение вида"],
-        ["Ctrl+Alt+Y", "Повторить отменённое"]
-    ].forEach(function (k) {
-        var row = el("div", "display:flex; align-items:center; gap:8px; padding:2px 3px;");
-        row.appendChild(el("kbd", "flex:0 0 92px; font-family:var(--vscode-editor-font-family,monospace); font-size:10px; text-align:center; padding:2px 4px; border-radius:5px; background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3); color:var(--mlbg-accent);", k[0]));
-        row.appendChild(el("span", "flex:1 1 auto; font-size:11px; color:var(--mlp-muted,#a6adc8);", t(k[1])));
-        secKeys.appendChild(row);
-    });
-
-    // ===== Вкладка «Данные»: образы, обмен, конфиг =====
-    // Всё про сохранение/перенос/обмен образом вида + операции над конфигом (экспорт/импорт,
-    // история, восстановление, сброс). Вынесено из «Системы» — этих пунктов много, вместе они
-    // читаются как один смысловой блок и не мешают быстро найти диагностику/установку.
-
-    // Профили-пресеты для быстрого старта: один клик настраивает весь вид (см. онбординг).
-    var secProfiles = collapsible(tData, "Профили", "Готовые профили вида: спокойный, фокус, презентация, минимал, максимум. Один клик настраивает фон и эффекты целиком — дальше можно править вручную.");
-    secProfiles.appendChild(makeProfilesUI());
-
-    // Пресеты (сохранённые образы)
-    var secPreset = collapsible(tData, "Пресеты", "Сохранённые образы: весь вид под именем, переключение одним кликом.");
-    secPreset.appendChild(makePresetsUI());
-
-    // Синхронизация через settings.json: перенос вида на другие машины (едет с Settings Sync).
-    // Требует компаньон-расширение (оно прокидывает базовый конфиг как window.__MLBG_SEED__).
-    var secSync = collapsible(tData, "Синхронизация", "Через settings.json (едет с Settings Sync). Скопируй строку и вставь её в settings.json — вид перенесётся на другие машины. «Загрузить базу» подтянет синхронизированный образ сюда.");
-    secSync.appendChild(makeSyncUI());
-
-    // Поделиться образом коротким кодом (без картинок/путей)
-    var secShare = collapsible(tData, "Поделиться", "Короткий код всего образа для обмена: скопируй свой или примени чужой. Картинки и пути не входят.");
-    secShare.appendChild(makeShareUI());
-
-    // Экспорт цветовой темы VS Code из палитры активного набора: вид живёт и там, где
-    // custom-фон недоступен (vscode.dev, SSH, Codespaces), и находится поиском тем.
-    var secTheme = collapsible(tData, "Экспорт темы", "Собрать настоящую VS Code-тему (color-theme.json) из палитры активного набора: цвета интерфейса + подсветка синтаксиса. Работает там, где custom-фон недоступен. Как применить — в подсказке «?» рядом с кнопкой.");
-    secTheme.appendChild(makeThemeExportUI());
-
-    // экспорт / импорт
-    var io = el("div", "display:flex; gap:8px; margin-top:12px;");
-    var expB = makeIoBtn("Экспорт"); expB.addEventListener("click", function () { exportCfg(); });
-    var impB = makeIoBtn("Импорт"); impB.addEventListener("click", function () { importCfg(); });
-    io.appendChild(expB); io.appendChild(impB);
-    tData.appendChild(io);
-
-    // История изменений вида (Undo / Redo) в пределах сессии. Отдельно от авто-резерва ниже:
-    // резерв — откат одной крупной замены (импорт/сброс/пресет), а история — пошаговая отмена
-    // правок панели. Хоткеи: Ctrl+Alt+Z / Ctrl+Alt+Y.
-    tData.appendChild(makeHistoryUI());
-
-    // Восстановление из авто-резерва: появляется, когда резерв есть (после импорта/сброса/
-    // пресета). Возвращает конфиг, бывший до последней такой замены (можно нажать повторно).
-    if (hasBackup()) {
-        var restB = el("div", "margin-top:8px; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", t("Восстановить прежние настройки"));
-        restB.addEventListener("mouseenter", function () { restB.style.background = "rgba(137,180,250,0.26)"; });
-        restB.addEventListener("mouseleave", function () { restB.style.background = "rgba(137,180,250,0.14)"; });
-        restB.addEventListener("click", function () { restoreBackup(); });
-        keyActivate(restB, t("Восстановить прежние настройки из резерва"));
-        tData.appendChild(restB);
-    }
-
-    // сброс
-    var reset = el("div", "margin-top:8px; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", t("Сбросить к дефолту"));
-    reset.addEventListener("mouseenter", function () { reset.style.background = "rgba(var(--mlbg-accent-rgb),0.26)"; });
-    reset.addEventListener("mouseleave", function () { reset.style.background = "rgba(var(--mlbg-accent-rgb),0.14)"; });
-    reset.addEventListener("click", function () {
-        var keepMode = cfg.mode, keepUi = cfg.ui; // сброс дизайна, но не положения/свёрнутости панели
-        backupCfg();                              // прежние настройки -> резерв (сброс можно откатить)
-        cfg = clone(DEFAULTS); cfg.mode = keepMode; cfg.ui = keepUi;
-        syncGenSets(); // дефолт без ген-наборов -> обрезать хвост SETS; keepMode на ген-набор зажмётся на 0
-        apply(); refreshPanel();
-    });
-    keyActivate(reset, t("Сбросить к дефолту"));
-    tData.appendChild(reset);
+    buildFavorites(favBox, p);
 
     document.body.appendChild(p);
 
@@ -503,6 +435,31 @@ function togglePanel(ev) {
     // чтобы клик, которым панель открыли, её же не закрыл.
     function onKey(e) {
         if (e.key === "Escape") { e.stopPropagation(); closePanel(); return; }
+        // Клавиатурные ускорители, только когда фокус НЕ в поле ввода: цифры 1..N
+        // переключают вкладки, «/» ставит фокус в поиск. Модификаторы не трогаем (не мешаем хоткеям).
+        if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+            var ae = document.activeElement, tag = ae && ae.tagName;
+            var typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+            if (!typing) {
+                if (e.key >= "1" && e.key <= String(Math.min(9, tabBtns.length))) { e.preventDefault(); selectTab(parseInt(e.key, 10) - 1, true); return; }
+                if (e.key === "/") { e.preventDefault(); try { searchInp.focus(); } catch (er) {} return; }
+            }
+        }
+        // Стрелки/Home/End на баре вкладок (стандартный ARIA-паттерн tablist): когда фокус на
+        // вкладке, ←/→ ходят по кругу, Home/End — к первой/последней. Переключают и фокусируют.
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End") {
+            var ai = tabBtns.indexOf(document.activeElement);
+            if (ai >= 0) {
+                e.preventDefault();
+                var ni = ai;
+                if (e.key === "ArrowLeft") ni = (ai - 1 + tabBtns.length) % tabBtns.length;
+                else if (e.key === "ArrowRight") ni = (ai + 1) % tabBtns.length;
+                else if (e.key === "Home") ni = 0;
+                else ni = tabBtns.length - 1;
+                selectTab(ni, true);
+                return;
+            }
+        }
         // Ловушка фокуса: Tab не выпускает фокус за пределы диалога (заворачиваем по кругу).
         if (e.key === "Tab") {
             var f = panelFocusables(p); if (!f.length) return;
@@ -522,6 +479,7 @@ function togglePanel(ev) {
     panelCleanup = function () {
         document.removeEventListener("keydown", onKey, true);
         document.removeEventListener("mousedown", onOutside, true);
+        try { document.removeEventListener("mousemove", onRz); document.removeEventListener("mouseup", onRzUp); } catch (e) {} // если закрыли во время ресайза
     };
 
     // Позиционирование: запомненное (перетаскивание) или у кнопки BG
@@ -535,6 +493,31 @@ function togglePanel(ev) {
             p.style.bottom = (window.innerHeight - r.top + 6) + "px";
             p.style.right = Math.max(6, window.innerWidth - r.right) + "px";
         } else { p.style.bottom = "26px"; p.style.right = "8px"; }
+    }
+
+    // Онбординг: открыть панель сразу на нужной секции. panelStartFocus задаётся
+    // из boot.js при первом запуске (напр. «Профили») — переключаем вкладку, разворачиваем, мигаем.
+    if (panelStartFocus) {
+        var sf = sectionByTitle(panelStartFocus); panelStartFocus = "";
+        if (sf) {
+            var sfi = tabPanes.indexOf(sf.parent); if (sfi >= 0) selectTab(sfi);
+            try { sf.expand(); } catch (e) {}
+            setTimeout(function () { try { flashSection(sf.head); } catch (e) {} }, 90);
+        }
+    }
+    // Переход к конкретному эффекту из единого поиска: прокрутить к его строке и
+    // подсветить. Ключ задан в goEffect до refreshPanel; здесь потребляем и гасим его.
+    if (fxFocusKey) {
+        var fk = fxFocusKey; fxFocusKey = "";
+        setTimeout(function () {
+            var n = panelFxNodes[fk]; if (!n) return;
+            try { if (n.scrollIntoView) n.scrollIntoView({ block: "center" }); } catch (e) {}
+            try {
+                var prev = n.style.boxShadow;
+                n.style.boxShadow = "0 0 0 2px var(--mlbg-accent)"; n.style.borderRadius = "6px";
+                setTimeout(function () { try { n.style.boxShadow = prev; } catch (e) {} }, 1400);
+            } catch (e) {}
+        }, 60);
     }
 
     // Стартовый фокус: сам диалог (screen reader объявит role="dialog"), дальше Tab ходит

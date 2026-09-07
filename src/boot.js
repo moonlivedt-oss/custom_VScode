@@ -7,6 +7,14 @@ function heal() {
     try { ensureStatusBar(); } catch (e) {}
     try { ensureBranchStrip(); } catch (e) {}
     try { ensureErrorClass(); } catch (e) {}
+    // Питомец: раз в цикл heal (≈3с) обновляем счётчик ошибок для его «настороженного» настроения —
+    // читаем DOM только когда питомец включён (иначе нулевой оверхед), как и errorReact.
+    try { if (cfg.fx.pet) petState.errors = problemsCount(); } catch (e) {}
+    // Статистика: раз в цикл heal отмечаем активный файл в множестве тронутых за сессию.
+    try { if (cfg.fx.stats) statsTrackFile(); } catch (e) {}
+    // Шейдерный фон: холст живёт внутри части «редактор», а VS Code пересоздаёт её
+    // при смене раскладки/групп — поэтому проверяем и возвращаем его в том же цикле heal.
+    try { ensureShader(); } catch (e) {}
     syncWidgets();
 }
 // ===== Реакция на ошибки в коде (fx.errorReact) =====
@@ -58,15 +66,15 @@ setInterval(function () {
         // Частицы уже останавливаются отдельно (loopParticles видит document.hidden).
         if (document.hidden) return;
         _tick++;
-        ensureStatusBar(); ensureClock(); ensurePomodoro(); // дешёвые проверки наличия
-        tickClock(); tickPomo(); timeTick(); slideTick();   // обновления по времени
+        ensureStatusBar(); ensureClock(); ensurePomodoro(); ensureStats(); // дешёвые проверки наличия (ensureStats заодно обновляет время в сессии)
+        tickClock(); tickPomo(); timeTick(); slideTick(); libraryTick(); screensaverTick(); // обновления по времени
         // Индикатор git-ветки НЕ трогаем ежесекундно: gitBranch() лазит по DOM
         // (querySelector+closest+textContent+regex), а ветка меняется редко — обновляем
         // его в heal раз в 3с (ensureBranchStrip там же). Экономия на постоянном чтении DOM.
         if (_tick % 3 === 0) heal();                         // самолечение раз в 3с
     } catch (e) {}
 }, 1000);
-window.addEventListener("resize", function () { try { resizeParticles(); } catch (e) {} });
+window.addEventListener("resize", function () { try { resizeParticles(); } catch (e) {} try { resizeTrail(); } catch (e) {} try { shaderResize(); } catch (e) {} });
 
 // ===== Горячие клавиши =====
 // Переключение набора без открытия панели и быстрый вызов панели. Коды клавиш (e.code)
@@ -83,6 +91,12 @@ function cycleSet(dir) {
 }
 function onHotkey(e) {
     try {
+        // Скринсейвер/витрина: активную гасим первой же клавишей и ГЛОТАЕМ эту клавишу
+        // (иначе символ «просочился» бы в редактор); любая клавиша сбрасывает счётчик простоя.
+        try {
+            if (typeof saver !== "undefined" && saver.active) { e.preventDefault(); e.stopPropagation(); screensaverHide(); return; }
+            screensaverBump();
+        } catch (er) {}
         if (!e.ctrlKey || !e.altKey || e.shiftKey || e.metaKey) return;
         if (e.code === "Period") { e.preventDefault(); cycleSet(1); }
         else if (e.code === "Comma") { e.preventDefault(); cycleSet(-1); }
@@ -99,6 +113,7 @@ function onHotkey(e) {
             try { toast(cfg.fx.reading ? t("Режим чтения включён") : t("Режим чтения выключен")); } catch (er) {}
             if (document.getElementById(PANEL_ID)) refreshPanel();
         }
+        else if (e.code === "KeyP") { e.preventDefault(); try { openQuick(); } catch (er) {} } // быстрый переключатель наборов/эффектов
         else if (e.code === "KeyZ") { e.preventDefault(); try { undo(); } catch (er) {} } // отменить изменение вида
         else if (e.code === "KeyY") { e.preventDefault(); try { redo(); } catch (er) {} } // повторить отменённое
     } catch (err) {}
@@ -114,9 +129,12 @@ document.addEventListener("keydown", onHotkey, true);
 var _typingTimer = 0, _flowCount = 0;
 function onEditorType(e) {
     try {
-        if (!cfg.enabled || (!cfg.fx.dimOnType && !cfg.fx.flow && !cfg.fx.typingPulse)) return;
+        if (!cfg.enabled || (!cfg.fx.dimOnType && !cfg.fx.flow && !cfg.fx.typingPulse && !cfg.fx.pet && !cfg.fx.stats)) return;
         var t = e.target;
         if (!t || !t.classList || !t.classList.contains("inputarea")) return;
+        // Питомец оживляется от печати; статистика считает нажатия/стрик потока.
+        if (cfg.fx.pet) { try { petState.typedAt = Date.now(); } catch (er) {} }
+        if (cfg.fx.stats) { try { statsOnType(); } catch (er) {} }
         var cl = document.body && document.body.classList;
         // Класс mlbg-typing нужен и приглушению фона (dimOnType), и пульсу вкладки (typingPulse).
         if (cl && (cfg.fx.dimOnType || cfg.fx.typingPulse)) cl.add("mlbg-typing");
@@ -139,13 +157,25 @@ document.addEventListener("input", onEditorType, true);
 // создавая глубину) — уважает «уменьшить движение». Спотлайт двигает --mlbg-mx/my (центр
 // радиального затемнения в body::after) — это не авто-анимация, а слежение за курсором по
 // явному желанию, поэтому reduced-motion его не гасит. Оба коалесцируем в один кадр (rAF).
-var _mfxRaf = 0, _parX = 0, _parY = 0, _spotX = 0, _spotY = 0;
+var _mfxRaf = 0, _parX = 0, _parY = 0, _spotX = 0, _spotY = 0, _lastMouse = null;
 function _reduceMotion() { try { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) { return false; } }
 function onMouseFx(e) {
+    try { screensaverBump(); } catch (er) {}   // движение мыши всегда сбрасывает простой скринсейвера
     if (!cfg.enabled || document.hidden) return;
+    // Позиция курсора для «взгляда» питомца-кота (drawPet). Пишем ДО ранних выходов ниже,
+    // чтобы работало и когда включён только «Питомец» (без параллакса/спотлайта/шлейфа).
+    if (cfg.fx.pet) { if (!_lastMouse) _lastMouse = { x: 0, y: 0 }; _lastMouse.x = e.clientX; _lastMouse.y = e.clientY; }
+    // Курсор для шейдерного фона (uniform u_mouse): нормализованные 0..1, без rAF —
+    // это просто две записи в объект, шейдер прочитает их на своём кадре.
+    try {
+        mouseNorm.x = e.clientX / (window.innerWidth || 1);
+        mouseNorm.y = 1 - e.clientY / (window.innerHeight || 1);
+    } catch (er) {}
     var par = cfg.fx.parallax && !_reduceMotion();
     var spot = cfg.fx.spotlight;
-    if (!par && !spot) return; // ни один курсорный эффект не включён — ничего не считаем
+    var trailOn = cfg.fx.cursorTrail && !_reduceMotion();
+    if (!par && !spot && !trailOn) return; // ни один курсорный эффект не включён — ничего не считаем
+    if (trailOn) { try { pushTrail(e.clientX, e.clientY); } catch (er) {} } // точка шлейфа (луп сам стартует)
     if (par) {
         var w = window.innerWidth || 1, h = window.innerHeight || 1;
         _parX = (0.5 - e.clientX / w) * 16; // ±8px «навстречу» курсору — ощущение глубины
@@ -163,6 +193,10 @@ function onMouseFx(e) {
     });
 }
 document.addEventListener("mousemove", onMouseFx, true);
+// Прочая активность (клик/колесо/тач) тоже сбрасывает простой скринсейвера (клавиши — в onHotkey).
+["mousedown", "wheel", "touchstart"].forEach(function (ev) {
+    try { document.addEventListener(ev, function () { try { screensaverBump(); } catch (e) {} }, true); } catch (e) {}
+});
 
 // ===== Индикатор git-ветки (ambientBranch) =====
 // Тонкая полоска у верхнего края окна: на main/master — красноватая (ты на основной ветке),
@@ -203,7 +237,7 @@ window.addEventListener("focus", function () { setUnfocused(false); });
 // Возврат окна из скрытого/свёрнутого состояния — сразу лечим всё (стиль, статусбар,
 // виджеты, частицы) и обновляем время/слайдшоу, не дожидаясь следующего тика.
 document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) { try { heal(); tickClock(); tickPomo(); timeTick(); slideTick(); } catch (e) {} }
+    if (!document.hidden) { try { heal(); tickClock(); tickPomo(); timeTick(); slideTick(); libraryTick(); screensaverTick(); } catch (e) {} }
 });
 // Смена системной «уменьшить движение» — пересобираем стиль и виджеты (частицы вкл/выкл).
 try {
@@ -228,7 +262,64 @@ try {
 } catch (e) {}
 heal();
 
-// ===== Онбординг первого запуска (улучшение 10) =====
+// ===== Мост для интеграционного теста =====
+// Модули живут внутри IIFE, поэтому снаружи (из Playwright) до них не дотянуться. В обычном
+// VS Code это правильно — плагин ничего не вешает в глобальную область. Но тест должен уметь
+// проверить ровно то, что делает панель (сдвинуть ползунок, спросить здоровье селекторов),
+// поэтому открываем узкий мост, и только когда страница явно им помечена (фикстура ставит
+// window.__MLBG_TEST_HOOKS__ = true). На реальном воркбенче этого флага нет.
+try {
+    if (window.__MLBG_TEST_HOOKS__ === true) {
+        window.__mlbgTest = {
+            setBlur: function (v) { cfg.fxp.blur = v; applyThrottledLive(); ensureVars(); },
+            selectorHealth: function () { return selectorHealthSummary(); },
+            readability: function () { return readability(); },
+            loader: function () { return loaderKind(); }
+        };
+    }
+} catch (e) {}
+
+// ===== Синхронизация окон VS Code =====
+// Каждое окно VS Code — отдельный рантайм со своей копией cfg, но localStorage у них общий.
+// Раньше правка в одном окне доезжала до второго только со следующим циклом heal (до 3 с) —
+// а слайд-шоу в двух окнах вообще шло вразнобой и они перезаписывали друг другу набор.
+// Теперь окно, сохранившее конфиг, коротко сообщает об этом остальным; те перечитывают
+// хранилище и перерисовываются. BroadcastChannel есть в Electron; если его нет, работает
+// запасной путь — событие storage (оно как раз и приходит в ДРУГИЕ окна того же origin).
+var BC_NAME = "moonlight-custom-bg";
+var _bc = null, _bcApplying = false;
+function _applyExternalCfg() {
+    if (_bcApplying) return;
+    _bcApplying = true;
+    try {
+        cfg = loadCfg();          // перечитываем из общего хранилища (mergeCfg санитизирует)
+        bumpStyle(); ensureStyle(); updateLabel(); syncWidgets();
+        try { slideReset(); } catch (e) {}   // таймер слайд-шоу — от момента чужой смены: окна не «спорят»
+        try { refreshPanel(); } catch (e) {} // панель открыта — пересобираем под новый конфиг
+    } catch (e) {}
+    _bcApplying = false;
+}
+function broadcastCfg() {
+    if (_bcApplying) return;      // изменение приехало извне — не рассылаем его обратно
+    try { if (_bc) _bc.postMessage({ t: "cfg" }); } catch (e) {}
+}
+try {
+    if (typeof BroadcastChannel === "function") {
+        _bc = new BroadcastChannel(BC_NAME);
+        _bc.onmessage = function (ev) { if (ev && ev.data && ev.data.t === "cfg") _applyExternalCfg(); };
+    }
+} catch (e) { _bc = null; }
+try {
+    window.addEventListener("storage", function (e) {
+        if (!e || e.key !== CFG_KEY) return;
+        if (_bc) return;          // BroadcastChannel уже доставил — второй раз не перерисовываем
+        _applyExternalCfg();
+    });
+} catch (e) {}
+// Экономия по батарее: подписка ставится один раз на старте.
+try { initBattery(); } catch (e) {}
+
+// ===== Онбординг первого запуска =====
 // Один раз (флаг в localStorage) мягко подсказываем, как открыть панель и что есть готовые
 // профили — иначе три десятка эффектов встречают новичка стеной. Показываем с задержкой,
 // чтобы UI VS Code успел собраться (и наш тост не потерялся среди стартовой возни).
@@ -239,9 +330,23 @@ try {
     if (!_seen) {
         try { localStorage.setItem(ONBOARD_KEY, "1"); } catch (e) {}
         setTimeout(function () {
-            try { if (!document.hidden) toast(t("MoonLight BG: открой панель кнопкой BG в статусбаре (Ctrl+Alt+B) и выбери профиль в «Система → Профили».")); } catch (e) {}
+            try {
+                if (document.hidden) return;
+                // Открываем панель сразу на «Профили»: готовые профили — лучший старт,
+                // а превью по наведению даёт их примерить, ничего не ломая. panelStartFocus гасится в togglePanel.
+                // ВАЖНО: togglePanel именно ПЕРЕКЛЮЧАЕТ. Если пользователь успел открыть панель
+                // сам за эти 4 секунды, вызов закрыл бы её прямо под руками — поэтому открываем
+                // только когда панели нет.
+                try {
+                    if (!document.getElementById(PANEL_ID)) {
+                        panelStartFocus = "Профили";
+                        togglePanel({ stopPropagation: function () {} });
+                    }
+                } catch (e2) {}
+                toast(t("MoonLight BG: открой панель кнопкой BG в статусбаре (Ctrl+Alt+B). Быстрый старт — «Данные → Профили»; правый клик по кнопке BG — быстрые действия."));
+            } catch (e) {}
         }, 4000);
     }
 } catch (e) {}
 
-console.log("[MoonLight custom-bg] " + APP_VERSION + " installed (tabbed panel: Набор/Вид/Терминал/Система/Данные; v19: i18n RU/EN, quick-start profiles, FPS auto-budget, settings.json sync, DOM-scrape health, refined tooltips), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "particles:", cfg.partStyle, "lang:", uiLang(), "theme:", themeKind());
+console.log("[MoonLight custom-bg] " + APP_VERSION + " installed (v20: adaptive readability scrim, OKLab palette, CSS-variable pipeline, dual loader + true transparency, workbench selector health, WebGL shader sets, master-frame sets, quick switcher Ctrl+Alt+P, cross-window sync), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "loader:", (typeof loaderKind === "function" ? loaderKind().id : "?"), "lang:", uiLang(), "theme:", themeKind());

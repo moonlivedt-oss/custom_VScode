@@ -1,3 +1,5 @@
+
+
 // ===== Рантайм-виджеты и авто-переключатели =====
 // Виджеты статусбара (часы, помидор, летящие частицы) + авто-смена набора:
 // слайдшоу по таймеру (slideTick) и авто-набор по времени суток (timeTick).
@@ -85,292 +87,62 @@ function pomoDone() {
     } catch (e) {}
 }
 
-var part = { canvas: null, ctx: null, raf: 0, list: [], style: null };
-// Кол-во частиц: 0 — легитимное значение («частиц нет»), поэтому НЕ используем
-// "partCount || 40" (0 — falsy и молча превращался бы в 40). Откат к 40 только
-// если значение вообще не число (сломанный конфиг).
-function partCount() {
-    var n = cfg.fxp.partCount;
-    return typeof n === "number" && isFinite(n) ? Math.round(n) : 40;
+// ===== Статистика сессии (fx.stats) =====
+// Лёгкий сессионный счётчик (в памяти, не localStorage — как история Undo): время в сессии,
+// нажатия, число тронутых файлов, суммарное «время в потоке» и лучший стрик непрерывной печати.
+// Данные копят boot.js (statsOnType на ввод) и heal (statsTrackFile — активный файл). Виджет
+// статусбара показывает компактную сводку, а секция «Статистика» в панели — полную. Без эмодзи.
+var statsState = { start: Date.now(), keys: 0, files: {}, fileCount: 0, lastType: 0, streakStart: 0, streakMs: 0, bestMs: 0, flowMs: 0 };
+function statsReset() { statsState = { start: Date.now(), keys: 0, files: {}, fileCount: 0, lastType: 0, streakStart: 0, streakMs: 0, bestMs: 0, flowMs: 0 }; }
+function statsOnType() {
+    var now = Date.now(); statsState.keys++;
+    if (statsState.lastType && now - statsState.lastType < 3000) { // пауза < 3с — стрик продолжается
+        statsState.flowMs += (now - statsState.lastType);
+        statsState.streakMs = now - statsState.streakStart;
+    } else { statsState.streakStart = now; statsState.streakMs = 0; } // новая серия
+    if (statsState.streakMs > statsState.bestMs) statsState.bestMs = statsState.streakMs;
+    statsState.lastType = now;
 }
-function resizeParticles() { if (part.canvas) { part.canvas.width = window.innerWidth; part.canvas.height = window.innerHeight; } }
-// Сезонный авто-стиль: если выбран "seasonal", форма подбирается по месяцу — зима (дек/янв/фев)
-// снег, весна (мар/апр/май) сакура, лето (июн/июл/авг) светлячки, осень (сен/окт/ноя) дождь.
-// Возвращает ВСЕГДА конкретный стиль из белого списка (никогда "seasonal"), поэтому вся
-// отрисовка (partFalls/loopParticles) работает с ним как с обычным стилем.
-function seasonStyle() {
-    var m; try { m = new Date().getMonth(); } catch (e) { m = 0; } // 0..11
-    if (m === 11 || m === 0 || m === 1) return "snow";
-    if (m >= 2 && m <= 4) return "sakura";
-    if (m >= 5 && m <= 7) return "firefly";
-    return "rain"; // 8..10 — осень
+function statsTrackFile() {
+    try {
+        var wb = document.querySelector(".monaco-workbench"); if (!wb) return;
+        var tab = wb.querySelector(".editor-group-container.active .tab.active .tab-label")
+               || wb.querySelector(".tab.active .tab-label") || wb.querySelector(".tab.active");
+        var name = String((tab && tab.getAttribute && tab.getAttribute("aria-label")) || (tab && tab.textContent) || "").trim().split(/[\s,]/)[0];
+        if (name && !statsState.files[name]) { statsState.files[name] = 1; statsState.fileCount++; }
+    } catch (e) {}
 }
-// Стиль частиц (санитизированный). "seasonal" разворачивается в сезонный стиль. Падают
-// сверху вниз: снег, сакура, дождь, конфетти; остальные (точки, звёзды, пузыри, светлячки)
-// всплывают снизу вверх.
-function partStyleNow() {
-    var s = safePartStyle(cfg.partStyle);
-    return s === "seasonal" ? seasonStyle() : s;
+function fmtDur(ms) {
+    var s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    return (h ? h + ":" + pad2(m) : m) + ":" + pad2(ss);
 }
-function partFalls() {
-    var s = partStyleNow();
-    return s === "snow" || s === "sakura" || s === "rain" || s === "confetti";
-}
-// Задать/сбросить поля частицы НА МЕСТЕ (без аллокации нового объекта). Раньше уход за
-// край делал part.list[i] = newPart(...) — по объекту на каждую переработку, то есть
-// заметный мусор для GC при большом числе частиц. Теперь при рождении и при переработке
-// зовём resetPart(p) и переиспользуем ту же ячейку. anyY=true — стартовая раскладка по
-// всему экрану (первый кадр), иначе рождение у края по направлению стиля.
-function resetPart(p, anyY) {
-    var W = window.innerWidth, H = window.innerHeight, fall = partFalls();
-    // ac — «частица акцентного цвета?». Сам цвет НЕ вшиваем в частицу: он берётся при
-    // отрисовке (см. loopParticles), поэтому смена акцента перекрашивает уже летящие
-    // частицы вживую. y-старт: падающие рождаются над верхом, всплывающие — под низом.
-    p.x = Math.random() * W;
-    p.y = anyY ? Math.random() * H : (fall ? -8 : H + 8);
-    var big = fall ? 1.4 : 1;                  // падающие крупнее и заметнее
-    p.r = (0.6 + Math.random() * 1.8) * big;
-    p.sp = 0.12 + Math.random() * 0.45;
-    p.dr = (Math.random() - 0.5) * 0.3;
-    p.a = 0.15 + Math.random() * 0.45;
-    p.ac = Math.random() < 0.5;
-    p.rot = Math.random() * 6.283;             // фаза поворота (звёзды/сакура/конфетти) и пульса (светлячки)
-    p.rs = (Math.random() - 0.5) * 0.05;       // скорость поворота
-    p.ci = (Math.random() * 3) | 0;            // индекс цвета в палитре (конфетти: 0..2)
-    return p;
-}
-function newPart(anyY) { return resetPart({}, anyY); }
-function initParticles() {
-    var n = effPartCount(); part.list = [];
-    for (var i = 0; i < n; i++) part.list.push(newPart(true));
-}
-// системная настройка «уменьшить движение» — гасим частицы (и CSS-анимации, см. css.js)
-function reduceMotion() {
-    try { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) { return false; }
-}
-// Круглые/точечные стили (dots, snow, firefly, bubbles) — рисуем в АБСОЛЮТНЫХ координатах
-// (cx, cy), без ctx.save/translate/rotate: поворот у круга не виден, а save/restore на каждую
-// частицу каждый кадр — заметный оверхед при большом числе частиц. col — "r,g,b".
-function drawRound(ctx, style, cx, cy, r, col, a) {
-    ctx.fillStyle = "rgba(" + col + "," + a + ")";
-    if (style === "bubbles") {
-        // Пузырь: контур + лёгкий блик.
-        ctx.strokeStyle = "rgba(" + col + "," + a + ")";
-        ctx.lineWidth = Math.max(0.6, r * 0.35);
-        ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.283); ctx.stroke();
-        ctx.beginPath(); ctx.arc(cx - r * 0.3, cy - r * 0.3, r * 0.22, 0, 6.283); ctx.fill();
-    } else {
-        // dots / snow / firefly: сплошной кружок (яркость/цвет заданы выше).
-        ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.283); ctx.fill();
-    }
-}
-// Фигурные стили (stars, sakura, confetti) — центрируются на (0,0) ПОСЛЕ translate/rotate
-// в loopParticles, поэтому здесь координаты локальные (радиус r).
-function drawShaped(ctx, style, r, col, a) {
-    ctx.fillStyle = "rgba(" + col + "," + a + ")";
-    if (style === "stars") {
-        // Искра-звёздочка: четырёхлучевая, лучи вытянуты по осям (тонкие ромбы).
-        var L = r * 2.4, w = r * 0.5;
-        ctx.beginPath();
-        ctx.moveTo(0, -L); ctx.lineTo(w, 0); ctx.lineTo(0, L); ctx.lineTo(-w, 0); ctx.closePath();
-        ctx.moveTo(-L, 0); ctx.lineTo(0, w); ctx.lineTo(L, 0); ctx.lineTo(0, -w); ctx.closePath();
-        ctx.fill();
-    } else if (style === "sakura") {
-        // Лепесток: вытянутый эллипс — простой мазок-лепесток.
-        ctx.beginPath();
-        if (ctx.ellipse) ctx.ellipse(0, 0, r * 0.8, r * 1.6, 0, 0, 6.283);
-        else ctx.arc(0, 0, r, 0, 6.283);
-        ctx.fill();
-    } else if (style === "confetti") {
-        // Конфетти: маленький прямоугольник (вращается через p.rot -> живой «переворот»).
-        var cw = r * 1.9, ch = r * 0.85;
-        ctx.fillRect(-cw / 2, -ch / 2, cw, ch);
-    }
-}
-// Струя дождя: линия вдоль локальной оси Y (после поворота по вектору скорости в loopParticles).
-function drawStreak(ctx, r, col, a) {
-    ctx.strokeStyle = "rgba(" + col + "," + a + ")";
-    ctx.lineWidth = Math.max(0.8, r * 0.7);
-    if ("lineCap" in ctx) ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, r * 6); ctx.stroke();
-}
-function loopParticles() {
-    if (!part.canvas || !part.ctx) { part.raf = 0; return; }
-    if (document.hidden) { part.raf = 0; return; } // окно скрыто/свёрнуто — стоп до возврата (экономия CPU/батареи)
-    var ctx = part.ctx, W = part.canvas.width, H = part.canvas.height, i, p;
-    var acc = accentRGB(); // считаем акцент один раз за кадр, а не на каждую частицу
-    var style = partStyleNow(), fall = partFalls();
-    // Конфетти многоцветное: палитра из трио (акцент + два спутника, повороты оттенка) —
-    // считаем «r,g,b»-строки один раз за кадр, частица берёт свой цвет по p.ci.
-    var confPal = null;
-    if (style === "confetti") {
-        var acHex = safeColor(getAccent(), DEFAULTS.accent);
-        confPal = [acc, hexToRgbArr(rotateHue(acHex, 0.33)).join(","), hexToRgbArr(rotateHue(acHex, -0.33)).join(",")];
-    }
-    var round = (style === "dots" || style === "snow" || style === "firefly" || style === "bubbles");
-    ctx.clearRect(0, 0, W, H);
-    for (i = 0; i < part.list.length; i++) {
-        p = part.list[i];
-        if (fall) { p.y += p.sp; p.x += p.dr; if (p.y > H + 12) { resetPart(p, false); continue; } }
-        else { p.y -= p.sp; p.x += p.dr; if (p.y < -12) { resetPart(p, false); continue; } }
-        p.rot += p.rs;
-        // Цвет и яркость по стилю. Светлячки пульсируют прозрачностью через фазу p.rot.
-        var col, a = p.a;
-        if (style === "snow") col = "235,235,255";
-        else if (style === "sakura") col = acc;
-        else if (style === "confetti") col = confPal[p.ci % 3];
-        else if (style === "firefly") { col = acc; a = p.a * (0.35 + 0.65 * Math.abs(Math.sin(p.rot * 6))); }
-        else col = p.ac ? acc : "255,255,255";
-        if (round) {
-            drawRound(ctx, style, p.x, p.y, p.r, col, a);
-        } else if (style === "rain") {
-            // Поворот струи по вектору скорости (dr, sp): локальная +Y на угол движения.
-            ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(p.sp, p.dr) - Math.PI / 2);
-            drawStreak(ctx, p.r, col, a); ctx.restore();
-        } else {
-            ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-            drawShaped(ctx, style, p.r, col, a); ctx.restore();
+function ensureStats() {
+    var right = statusRight(); if (!right) return;
+    var e0 = document.getElementById("mlbg-stats");
+    if (cfg.enabled && cfg.fx.stats) {
+        if (!e0) {
+            e0 = document.createElement("div"); e0.id = "mlbg-stats"; e0.className = "statusbar-item right";
+            e0.title = t("Статистика сессии");
+            var a = document.createElement("a"); a.className = "statusbar-item-label"; a.style.padding = "0 6px"; e0.appendChild(a);
+            right.insertBefore(e0, right.firstChild);
         }
-    }
-    part.raf = requestAnimationFrame(loopParticles);
+        paintStats();
+    } else if (e0) { e0.remove(); }
 }
-function ensureParticles() {
-    // Частиц нет, если эффект выключен, включён режим «уменьшить движение» ИЛИ
-    // счётчик = 0. В последнем случае раньше висел пустой canvas с работающим rAF
-    // (loopParticles каждый кадр чистил пустой холст) — теперь холст убирается.
-    if (cfg.enabled && cfg.fx.particles && !reduceMotion() && partCount() > 0) {
-        if (!part.canvas || !document.body.contains(part.canvas)) {
-            var cv = document.createElement("canvas"); cv.id = "mlbg-particles";
-            cv.style.cssText = "position:fixed; inset:0; pointer-events:none; z-index:5; opacity:0.5;";
-            document.body.appendChild(cv);
-            part.canvas = cv; part.ctx = cv.getContext("2d");
-            resizeParticles(); initParticles();
-        }
-        // Пересоздаём набор при смене числа ИЛИ стиля частиц (у падающих стилей другое
-        // направление и стартовые координаты — иначе снег «полетел бы» снизу вверх).
-        // Число берём эффективное (effPartCount) — под эконом-режимом оно ниже, поэтому
-        // включение/выключение mlbg-perfsave само пересоздаёт частиц в нужном количестве.
-        var st = partStyleNow();
-        if (part.list.length !== effPartCount() || part.style !== st) { part.style = st; initParticles(); }
-        if (!part.raf && !document.hidden) loopParticles(); // (пере)запуск, если стоим и окно видно
-    } else {
-        if (part.raf) { cancelAnimationFrame(part.raf); part.raf = 0; }
-        if (part.canvas) { part.canvas.remove(); part.canvas = null; part.ctx = null; }
-    }
-}
-
-// ===== Авто-бюджет производительности (улучшение 8) =====
-// custom-css-плагин не знает мощности машины: на слабом железе живой фон + частицы + Aurora
-// могут просаживать FPS редактора. Здесь — лёгкий rAF-семплер: пока включены тяжёлые эффекты
-// и окно видно, раз в секунду считаем реальный FPS. Устойчиво низкий FPS -> «эконом-режим»
-// (класс body.mlbg-perfsave гасит дорогие CSS-анимации, а число частиц падает через
-// effPartCount). Когда FPS восстанавливается — режим снимается. Всё под cfg.perfGuard.
-var perf = { raf: 0, t0: 0, frames: 0, low: 0, high: 0, save: false, fps: 60 };
-var PERF_CAP = 18;        // потолок числа частиц в эконом-режиме
-var PERF_LOW = 42, PERF_OK = 52; // пороги «плохо»/«снова хорошо» по FPS (гистерезис против дёрганья)
-// Эффективное число частиц: обычное, а в эконом-режиме — не больше PERF_CAP.
-function effPartCount() { var n = partCount(); return perf.save ? Math.min(n, PERF_CAP) : n; }
-// Включены ли эффекты, которые вообще есть смысл «бюджетировать» (стоят кадров непрерывно).
-function heavyFxOn() {
-    return !!(cfg.enabled && (cfg.fx.aurora || cfg.fx.particles || cfg.fx.spotlight || cfg.fx.kenburns || cfg.fx.typingPulse || cfg.fx.flow));
-}
-// Стоит ли сейчас мерить FPS: гвард включён, есть что бюджетировать, окно видно, и система не
-// в «уменьшить движение» (там тяжёлые анимации и так выключены — мерить нечего).
-function perfShouldRun() { return !!(cfg.perfGuard !== false && heavyFxOn() && !document.hidden && !reduceMotion()); }
-function setPerfSave(on) {
-    if (perf.save === on) return;
-    perf.save = on;
-    try { if (document.body && document.body.classList) document.body.classList[on ? "add" : "remove"]("mlbg-perfsave"); } catch (e) {}
-    try { ensureParticles(); } catch (e) {} // пересоздать частиц под новый лимит (effPartCount)
-    if (on) { try { toast(t("Экономия ресурсов активна: часть эффектов приглушена")); } catch (e) {} }
-}
-function perfLoop(ts) {
-    if (!perfShouldRun()) { perf.raf = 0; return; } // условия отпали — тихо останавливаемся
-    if (!perf.t0) { perf.t0 = ts; perf.frames = 0; perf.raf = requestAnimationFrame(perfLoop); return; }
-    perf.frames++;
-    var dt = ts - perf.t0;
-    if (dt >= 1000) {
-        perf.fps = perf.frames * 1000 / dt;
-        perf.t0 = ts; perf.frames = 0;
-        if (perf.fps < PERF_LOW) { perf.low++; perf.high = 0; if (perf.low >= 3) setPerfSave(true); }        // 3 плохих секунды подряд -> экономим
-        else if (perf.fps >= PERF_OK) { perf.high++; perf.low = 0; if (perf.high >= 5) setPerfSave(false); } // 5 хороших секунд -> отпускаем
-    }
-    perf.raf = requestAnimationFrame(perfLoop);
-}
-function perfStart() { if (!perf.raf && perfShouldRun()) { perf.t0 = 0; perf.low = 0; perf.high = 0; perf.raf = requestAnimationFrame(perfLoop); } }
-// Держим состояние в согласии с настройками: если мерить надо — запускаем семплер; если
-// эконом-режим стоит, но бюджетировать уже нечего (гвард выкл или тяжёлые эффекты сняты) —
-// снимаем эконом-класс, чтобы приглушение не «залипло». Зовётся из syncWidgets (apply).
-function perfSync() {
-    if (perfShouldRun()) perfStart();
-    else if (perf.save) setPerfSave(false);
-}
-
-// ===== Слайдшоу: авто-смена набора по таймеру =====
-var slide = { last: Date.now() };
-function slideReset() { slide.last = Date.now(); preloadNext(); } // отсчёт с нуля при вкл/смене интервала
-// Предзагрузка картинок СЛЕДУЮЩЕГО по кругу набора: браузер держит их в кэше, поэтому
-// при смене fade-in показывает готовую картинку без «моргания». Кэш урлов — чтобы не
-// плодить Image() каждый раз. В режиме «случайно» следующий индекс неизвестен заранее,
-// поэтому предгружаем все наборы по одному разу (их немного).
-var _preloaded = {};
-function preloadOne(url) {
-    if (!url || _preloaded[url]) return; _preloaded[url] = true;
-    try { var im = new Image(); im.src = url; } catch (e) {}
-}
-function preloadNext() {
-    if (!cfg.slideshow || !cfg.slideshow.on || SETS.length < 2) return;
-    // индексы наборов для предзагрузки (учитывают cfg.setImg через zoneUrl)
-    var idxs = cfg.mode === "random"
-        ? SETS.map(function (_s, i) { return i; })
-        : [(activeIndex() + 1) % SETS.length];
-    idxs.forEach(function (i) { preloadOne(zoneUrl(i, "editor")); preloadOne(zoneUrl(i, "sidebar")); preloadOne(zoneUrl(i, "panel")); });
-}
-// ===== Авто-набор по времени суток =====
-// Днём (8:00–20:00) — cfg.autoTime.day, ночью — cfg.autoTime.night. Переиспользует
-// applyFade (как слайдшоу). Не трогает режим «случайно». Проверяется каждую секунду,
-// но переключает только при реальной смене нужного набора (idempotent).
-function isDaytime() {
-    var h = new Date().getHours(), at = cfg.autoTime || {};
-    var f = (typeof at.from === "number") ? at.from : 8;
-    var t = (typeof at.to === "number") ? at.to : 20;
-    if (f === t) return true;                       // границы совпали — считаем всегда день
-    return t > f ? (h >= f && h < t) : (h >= f || h < t); // t < f — интервал «через полночь»
-}
-function timeTick() {
-    if (!cfg.autoTime || !cfg.autoTime.on || SETS.length < 1) return;
-    if (cfg.mode === "random") return; // ручной «случайно» не перебиваем
-    var want = isDaytime() ? cfg.autoTime.day : cfg.autoTime.night;
-    if (typeof want !== "number" || want < 0 || want >= SETS.length) return;
-    var ws = String(want);
-    if (cfg.mode === ws) return; // уже нужный набор
-    // Авто-смена по времени — не шаг истории Undo (сдвигаем базу через _histSuppress).
-    cfg.mode = ws; _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
-    if (document.getElementById(PANEL_ID)) refreshPanel();
-}
-
-function slideTick() {
-    // Авто-набор по времени имеет приоритет над слайдшоу: чтобы они не «дрались»
-    // за cfg.mode, при включённом autoTime слайдшоу простаивает.
-    if (cfg.autoTime && cfg.autoTime.on) { slide.last = Date.now(); return; }
-    if (!cfg.slideshow || !cfg.slideshow.on || SETS.length < 2) { slide.last = Date.now(); return; }
-    var period = Math.max(1, cfg.slideshow.min) * 60000;
-    if (Date.now() - slide.last < period) return;
-    slide.last = Date.now();
-    // Не терять режим «случайно»: в нём двигаем сессионный индекс (pickRandom избегает
-    // повтора), а не превращаем mode в фиксированный. Иначе слайдшоу молча гасило random.
-    if (cfg.mode === "random") sessionRandomIndex = pickRandom();
-    else cfg.mode = String((activeIndex() + 1) % SETS.length); // следующий набор по кругу
-    // Тик слайдшоу — не шаг истории Undo (сдвигаем базу через _histSuppress).
-    _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
-    preloadNext();                                          // подготовить следующий заранее
-    if (document.getElementById(PANEL_ID)) refreshPanel(); // подсветить активный чип в открытой панели
+function paintStats() {
+    var e0 = document.getElementById("mlbg-stats"); if (!e0) return; var a = e0.querySelector("a"); if (!a) return;
+    var en = uiLang() === "en";
+    a.textContent = fmtDur(Date.now() - statsState.start) + " · " + statsState.fileCount + (en ? "f" : "ф") + " · " + statsState.keys + (en ? "k" : "к");
 }
 
 function syncWidgets() {
     try { ensureClock(); } catch (e) {}
     try { ensurePomodoro(); } catch (e) {}
     try { ensureParticles(); } catch (e) {}
+    try { ensureCursorTrail(); } catch (e) {} // шлейф курсора (создать/убрать canvas под настройку)
+    try { ensurePet(); } catch (e) {}         // питомец-компаньон (создать/убрать canvas под настройку)
+    try { screensaverSync(); } catch (e) {}   // убрать витрину сразу, если её выключили в панели
+    try { ensureStats(); } catch (e) {}       // виджет статистики сессии в статусбаре
     try { syncFocusClass(); } catch (e) {} // отразить вкл/выкл эффекта фокуса без ожидания тика
     try { perfSync(); } catch (e) {}       // запустить/остановить авто-бюджет FPS под текущие настройки
 }

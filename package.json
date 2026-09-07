@@ -1,7 +1,8 @@
 {
   "name": "moonlight-custom-bg",
-  "version": "19.0.0",
-  "description": "Кастомный фон и панель оформления для VS Code: картинки по зонам, наборы с палитрой, слайдшоу и живые эффекты. Грузится через be5invis.vscode-custom-css.",
+  "version": "20.0.0",
+  "description": "Кастомный фон и панель оформления для VS Code: картинки по зонам, наборы с палитрой, слайдшоу, живые эффекты, шейдерные фоны и движок читаемости. Грузится через be5invis.vscode-custom-css или subframe7536.custom-ui-style.",
+  "author": "moonlivedt (MoonLightDeath) <moonlivedt@gmail.com>",
   "license": "MIT",
   "private": true,
   "type": "commonjs",
@@ -18,9 +19,11 @@
     "test": "node test/smoke.js",
     "test:e2e": "node build.js && playwright test",
     "screenshots": "node build.js && node scripts/screenshots.js",
-    "check": "node build.js && node test/smoke.js",
+    "check": "node build.js && node test/smoke.js && node scripts/lint-dead.js",
     "setup": "node install.js",
-    "hooks": "git config core.hooksPath hooks"
+    "hooks": "git config core.hooksPath hooks",
+    "import-master": "node scripts/import-master.js",
+    "lint:dead": "node scripts/lint-dead.js"
   },
   "engines": {
     "node": ">=14"

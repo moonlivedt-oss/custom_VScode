@@ -16,6 +16,41 @@ const path = require("path");
 
 const IMPORTS_KEY = "vscode_custom_css.imports";
 const BE5_ID = "be5invis.vscode-custom-css";     // расширение, которое реально инжектит наш CSS/JS
+// ===== Второй загрузчик (улучшение 1, v20) =====
+// subframe7536.custom-ui-style делает то же внедрение, но надёжнее: бэкапит оригиналы
+// редактора и восстанавливает их перед каждым патчем (поэтому переживает обновления VS Code),
+// гасит предупреждение «installation appears corrupt» и умеет опции Electron BrowserWindow —
+// то есть настоящую прозрачность окна, недостижимую средствами CSS. Формат импорта у него
+// другой: массив объектов { type, url } вместо массива строк.
+const CUS_ID = "subframe7536.custom-ui-style";
+const CUS_IMPORTS_KEY = "custom-ui-style.external.imports";
+const CUS_ELECTRON_KEY = "custom-ui-style.electron";
+// Какой загрузчик использовать: тот, что установлен; если оба — предпочитаем custom-ui-style
+// (он живучее); если ни одного — считаем, что будет be5invis (исторический путь установки).
+function activeLoader() {
+    const cus = vscode.extensions.getExtension(CUS_ID);
+    const be5 = vscode.extensions.getExtension(BE5_ID);
+    if (cus) return "custom-ui-style";
+    if (be5) return "custom-css";
+    return "custom-css";
+}
+function loaderTitle(id) { return id === "custom-ui-style" ? "Custom UI Style" : "Custom CSS and JS (be5invis)"; }
+// Прозрачно ли создано окно: смотрим опции Electron в настройках. Именно это значение едет
+// в рантайм (window.__MLBG_ENV__.transparent) и решает, включать ли настоящее стекло —
+// иначе плагин мог бы сделать окно прозрачным «в никуда» и получить чёрный редактор.
+function electronTransparent() {
+    const e = vscode.workspace.getConfiguration().get(CUS_ELECTRON_KEY);
+    if (!e || typeof e !== "object") return false;
+    return e.transparent === true || typeof e.backgroundMaterial === "string" || typeof e.vibrancy === "string";
+}
+// Импорт в формате конкретного загрузчика.
+function importEntry(loader, url) { return loader === "custom-ui-style" ? { type: "js", url } : url; }
+function entryUrl(e) {
+    if (typeof e === "string") return e;
+    if (e && typeof e === "object" && typeof e.url === "string") return e.url;
+    return "";
+}
+function importsKey(loader) { return loader === "custom-ui-style" ? CUS_IMPORTS_KEY : IMPORTS_KEY; }
 const LAST_VER_KEY = "moonlightBg.lastVsCodeVersion"; // для детекта апдейта VS Code (инжект слетает)
 const SEED_SETTING = "moonlightBg.config";       // объект-конфиг в settings.json (едет с Settings Sync)
 
@@ -40,22 +75,35 @@ async function syncSeed(context) {
     const sUrlLc = seedUrl(context).toLowerCase();
     const scriptUrlLc = fileUrl(resolveScript(context)).toLowerCase();
     const conf = vscode.workspace.getConfiguration();
-    let arr = conf.get(IMPORTS_KEY);
+    const loader = activeLoader();
+    const key = importsKey(loader);
+    let arr = conf.get(key);
     arr = Array.isArray(arr) ? arr.slice() : [];
-    arr = arr.filter((u) => typeof u === "string" && u.toLowerCase() !== sUrlLc); // выкинуть прежнюю seed-запись
+    arr = arr.filter((u) => entryUrl(u).toLowerCase() !== sUrlLc); // выкинуть прежнюю seed-запись
     const hasConfig = cfgObj && typeof cfgObj === "object" && Object.keys(cfgObj).length > 0;
-    if (hasConfig) {
-        try {
-            fs.mkdirSync(path.dirname(seedPath), { recursive: true });
-            fs.writeFileSync(seedPath, "window.__MLBG_SEED__ = " + JSON.stringify(cfgObj) + ";\n", "utf8");
-        } catch (e) { return; } // не смогли записать — тихо выходим (seed необязателен)
-        const idx = arr.findIndex((u) => typeof u === "string" && u.toLowerCase() === scriptUrlLc);
-        if (idx >= 0) arr.splice(idx, 0, seedUrl(context)); // seed ПЕРЕД основным скриптом
-        else arr.push(seedUrl(context));
-    } else {
-        try { if (fs.existsSync(seedPath)) fs.unlinkSync(seedPath); } catch (e) {}
-    }
-    await conf.update(IMPORTS_KEY, arr, vscode.ConfigurationTarget.Global);
+    // Файл-«пролог» пишем ВСЕГДА (а не только при заданном образе конфига): кроме конфига он
+    // сообщает рантайму среду — каким расширением внедрён скрипт и прозрачно ли окно. Сам
+    // скрипт этого знать не может (у него нет доступа к settings.json и к API расширений),
+    // а от этого зависят и диагностика, и «настоящая прозрачность».
+    const env = {
+        loader,
+        version: (vscode.extensions.getExtension(loader === "custom-ui-style" ? CUS_ID : BE5_ID) || {}).packageJSON &&
+                 (vscode.extensions.getExtension(loader === "custom-ui-style" ? CUS_ID : BE5_ID)).packageJSON.version || "",
+        vscode: vscode.version,
+        transparent: electronTransparent(),
+        script: resolveScript(context)
+    };
+    let body = "window.__MLBG_ENV__ = " + JSON.stringify(env) + ";\n";
+    if (hasConfig) body += "window.__MLBG_SEED__ = " + JSON.stringify(cfgObj) + ";\n";
+    try {
+        fs.mkdirSync(path.dirname(seedPath), { recursive: true });
+        fs.writeFileSync(seedPath, body, "utf8");
+    } catch (e) { return; } // не смогли записать — пролог необязателен, тихо выходим
+    const idx = arr.findIndex((u) => entryUrl(u).toLowerCase() === scriptUrlLc);
+    const entry = importEntry(loader, seedUrl(context));
+    if (idx >= 0) arr.splice(idx, 0, entry); // пролог ПЕРЕД основным скриптом
+    else arr.push(entry);
+    await conf.update(key, arr, vscode.ConfigurationTarget.Global);
 }
 
 // file:///-URL к custom-bg.js: прямые слэши, на Windows — третий слэш перед буквой диска.
@@ -81,18 +129,32 @@ async function ensureImport(context) {
         return;
     }
     const url = fileUrl(script);
+    const loader = activeLoader();
+    const key = importsKey(loader);
     const cfg = vscode.workspace.getConfiguration();
-    const cur = cfg.get(IMPORTS_KEY);
+    const cur = cfg.get(key);
     const arr = Array.isArray(cur) ? cur.slice() : [];
-    const exists = arr.some((u) => typeof u === "string" && u.toLowerCase() === url.toLowerCase());
+    const exists = arr.some((u) => entryUrl(u).toLowerCase() === url.toLowerCase());
     if (!exists) {
-        arr.push(url);
-        await cfg.update(IMPORTS_KEY, arr, vscode.ConfigurationTarget.Global);
+        arr.push(importEntry(loader, url));
+        await cfg.update(key, arr, vscode.ConfigurationTarget.Global);
     }
-    // Синхронизировать seed из settings.json (улучшение 5): пишет window.__MLBG_SEED__ и ставит
-    // его импорт перед custom-bg.js, если задан moonlightBg.config; иначе — чистит.
+    // Пролог со средой и образом конфига (улучшения 1 и 5) — ставится перед основным скриптом.
     try { await syncSeed(context); } catch (e) {}
-    // Подсказка включить Custom CSS (команда самого be5invis.vscode-custom-css).
+    // Дальше нужно включить сам загрузчик. У расширений разные команды, поэтому подсказка
+    // и действие зависят от того, что установлено.
+    if (loader === "custom-ui-style") {
+        const pick = await vscode.window.showInformationMessage(
+            (exists ? "MoonLight BG уже прописан для Custom UI Style." : "MoonLight BG прописан для Custom UI Style.") +
+            " Применить и перезапустить редактор?",
+            "Применить", "Позже"
+        );
+        if (pick === "Применить") {
+            try { await vscode.commands.executeCommand("custom-ui-style.reload"); }
+            catch (e) { vscode.window.showWarningMessage("Открой палитру команд и запусти «Custom UI Style: Reload» вручную."); }
+        }
+        return;
+    }
     const pick = await vscode.window.showInformationMessage(
         exists ? "MoonLight BG уже прописан. Включить Custom CSS и перезапустить?"
                : "MoonLight BG прописан в настройки. Включить Custom CSS и перезапустить?",
@@ -104,17 +166,66 @@ async function ensureImport(context) {
     }
 }
 
+// ===== Настоящая прозрачность окна (улучшение 2) =====
+// CSS-«акрил» размывает нашу же картинку внутри окна. Настоящее стекло — это опции Electron
+// у окна редактора; их умеет передавать только custom-ui-style. Плагин сам в settings.json
+// писать не может, поэтому включение живёт здесь: одна команда, с подтверждением и с
+// понятным откатом (окно с прозрачностью — заметное изменение, его нужно уметь отменить).
+async function toggleTrueGlass(context, on) {
+    if (!vscode.extensions.getExtension(CUS_ID)) {
+        const pick = await vscode.window.showWarningMessage(
+            "Настоящая прозрачность работает только с расширением Custom UI Style — оно передаёт опции окна Electron.",
+            "Открыть в маркетплейсе", "Отмена");
+        if (pick === "Открыть в маркетплейсе") {
+            try { await vscode.commands.executeCommand("workbench.extensions.search", CUS_ID); } catch (e) {}
+        }
+        return;
+    }
+    const conf = vscode.workspace.getConfiguration();
+    if (!on) {
+        await conf.update(CUS_ELECTRON_KEY, undefined, vscode.ConfigurationTarget.Global);
+        vscode.window.showInformationMessage("MoonLight BG: прозрачность окна выключена. Перезапусти редактор, чтобы вернуть обычное окно.");
+        try { await syncSeed(context); } catch (e) {}
+        return;
+    }
+    const pick = await vscode.window.showWarningMessage(
+        "Включить настоящую прозрачность окна? Окно будет пересоздано прозрачным (Mica на Windows 11, vibrancy на macOS). " +
+        "Если результат не понравится, выключи это командой «MoonLight BG: выключить настоящую прозрачность».",
+        "Включить", "Отмена");
+    if (pick !== "Включить") return;
+    const prev = conf.get(CUS_ELECTRON_KEY) || {};
+    await conf.update(CUS_ELECTRON_KEY, Object.assign({}, prev, {
+        transparent: true, backgroundMaterial: "mica", vibrancy: "under-window"
+    }), vscode.ConfigurationTarget.Global);
+    try { await syncSeed(context); } catch (e) {}
+    const p2 = await vscode.window.showInformationMessage(
+        "Готово. Нужен полный перезапуск редактора, затем включи в панели: Вид → эффект «Настоящая прозрачность».",
+        "Перезапустить", "Позже");
+    if (p2 === "Перезапустить") {
+        try { await vscode.commands.executeCommand("workbench.action.reloadWindow"); } catch (e) {}
+    }
+}
+
 async function removeImport(context) {
     const url = fileUrl(resolveScript(context)).toLowerCase();
     const sUrl = seedUrl(context).toLowerCase();
     const cfg = vscode.workspace.getConfiguration();
-    const cur = cfg.get(IMPORTS_KEY);
-    if (!Array.isArray(cur)) { vscode.window.showInformationMessage("MoonLight BG: импортов нет."); return; }
-    // Убираем и основной импорт, и seed-запись (улучшение 5); сам seed-файл удаляем.
-    const next = cur.filter((u) => !(typeof u === "string" && (u.toLowerCase() === url || u.toLowerCase() === sUrl)));
-    await cfg.update(IMPORTS_KEY, next, vscode.ConfigurationTarget.Global);
+    let touched = false;
+    // Чистим оба ключа: пользователь мог переехать с одного загрузчика на другой, и «убрать
+    // импорт» должно означать «убрать везде», иначе фон вернётся при переключении обратно.
+    for (const key of [IMPORTS_KEY, CUS_IMPORTS_KEY]) {
+        const cur = cfg.get(key);
+        if (!Array.isArray(cur)) continue;
+        const next = cur.filter((u) => {
+            const s2 = entryUrl(u).toLowerCase();
+            return s2 !== url && s2 !== sUrl;
+        });
+        if (next.length !== cur.length) { await cfg.update(key, next, vscode.ConfigurationTarget.Global); touched = true; }
+    }
     try { const sp = seedFilePath(context); if (fs.existsSync(sp)) fs.unlinkSync(sp); } catch (e) {}
-    vscode.window.showInformationMessage("MoonLight BG: импорт убран. Отключи Custom CSS и перезапусти, чтобы вернуть обычный вид.");
+    vscode.window.showInformationMessage(touched
+        ? "MoonLight BG: импорт убран. Отключи загрузчик и перезапусти, чтобы вернуть обычный вид."
+        : "MoonLight BG: импортов не найдено.");
 }
 
 // ============================================================
@@ -128,17 +239,21 @@ async function removeImport(context) {
 // ============================================================
 function collectStatus(context) {
     const be5 = vscode.extensions.getExtension(BE5_ID);
+    const cus = vscode.extensions.getExtension(CUS_ID);
+    const loader = activeLoader();
     const script = resolveScript(context);
     const scriptExists = fs.existsSync(script);
     const url = fileUrl(script);
-    const cur = vscode.workspace.getConfiguration().get(IMPORTS_KEY);
+    const cur = vscode.workspace.getConfiguration().get(importsKey(loader));
     const arr = Array.isArray(cur) ? cur : [];
-    const importPresent = arr.some((u) => typeof u === "string" && u.toLowerCase() === url.toLowerCase());
+    const importPresent = arr.some((u) => entryUrl(u).toLowerCase() === url.toLowerCase());
     const curVer = vscode.version;
     const lastVer = context.globalState.get(LAST_VER_KEY) || "";
     return {
         be5installed: !!be5,
         be5active: !!(be5 && be5.isActive),
+        cusInstalled: !!cus,
+        loader, transparent: electronTransparent(),
         importPresent, scriptExists, script,
         curVer, lastVer, vscodeChanged: !!lastVer && lastVer !== curVer
     };
@@ -147,12 +262,15 @@ function collectStatus(context) {
 function statusReport(s) {
     const L = [];
     const mark = (b) => (b ? "OK" : "—");
+    L.push(`Загрузчик: ${loaderTitle(s.loader)}${s.loader === "custom-ui-style" ? "" : ""}`);
     L.push(`Расширение be5invis.vscode-custom-css: ${s.be5installed ? (s.be5active ? "установлено и активно" : "установлено (не активно)") : "НЕ установлено"}`);
+    L.push(`Расширение subframe7536.custom-ui-style: ${s.cusInstalled ? "установлено" : "НЕ установлено"}`);
+    L.push(`Прозрачность окна (опции Electron): ${s.transparent ? "включена" : "выключена"}`);
     L.push(`Импорт MoonLight BG в настройках: ${s.importPresent ? "прописан" : "НЕ прописан"}`);
     L.push(`Файл custom-bg.js на месте: ${s.scriptExists ? "да" : "НЕТ (собери проект: node build.js)"}`);
     L.push(`Версия VS Code: ${s.curVer}${s.vscodeChanged ? `  (обновилась с ${s.lastVer} — инжект мог слететь)` : ""}`);
     const problems = [];
-    if (!s.be5installed) problems.push("noBe5");
+    if (!s.be5installed && !s.cusInstalled) problems.push("noBe5");
     if (!s.importPresent) problems.push("noImport");
     if (!s.scriptExists) problems.push("noScript");
     if (s.vscodeChanged) problems.push("updated");
@@ -166,7 +284,7 @@ async function healthCheck(context, proactive) {
     if (proactive && rep.ok) return; // всё в порядке и никто не просил — не мешаем
     // Набор кнопок под конкретные проблемы.
     const actions = [];
-    if (s.problems && s.problems.indexOf("noBe5") >= 0) actions.push("Поставить Custom CSS");
+    if (s.problems && s.problems.indexOf("noBe5") >= 0) actions.push("Поставить загрузчик");
     if (!s.importPresent || !s.scriptExists) actions.push("Прописать импорт");
     if (s.be5installed) actions.push("Включить Custom CSS");
     if (s.vscodeChanged) actions.push("Открыть fix-checksums");
@@ -174,8 +292,9 @@ async function healthCheck(context, proactive) {
     const pick = await vscode.window.showInformationMessage(rep.text, { modal: false }, ...actions);
     if (!pick) { context.globalState.update(LAST_VER_KEY, s.curVer); return; }
     try {
-        if (pick === "Поставить Custom CSS") {
-            await vscode.commands.executeCommand("workbench.extensions.search", BE5_ID);
+        if (pick === "Поставить загрузчик") {
+            // Показываем оба варианта разом: пусть человек выберет, а не гадает, какой ставить.
+            await vscode.commands.executeCommand("workbench.extensions.search", "custom css js loader OR custom ui style");
         } else if (pick === "Прописать импорт") {
             await ensureImport(context);
         } else if (pick === "Включить Custom CSS") {
@@ -198,10 +317,12 @@ function activate(context) {
         vscode.commands.registerCommand("moonlightBg.setup", () => ensureImport(context)),
         vscode.commands.registerCommand("moonlightBg.remove", () => removeImport(context)),
         vscode.commands.registerCommand("moonlightBg.health", () => healthCheck(context, false)),
+        vscode.commands.registerCommand("moonlightBg.trueGlassOn", () => toggleTrueGlass(context, true)),
+        vscode.commands.registerCommand("moonlightBg.trueGlassOff", () => toggleTrueGlass(context, false)),
         // Настройка moonlightBg.config менялась (в т.ч. приехала через Settings Sync) —
         // перегенерировать seed-файл и его импорт, чтобы новый образ подхватился после перезапуска.
         vscode.workspace.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration(SEED_SETTING)) { syncSeed(context).catch(() => {}); }
+            if (e.affectsConfiguration(SEED_SETTING) || e.affectsConfiguration(CUS_ELECTRON_KEY)) { syncSeed(context).catch(() => {}); }
         })
     );
     // При каждом старте подтягиваем seed под текущую настройку (могла приехать с Sync между сессиями).

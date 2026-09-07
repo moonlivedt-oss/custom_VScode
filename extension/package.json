@@ -1,8 +1,9 @@
 {
   "name": "moonlight-custom-bg-setup",
   "displayName": "MoonLight custom-bg (авто-настройка)",
-  "description": "Автоматически прописывает MoonLight custom-bg в vscode_custom_css.imports и подсказывает включить Custom CSS. Сам фон рисует be5invis.vscode-custom-css.",
-  "version": "0.2.0",
+  "description": "Прописывает MoonLight custom-bg в настройки загрузчика (be5invis.vscode-custom-css или subframe7536.custom-ui-style), сообщает плагину среду окна и умеет включать настоящую прозрачность (Mica/vibrancy).",
+  "author": "moonlivedt (MoonLightDeath) <moonlivedt@gmail.com>",
+  "version": "0.3.0",
   "publisher": "moonlivedt",
   "icon": "icon.png",
   "license": "MIT",
@@ -35,6 +36,14 @@
       {
         "command": "moonlightBg.health",
         "title": "MoonLight BG: проверить состояние установки"
+      },
+      {
+        "command": "moonlightBg.trueGlassOn",
+        "title": "MoonLight BG: включить настоящую прозрачность окна"
+      },
+      {
+        "command": "moonlightBg.trueGlassOff",
+        "title": "MoonLight BG: выключить настоящую прозрачность окна"
       }
     ],
     "configuration": {

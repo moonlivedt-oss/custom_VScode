@@ -35,6 +35,9 @@
     </div>
   </div>
   <!-- Реальный собранный артефакт (node build.js). Путь относительный: фикстура в test/. -->
+  <!-- Мост для интеграционного теста (v20): плагин откроет window.__mlbgTest только при этом
+       флаге, поэтому в реальном VS Code никакой глобальной поверхности не появляется. -->
+  <script>window.__MLBG_TEST_HOOKS__ = true;</script>
   <script src="../custom-bg.js"></script>
 </body>
 </html>

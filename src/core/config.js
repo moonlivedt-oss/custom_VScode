@@ -1,85 +1,4 @@
-// ===== Ресурсы и наборы =====
-// IMG — базовый URL к папке плагина (картинки). Пытаемся вычислить из адреса самого
-// скрипта (document.currentScript) — тогда перенос папки не ломает пути. Если скрипт
-// внедрён инлайном (src пустой), откатываемся к абсолютному пути ниже.
-// ВАЖНО: у be5invis.vscode-custom-css скрипт часто внедряется инлайном, и тогда
-// document.currentScript пуст. Личный абсолютный путь сюда НЕ хардкодим: он утёк бы в
-// публичный репозиторий (структура ФС автора) и всё равно неверен на чужой машине.
-// Пусто -> при инлайн-внедрении укажи путь ОДИН раз в панели («Папка плагина», cfg.imgBase):
-// он сохранится в localStorage конкретной машины, а не в коде.
-var IMG_FALLBACK = "";
-var IMG = (function () {
-    try {
-        var src = (document.currentScript && document.currentScript.src) || "";
-        var i = src.lastIndexOf("/");
-        if (i >= 0) return src.slice(0, i + 1); // .../vscode-bg/custom-bg.js -> .../vscode-bg/
-    } catch (e) {}
-    return IMG_FALLBACK; // адрес скрипта неизвестен (инлайн-внедрение) — берём заданный путь
-})();
 
-// Эффективная база для ОТНОСИТЕЛЬНЫХ путей картинок. Приоритет — путь, заданный
-// пользователем в панели (cfg.imgBase): позволяет перенести папку плагина, не правя
-// исходник и не пересобирая. Пусто — берём авто-определённый IMG. cfg к моменту вызова
-// (рантайм: buildCSS/чипы) уже есть; typeof-страховка на случай ранних вызовов.
-function imgBase() {
-    var b = (typeof cfg !== "undefined" && cfg && typeof cfg.imgBase === "string") ? cfg.imgBase : "";
-    // Удалённая база (http(s)://…) без явного согласия — игнорируем, возвращаем авто-путь:
-    // иначе чужой конфиг переключил бы загрузку ВСЕХ картинок на свой сервер.
-    return (b && imgAllowed(b)) ? b : IMG;
-}
-
-// Пути к картинкам набора — относительно IMG. Картинки наборов лежат в
-// assets/{editor,panel,sidebar}/; ещё не разложенные по наборам — в assets/ (корень).
-// У каждого набора свой акцентный цвет (accent) под его палитру — при переключении
-// набора интерфейс перекрашивается автоматически (см. getAccent). Пользователь может
-// переопределить акцент конкретного набора — правка хранится в cfg.setAccent[idx].
-// name — короткое имя набора (в тултипе кнопки BG, на чипах и в статусбаре).
-var SETS = [
-    { name: "Алые кроны",           editor: "assets/editor/editor_0.jpg", sidebar: "assets/sidebar/sidebar_0.jpg", panel: "assets/panel/panel_0.jpg", accent: "#f38ba8" }, // 0
-    { name: "Кот и звёзды",         editor: "assets/editor/editor_1.jpg", sidebar: "assets/sidebar/sidebar_1.jpg", panel: "assets/panel/panel_1.jpg", accent: "#cba6f7" }, // 1
-    { name: "Полночные маки",       editor: "assets/editor/editor_2.jpg", sidebar: "assets/sidebar/sidebar_2.jpg", panel: "assets/panel/panel_2.jpg", accent: "#f38ba8" }, // 2
-    { name: "Свиток тумана",        editor: "assets/editor/editor_3.jpg", sidebar: "assets/sidebar/sidebar_3.jpg", panel: "assets/panel/panel_3.jpg", accent: "#94e2d5" }, // 3
-    { name: "Хрустальное озеро",    editor: "assets/editor/editor_4.jpg", sidebar: "assets/sidebar/sidebar_4.jpg", panel: "assets/panel/panel_4.jpg", accent: "#89b4fa" }, // 4
-    { name: "Звёздный причал",      editor: "assets/editor/editor_5.jpg", sidebar: "assets/sidebar/sidebar_5.jpg", panel: "assets/panel/panel_5.jpg", accent: "#cba6f7" }, // 5
-    { name: "Багряный портал",      editor: "assets/editor/editor_6.jpg", sidebar: "assets/sidebar/sidebar_6.jpg", panel: "assets/panel/panel_6.jpg", accent: "#f5c2e7" }, // 6
-    { name: "Ведьмин чертог",       editor: "assets/editor/editor_7.jpg", sidebar: "assets/sidebar/sidebar_7.jpg", panel: "assets/panel/panel_7.jpg", accent: "#f38ba8" }, // 7
-    { name: "Лунная цитадель",      editor: "assets/editor/editor_8.jpg", sidebar: "assets/sidebar/sidebar_8.jpg", panel: "assets/panel/panel_8.jpg", accent: "#89b4fa" }, // 8
-    { name: "Тень мастера",         editor: "assets/editor/editor_9.jpg", sidebar: "assets/sidebar/sidebar_9.jpg", panel: "assets/panel/panel_9.jpg", accent: "#94e2d5" }, // 9
-    { name: "Меч в маках",          editor: "assets/editor/editor_10.jpg",sidebar: "assets/sidebar/sidebar_10.jpg",panel: "assets/panel/panel_10.jpg",accent: "#eba0ac" }, // 10
-    { name: "Ночь падающей звезды", editor: "assets/editor/editor_11.jpg",sidebar: "assets/sidebar/sidebar_11.jpg",panel: "assets/panel/panel_11.jpg",accent: "#74c7ec" }, // 11
-    // ===== Генеративные наборы (grad) — рисуются градиентом из палитры, БЕЗ картинок =====
-    // У такого набора нет editor/sidebar/panel: вместо url() зоны заливаются CSS-градиентом
-    // (см. gradFor в css.js). Ноль ассетов, мгновенная загрузка, работают на любой машине
-    // без правки путей. Пользователь всё равно может подложить свою картинку в зону
-    // (cfg.setImg[idx][zone]) — тогда она перекроет градиент. accent — акцент интерфейса.
-    { name: "Аврора", grad: ["#1e1e2e", "#89b4fa", "#94e2d5"], accent: "#89b4fa" }, // 12
-    { name: "Закат",  grad: ["#1e1e2e", "#f38ba8", "#fab387"], accent: "#f38ba8" }, // 13
-    { name: "Неон",   grad: ["#11111b", "#cba6f7", "#f5c2e7"], accent: "#cba6f7" }, // 14
-    { name: "Мох",    grad: ["#181825", "#a6e3a1", "#94e2d5"], accent: "#a6e3a1" }, // 15
-    { name: "Сакура", grad: ["#1e1e2e", "#f5c2e7", "#eba0ac"], accent: "#f5c2e7" }, // 16
-    { name: "Янтарь", grad: ["#1e1e2e", "#fab387", "#f9e2af"], accent: "#fab387" }, // 17
-    // ===== Процедурные наборы (proc) — текстура рисуется на canvas в data-URL, БЕЗ картинок =====
-    // Как grad, но не плоский градиент, а сгенерированная текстура (см. procTexture в css.js):
-    // stars — звёздное поле, waves — волны-дюны, noise — плёночный грейн с искрами,
-    // grid — техно-сетка с узлами, topo — топографические контуры, matrix — «дождь матрицы»,
-    // cells — органическая сетка клеток (вороной-подобная). base — цвет подложки, accent —
-    // акцент интерфейса и цвет деталей текстуры. Ноль ассетов.
-    { name: "Звёздное поле", proc: "stars", base: "#0b0b16", accent: "#89b4fa" }, // 18
-    { name: "Дюны",          proc: "waves", base: "#1e1e2e", accent: "#fab387" }, // 19
-    { name: "Грейн",         proc: "noise", base: "#11111b", accent: "#a6e3a1" }, // 20
-    { name: "Сетка",         proc: "grid",   base: "#0d1117", accent: "#89b4fa" }, // 21
-    { name: "Топография",    proc: "topo",   base: "#10151f", accent: "#94e2d5" }, // 22
-    { name: "Матрица",       proc: "matrix", base: "#0a0f0a", accent: "#a6e3a1" }, // 23
-    { name: "Клетки",        proc: "cells",  base: "#141018", accent: "#cba6f7" }  // 24
-];
-// Короткое имя набора по индексу (для статусбара/тултипов). Приоритет — имя,
-// заданное пользователем в панели (cfg.setName[idx]), затем «родное» имя из SETS,
-// иначе пустая строка. cfg к моменту вызова уже есть (функция зовётся из рантайма UI).
-function setName(idx) {
-    var o = (typeof cfg !== "undefined" && cfg.setName) ? cfg.setName[idx] : null;
-    if (typeof o === "string" && o) return o;
-    var s = SETS[idx]; return (s && s.name) ? s.name : "";
-}
 
 // ===== Дефолты =====
 // CFG_VERSION — версия схемы конфига. Растёт, когда меняется структура DEFAULTS так,
@@ -88,7 +7,7 @@ var CFG_VERSION = 1;
 // APP_VERSION — отображаемая версия релиза (единый номер v14, v15, …), она же в package.json.
 // Держим здесь одной строкой, чтобы баннер в консоли (boot.js) и диагностика (io.js) брали
 // её из одного места, а не хардкодили порознь. При релизе меняется тут + в package.json.
-var APP_VERSION = "v19";
+var APP_VERSION = "v20";
 var DEFAULTS = {
     version: CFG_VERSION,
     enabled: true,                                      // мастер-выключатель: false — фон и эффекты выключены, настройки сохранены
@@ -99,14 +18,19 @@ var DEFAULTS = {
     mode: "0",
     baseOp: { editor: 0.06, side: 0.30, panel: 0.11 },
     setOp: {},
-    accent: "#cba6f7",                                  // глобальный акцент (запасной, если у набора нет своего)
+    accent: DEFAULT_ACCENT,                             // глобальный акцент (запасной, если у набора нет своего)
     autoWorkspace: false,                               // фон по проекту: набор выбирается по имени открытой папки
     workspaceSets: {},                                  // закреплённые наборы по проектам: { "имя папки": "индекс" }
+    autoBranch: false,                                  // фон по git-ветке: набор выбирается по имени текущей ветки
+    branchSets: {},                                     // закреплённые наборы по веткам: { "имя ветки": "индекс" }
+    autoLang: false,                                    // фон по языку/расширению активного файла
+    langSets: {},                                       // закреплённые наборы по расширениям: { "js": "индекс", "py": "индекс" }
     ambientBranch: false,                               // тонкая полоска-индикатор ветки git (main -> красная, фича -> зелёная)
     setAccent: {},                                      // переопределение акцента конкретного набора: { idx: "#rrggbb" }
     setName: {},                                        // пользовательское имя набора: { idx: "строка" }
     setImg: {},                                         // свои картинки набора по зонам: { idx: { editor?, sidebar?, panel? } }
     genSets: [],                                        // сгенерированные наборы (по seed/палитре): дозагружаются в хвост SETS
+    shaderSrc: "",                                      // свой GLSL для шейдерного набора «Свой шейдер»; пусто — встроенный
 
     autoDim: true,                                      // авто-занижение яркости editor под светлые картинки (читаемость кода)
     fit: { editor: "cover", side: "cover", panel: "cover" }, // вписывание фоновой картинки по зонам: cover | contain
@@ -117,9 +41,14 @@ var DEFAULTS = {
         panel:  { brightness: 1.0, saturate: 1.0, blur: 0 }
     },
     slideshow: { on: false, min: 15 },                  // авто-смена набора по таймеру
-    // авто-набор по времени суток: днём — свой набор, ночью — свой. Границы дня
-    // настраиваются (from/to, часы 0–23); поддерживается «через полночь» (to < from).
-    autoTime: { on: false, day: 0, night: 4, from: 8, to: 20 },
+    library: [],                                        // своя библиотека картинок (локальные пути) для слайдшоу в редакторе
+    librarySlideshow: false,                            // крутить картинки из library в зоне редактора по таймеру слайдшоу
+    screensaver: { on: false, min: 5 },                 // витрина/скринсейвер при простое: часы + набор поверх экрана
+    // авто-набор по времени суток: днём — свой набор, ночью — свой. Границы дня настраиваются
+    // (from/to, часы 0–23); поддерживается «через полночь» (to < from). mode: "hours" — по
+    // фиксированным часам; "sun" — по реальному рассвету/закату для координат lat/lon (без сети,
+    // считается локально из даты; при "sun" from/to игнорируются). lat/lon — широта/долгота.
+    autoTime: { on: false, day: 0, night: 4, from: 8, to: 20, mode: "hours", lat: 0, lon: 0 },
     fxp: { blur: 8, kbScale: 1.08, kbSpeed: 60, vignette: 0.32, partCount: 40, pomoMin: 25, auroraSpeed: 24, spotRadius: 320, tintStrength: 0.18 },
     fx: {
         kenburns: true, glassTabs: true, vignette: true, glassSide: true,
@@ -168,7 +97,30 @@ var DEFAULTS = {
         // отвлекающее — неактивные группы/вкладки, миникарту, хлебные крошки — и приглушает
         // сайдбар/актив-бар/панель, чтобы взгляд держался на активном редакторе. Работает
         // ТОЛЬКО при включённом и запущенном «Помидоре»; на паузе/по завершении фокус спадает.
-        focusSession: false                             // затемнить всё, кроме активного файла, на время сессии
+        focusSession: false,                            // затемнить всё, кроме активного файла, на время сессии
+        // v21: «живой» фон + анимации интерфейса + акрил. Все opt-in (движение/размытие стоят
+        // кадров или заметно меняют вид). liveBg — медленный пан фоновых градиентных/процедурных
+        // зон (для фото-наборов уже есть Ken Burns/параллакс). uiAnim — плавные появления палитры
+        // команд/подсказок, переходы вкладок/списков/тостов. acrylic — усиленное «матовое стекло»
+        // на весь воркбенч (эстетика Acrylic/Mica; настоящая прозрачность до рабочего стола —
+        // только через отдельное расширение vibrancy, см. подсказку).
+        liveBg: false,                                  // «живой фон»: медленный пан градиентных/процедурных наборов
+        uiAnim: false,                                  // анимации интерфейса: появление палитры/подсказок, вкладки, списки, тосты
+        acrylic: false,                                 // акрил: усиленное матовое стекло на весь воркбенч
+        cursorTrail: false,                             // шлейф курсора: тающий след за указателем мыши (canvas, v21)
+        pet: false,                                     // питомец-компаньон: канвас-маскот в углу, реагирует на печать/ошибки
+        stats: false,                                   // статистика сессии в статусбаре: время, файлы, нажатия, стрик потока
+        // v20: движок читаемости и настоящая прозрачность.
+        // autoRead — адаптивный скрим: фон гасится ТОЧЕЧНО в тех местах кадра, где он
+        // светлее комфортного порога (карта яркости 8x8 из probeImage), а не целиком
+        // ползунком. Включён по умолчанию: он только улучшает читаемость и почти ничего
+        // не стоит (несколько CSS-градиентов, считается один раз на картинку).
+        autoRead: true,
+        // trueGlass — настоящая прозрачность до рабочего стола (Mica/Acrylic). Работает
+        // только когда окно VS Code создано прозрачным (загрузчик custom-ui-style с
+        // опциями Electron, см. панель «Стекло → Настоящая прозрачность»). Без этого
+        // включение даст просто более прозрачные поверхности внутри окна. Opt-in.
+        trueGlass: false
     },
     // Стиль летящих частиц (fx.particles). Категориальный (не числовой) — санитизируется
     // по белому списку PART_STYLES. dots — прежнее поведение (кружки), остальные меняют
@@ -181,7 +133,14 @@ var DEFAULTS = {
         cursorSize: 1,                                  // ширина курсора (scaleX): 0 — скрыть, 1 — обычный, до 2.5
         cursorHeight: 1                                 // высота курсора (scaleY): 1 — обычная, до 2.5
     },
-    ui: { collapsed: {}, posX: null, posY: null, tab: 0 } // tab — активная вкладка панели (Набор/Вид/Терминал/Система)
+    // ui.hidden — скрытые секции панели (ключ — русский заголовок секции, как в collapsed);
+    // ui.hiddenFx — скрытые эффекты в сетке «Эффекты» (ключ — key из FX_LIST). Настраивается в
+    // «Система → Настройка меню» и кнопкой «скрыть» в режиме редактирования меню.
+    // ui.favSec / ui.favFx — «Избранное»: закреплённые наверх панели секции и
+    // эффекты (ключ — тот же, что у hidden/hiddenFx). Закрепить/открепить — звёздочкой в режиме
+    // «Настроить». Зеркально к hidden: hidden прячет пункт, fav — поднимает его в блок «Избранное».
+    // ui.width — ширина панели в px (перетаскивается за левый край); null — дефолт 380.
+    ui: { collapsed: {}, hidden: {}, hiddenFx: {}, favSec: {}, favFx: {}, posX: null, posY: null, width: null, tab: 0 } // tab — активная вкладка панели (Набор/Вид/Терминал/Система/Данные)
 };
 
 var TERM_FONTS = [
@@ -210,8 +169,86 @@ var FX_LIST = [
     ["aurora", "Aurora фон"], ["spotlight", "Спотлайт"], ["typingPulse", "Пульс печати"],
     ["tint", "Тон акцентом"], ["legible", "Читаемость кода"], ["errorReact", "Реакция на ошибки"],
     ["present", "Режим Present"], ["highContrast", "Контраст+"],
-    ["focusSession", "Фокус-сессия"]
+    ["focusSession", "Фокус-сессия"],
+    ["liveBg", "Живой фон"], ["uiAnim", "Анимации UI"], ["acrylic", "Акрил"],
+    ["cursorTrail", "Шлейф курсора"], ["pet", "Питомец"], ["stats", "Статистика"],
+    ["autoRead", "Адаптивный скрим"], ["trueGlass", "Настоящая прозрачность"]
 ];
+
+// ===== Группировка эффектов по смыслу =====
+// Сетка «Эффекты» разрослась до полусотни тумблеров — плоский список читается как стена.
+// Раскладываем эффекты по категориям-подзаголовкам: порядок групп — FX_GROUP_ORDER, а
+// принадлежность каждого эффекта — FX_GROUPS[key]. Это ЧИСТО презентационная раскладка
+// панели (в конфиг не сохраняется). Линтер смоука проверяет, что у каждого эффекта из
+// FX_LIST есть группа, а каждая группа из FX_GROUP_ORDER непуста, — чтобы при добавлении
+// нового эффекта его нельзя было забыть отнести к категории (иначе он «утёк» бы в «Прочее»).
+var FX_GROUP_ORDER = [
+    ["glass",   "Стекло и поверхности"],
+    ["code",    "Код и подсветка"],
+    ["motion",  "Движение и фон"],
+    ["focus",   "Фокус и чтение"],
+    ["ambient", "Окружение и статус"],
+    ["ui",      "Интерфейс"],
+    ["fun",     "Приятное"]
+];
+var FX_GROUPS = {
+    kenburns: "motion", glassTabs: "glass", vignette: "focus", glassSide: "glass", scrim: "focus",
+    glassStatus: "glass", activeLine: "code", groupRing: "code", groupBorder: "code", scrollbar: "glass",
+    activityBg: "glass", tabAccent: "code", rounded: "glass", cursorGlow: "code", selection: "code",
+    titlebar: "glass", splash: "fun", clock: "ambient", particles: "motion", pomodoro: "ambient",
+    dimOnType: "focus", dimOnBlur: "focus", groupBorderMono: "code", paletteSync: "code", parallax: "motion",
+    flow: "focus", dimInactive: "focus", reading: "focus", glassCommand: "glass", findAccent: "code",
+    minimapFade: "focus", indentAccent: "code", selectionMatch: "code", stickyGlass: "glass", aurora: "motion",
+    spotlight: "focus", typingPulse: "motion", tint: "ui", legible: "focus", errorReact: "ambient",
+    present: "focus", highContrast: "focus", focusSession: "focus", liveBg: "motion", uiAnim: "ui",
+    acrylic: "glass", cursorTrail: "motion", pet: "fun", stats: "ambient",
+    autoRead: "focus", trueGlass: "glass"
+};
+
+// Эффект, который без другого эффекта ничего не делает. Показываем такой пункт приглушённым
+// и с подсказкой, вместо того чтобы дать включить тумблер «в никуда».
+// Подпись эффекта по ключу (для сообщений вида «нужен эффект: Живой контур»).
+function fxLabel(key) {
+    for (var i = 0; i < FX_LIST.length; i++) if (FX_LIST[i][0] === key) return FX_LIST[i][1];
+    return key;
+}
+var FX_REQUIRES = {
+    groupBorderMono: "groupBorder",  // «контур одним цветом» — вариант живого контура
+    focusSession: "pomodoro"         // фокус-сессия идёт по таймеру помидора
+};
+// Какой параметр «силы» имеет смысл только при включённых эффектах. Пустая запись — параметр
+// нужен всегда. Ключи внутри массива объединяются по ИЛИ: размытие стекла важно, если включено
+// хоть одно матовое стекло.
+var PARAM_REQUIRES = {
+    blur: ["glassTabs", "glassSide", "glassStatus", "glassCommand", "stickyGlass", "acrylic", "trueGlass"],
+    kbScale: ["kenburns"],
+    kbSpeed: ["kenburns"],
+    vignette: ["vignette"],
+    partCount: ["particles"],
+    pomoMin: ["pomodoro"],
+    auroraSpeed: ["aurora"],
+    spotRadius: ["spotlight"],
+    tintStrength: ["tint"]
+};
+// Влияет ли переключение эффекта на СОСТАВ панели (появится/исчезнет ползунок силы или
+// изменится доступность пункта-надстройки). Если да — панель пересобирается после клика.
+function fxAffectsPanel(key) {
+    var k;
+    for (k in PARAM_REQUIRES) {
+        if (PARAM_REQUIRES[k].indexOf(key) >= 0) return true;
+    }
+    for (k in FX_REQUIRES) {
+        if (FX_REQUIRES[k] === key) return true;
+    }
+    return key === "particles"; // стиль частиц показывается только при включённых частицах
+}
+// Нужен ли сейчас параметр силы: хотя бы один из эффектов-владельцев включён.
+function paramNeeded(key) {
+    var req = PARAM_REQUIRES[key];
+    if (!req) return true;
+    for (var i = 0; i < req.length; i++) if (cfg.fx[req[i]]) return true;
+    return false;
+}
 
 // Стили частиц (fx.particles): ключ + подпись. dots — прежние кружки; stars — искры-звёздочки;
 // snow — падающие светлые снежинки; sakura — падающие лепестки (цвет акцента); bubbles — контуры-пузыри;
@@ -314,97 +351,13 @@ var PARAMS = [
     ["tintStrength", "Тон сила", 0, 0.6, 0.02, 2]
 ];
 
-// ============================================================
-//  БЕЗОПАСНОСТЬ: валидация/санитизация конфига.
-//  Всё, что попадёт в CSS (шрифт, цвета) или в вычисления, строго проверяется,
-//  чтобы импортированный/подменённый JSON НЕ мог внедрить произвольный CSS
-//  (напр. вырваться из font-family:'...' и дописать свои правила).
-// ============================================================
-var COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-function isColor(s) { return typeof s === "string" && COLOR_RE.test(s); }
-function clampNum(v, min, max, def) {
-    v = typeof v === "number" ? v : parseFloat(v);
-    if (!isFinite(v)) return def;
-    return Math.min(max, Math.max(min, v));
-}
 // Шрифт — строго из белого списка (там нет кавычек/;/{} — CSS-инъекция невозможна).
 function safeFont(f) { return TERM_FONTS.indexOf(f) >= 0 ? f : DEFAULTS.term.font; }
-function safeColor(c, fallback) { return isColor(c) ? c : fallback; }
-// База картинок (папка плагина). Уходит в url('...') через cssUrl (кавычки/слэши/переводы
-// строк экранируются — CSS-инъекция невозможна), поэтому здесь только приводим к единому
-// виду: убираем переводы строк, ограничиваем длину, дописываем завершающий слэш. Пусто
-// (или не строка) -> "" — тогда imgBase() возьмёт авто-определённый IMG.
-function safeBase(s) {
-    if (typeof s !== "string") return "";
-    var b = s.trim().replace(/[\r\n]/g, "").slice(0, 512);
-    if (!b) return "";
-    return /\/$/.test(b) ? b : b + "/";
-}
-// ===== Безопасность источников картинок =====
-// Картинка из конфига уходит в CSS url() и в new Image().src. Если разрешить любой URL,
-// то ИМПОРТИРОВАННЫЙ или применённый чужой конфиг сможет указать http(s)-адрес — и редактор
-// молча сходит в сеть за картинкой: утечка IP, факт использования плагина, потенциальный
-// маячок-трекер. Поэтому по умолчанию пускаем только ЛОКАЛЬНЫЕ схемы; сеть — лишь когда
-// пользователь сам включил cfg.allowRemoteImages.
-var LOCAL_IMG_SCHEME = /^(?:vscode-file|vscode-resource|vscode-webview-resource|file|data):/i;
-// file://ХОСТ/share на Windows разворачивается в UNC-путь \\ХОСТ\share — а это сетевой
-// SMB-запрос (утечка факта использования, IP и NetNTLM-хеша, тот же класс, что CVE-2025-24054
-// и утечка через обои Windows Themes), НЕ «локальная картинка». Локальными считаем только
-// file:/// (пустой хост) и file://localhost|127.0.0.1/… ; любой другой хост в file:// уводит
-// в сеть так же, как http, — и должен блокироваться (imgAllowed) без явного согласия.
-var FILE_UNC_RE = /^file:\/\/(?!\/|localhost[:/]|127\.0\.0\.1[:/])[^/]/i;
-// Удалённый источник: абсолютный URL с не-локальной схемой, протокол-относительный «//host»
-// ИЛИ file:// с непустым хостом (UNC). Обратные слэши приводим к прямым — иначе
-// file:\\host\share (браузер сам нормализует \ в /) проскользнул бы мимо проверки.
-function isRemoteUrl(u) {
-    if (typeof u !== "string") return false;
-    var s = u.replace(/\\/g, "/");
-    if (/^\/\//.test(s)) return true;                        // //host/x — тянет из сети
-    if (FILE_UNC_RE.test(s)) return true;                    // file://host/… — UNC/SMB на Windows
-    return /^[a-z][a-z0-9+.-]*:/i.test(s) && !LOCAL_IMG_SCHEME.test(s);
-}
-// Разрешена ли картинка к загрузке: относительные и локальные — да; удалённые — только по
-// явному согласию (cfg.allowRemoteImages). typeof-страховка: cfg может ещё не быть.
-function imgAllowed(u) {
-    if (typeof u !== "string" || !u) return false;
-    if (typeof cfg !== "undefined" && cfg && cfg.allowRemoteImages) return true;
-    return !isRemoteUrl(u);
-}
-// Безопасная сборка CSS url('...'). Путь установки плагина (IMG) приходит из
-// document.currentScript.src и вставляется в CSS как есть. Если путь содержит
-// одинарную кавычку, обратный слэш или перевод строки (напр. C:\Users\O'Brien\…),
-// он вырвется из url('...') и сломает — или подменит — CSS. Экранируем спецсимволы
-// по правилам CSS-строк (\ и ' — через escape, переводы строк убираем).
-function cssUrl(u) {
-    var s = String(u).replace(/[\r\n]/g, "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    return "url('" + s + "')";
-}
-// Акцент -> "r,g,b" для rgba() в CSS и на canvas (там var() недоступен).
-// getAccent() определён в state.js; вызывается в рантайме, когда всё уже есть.
-function accentRGB() {
-    var ac = safeColor(getAccent(), DEFAULTS.accent);
-    return parseInt(ac.substr(1, 2), 16) + "," + parseInt(ac.substr(3, 2), 16) + "," + parseInt(ac.substr(5, 2), 16);
-}
-
 // диапазоны параметров эффектов (ключ -> [min, max]) из PARAMS
 var FXP_RANGE = {};
 (function () { for (var i = 0; i < PARAMS.length; i++) FXP_RANGE[PARAMS[i][0]] = [PARAMS[i][2], PARAMS[i][3]]; })();
 
-// ===== Конфиг: слияние с дефолтами + санитизация =====
-var CFG_KEY = "moonlight-bg-config", LAST_KEY = "moonlight-bg-last", BACKUP_KEY = "moonlight-bg-backup";
 var sessionRandomIndex = null, switchMul = 1;
-
-function clone(x) { return JSON.parse(JSON.stringify(x)); }
-
-// Безопасный разбор JSON. Reviver выбрасывает ключи-«отравители» прототипа
-// ещё до того, как объект попадёт в mergeCfg — защита от prototype pollution
-// из подменённого localStorage или импортированного файла (defense-in-depth).
-var DANGEROUS_KEYS = ["__proto__", "constructor", "prototype"];
-function safeParse(text) {
-    return JSON.parse(text, function (key, value) {
-        return DANGEROUS_KEYS.indexOf(key) >= 0 ? undefined : value;
-    });
-}
 
 // Миграция сырого конфига к текущей схеме. Вызывается ДО mergeCfg — приводит объект,
 // сохранённый старой версией плагина, к форме, которую понимает текущий mergeCfg.
@@ -416,6 +369,39 @@ function migrateCfg(p) {
     // (будущие миграции здесь, по возрастанию v)
     p.version = CFG_VERSION;
     return p;
+}
+
+// Санитизация карты «строковый ключ -> строковый индекс существующего набора». Общая для
+// branchSets (ключ — имя git-ветки) и langSets (ключ — расширение файла), по образцу
+// workspaceSets: число и длина ключей ограничены, опасные ключи (отравители прототипа)
+// отброшены, значения — только валидные индексы наборов (< SETS.length).
+function _sanSetMap(src, maxKeyLen) {
+    var out = {}, n = 0;
+    if (src && typeof src === "object") {
+        for (var k in src) {
+            if (!Object.prototype.hasOwnProperty.call(src, k)) continue;
+            if (n >= 64 || typeof k !== "string" || !k.length || k.length > maxKeyLen) continue;
+            if (DANGEROUS_KEYS.indexOf(k) >= 0) continue;
+            var v = src[k];
+            if (typeof v === "string" && /^\d+$/.test(v) && parseInt(v, 10) < SETS.length) { out[k] = v; n++; }
+        }
+    }
+    return out;
+}
+
+// Санитизация карты «строковый ключ -> булево» (для ui.hidden / ui.hiddenFx — скрытые секции/
+// эффекты панели). Ограничивает число и длину ключей, отбрасывает отравители прототипа.
+function _sanBoolMap(src, maxKeyLen) {
+    var out = {}, n = 0;
+    if (src && typeof src === "object") {
+        for (var k in src) {
+            if (!Object.prototype.hasOwnProperty.call(src, k)) continue;
+            if (n >= 128 || typeof k !== "string" || k.length > maxKeyLen) continue;
+            if (DANGEROUS_KEYS.indexOf(k) >= 0) continue;
+            if (typeof src[k] === "boolean") { out[k] = src[k]; n++; }
+        }
+    }
+    return out;
 }
 
 // Единственная точка входа для ЛЮБОГО внешнего конфига (localStorage и импорт файла).
@@ -431,6 +417,10 @@ function mergeCfg(p) {
         if (typeof p.lang === "string") c.lang = safeLang(p.lang);
         // авто-бюджет производительности: только булево
         if (typeof p.perfGuard === "boolean") c.perfGuard = p.perfGuard;
+        // свой GLSL шейдерного фона: только строка, ограниченная длиной. Код исполняется на
+        // GPU в песочнице драйвера (к DOM/файлам доступа нет), поэтому фильтровать содержимое
+        // не нужно — достаточно не пускать мегабайтные строки в localStorage.
+        if (typeof p.shaderSrc === "string") c.shaderSrc = p.shaderSrc.slice(0, 8000);
         // папка плагина для картинок: строка-URL, нормализуется safeBase (см. imgBase())
         if (typeof p.imgBase === "string") c.imgBase = safeBase(p.imgBase);
         // разрешение сетевых картинок: только булево (по умолчанию false — см. imgAllowed)
@@ -451,6 +441,12 @@ function mergeCfg(p) {
                 if (typeof wv === "string" && /^\d+$/.test(wv) && parseInt(wv, 10) < SETS.length) { c.workspaceSets[wk] = wv; wc++; }
             }
         }
+        // фон по git-ветке: флаг + карта «ветка -> индекс набора» (санитизация как workspaceSets)
+        if (typeof p.autoBranch === "boolean") c.autoBranch = p.autoBranch;
+        c.branchSets = _sanSetMap(p.branchSets, 120);
+        // фон по языку/расширению активного файла: флаг + карта «расширение -> индекс набора»
+        if (typeof p.autoLang === "boolean") c.autoLang = p.autoLang;
+        c.langSets = _sanSetMap(p.langSets, 32);
         // индикатор ветки: только булево
         if (typeof p.ambientBranch === "boolean") c.ambientBranch = p.ambientBranch;
         // mode: "random" или строковый индекс набора в допустимом диапазоне
@@ -540,6 +536,21 @@ function mergeCfg(p) {
             if (typeof p.slideshow.on === "boolean") c.slideshow.on = p.slideshow.on;
             if (typeof p.slideshow.min === "number") c.slideshow.min = clampNum(p.slideshow.min, 1, 120, c.slideshow.min);
         }
+        // библиотека картинок: массив строк-путей (разрешение сети — при рендере, imgAllowed),
+        // ограничение числа и длины пути; librarySlideshow — только булево.
+        if (Array.isArray(p.library)) {
+            c.library = [];
+            for (var _li = 0; _li < p.library.length && c.library.length < 64; _li++) {
+                var _lv = p.library[_li];
+                if (typeof _lv === "string" && _lv && _lv.length <= 1024) c.library.push(_lv);
+            }
+        }
+        if (typeof p.librarySlideshow === "boolean") c.librarySlideshow = p.librarySlideshow;
+        // скринсейвер/витрина при простое: флаг + минуты простоя до показа
+        if (p.screensaver && typeof p.screensaver === "object") {
+            if (typeof p.screensaver.on === "boolean") c.screensaver.on = p.screensaver.on;
+            if (typeof p.screensaver.min === "number") c.screensaver.min = clampNum(p.screensaver.min, 1, 120, c.screensaver.min);
+        }
         // авто-набор по времени: флаг + индексы наборов (день/ночь) + границы дня (часы 0–23)
         if (p.autoTime && typeof p.autoTime === "object") {
             if (typeof p.autoTime.on === "boolean") c.autoTime.on = p.autoTime.on;
@@ -551,6 +562,10 @@ function mergeCfg(p) {
                 var hv = p.autoTime[kk];
                 if (typeof hv === "number" && isFinite(hv)) c.autoTime[kk] = Math.min(23, Math.max(0, Math.floor(hv)));
             });
+            // режим границ дня: по часам или по реальному рассвету/закату (координаты ниже)
+            if (p.autoTime.mode === "sun" || p.autoTime.mode === "hours") c.autoTime.mode = p.autoTime.mode;
+            if (typeof p.autoTime.lat === "number" && isFinite(p.autoTime.lat)) c.autoTime.lat = Math.min(90, Math.max(-90, p.autoTime.lat));
+            if (typeof p.autoTime.lon === "number" && isFinite(p.autoTime.lon)) c.autoTime.lon = Math.min(180, Math.max(-180, p.autoTime.lon));
         }
         // эффекты: только булевы
         if (p.fx) for (k in c.fx) if (typeof p.fx[k] === "boolean") c.fx[k] = p.fx[k];
@@ -583,8 +598,16 @@ function mergeCfg(p) {
                     if (typeof p.ui.collapsed[t2] === "boolean") { c.ui.collapsed[t2] = p.ui.collapsed[t2]; _cn++; }
                 }
             }
+            // скрытые секции/эффекты панели: строго булевы карты, ключи ограничены
+            c.ui.hidden = _sanBoolMap(p.ui.hidden, 64);
+            c.ui.hiddenFx = _sanBoolMap(p.ui.hiddenFx, 40);
+            // «Избранное»: закреплённые секции/эффекты — те же булевы карты (ключи как у hidden)
+            c.ui.favSec = _sanBoolMap(p.ui.favSec, 64);
+            c.ui.favFx = _sanBoolMap(p.ui.favFx, 40);
             if (typeof p.ui.posX === "number" && isFinite(p.ui.posX)) c.ui.posX = p.ui.posX;
             if (typeof p.ui.posY === "number" && isFinite(p.ui.posY)) c.ui.posY = p.ui.posY;
+            // ширина панели: число в разумных пределах (иначе панель уехала бы за край/схлопнулась)
+            if (typeof p.ui.width === "number" && isFinite(p.ui.width)) c.ui.width = Math.min(760, Math.max(320, Math.round(p.ui.width)));
             // активная вкладка панели: неотрицательное целое (реальный верх зажмёт togglePanel
             // под число вкладок; здесь просто небольшой безопасный потолок против мусора)
             if (typeof p.ui.tab === "number" && isFinite(p.ui.tab)) c.ui.tab = Math.min(15, Math.max(0, Math.floor(p.ui.tab)));
@@ -612,7 +635,7 @@ function loadCfg() {
     } catch (e) {}
     // localStorage пуст (новая машина / переустановка / крупный апдейт VS Code почистил
     // хранилище). Если компаньон-расширение прокинуло базовый конфиг из settings.json
-    // (window.__MLBG_SEED__ — едет через Settings Sync, улучшение 5), берём его как отправную
+    // (window.__MLBG_SEED__ — едет через Settings Sync), берём его как отправную
     // точку: вид «переезжает» на новую машину сам. mergeCfg санитизирует чужой объект.
     var seed = seedConfig();
     if (seed) { try { return mergeCfg(seed); } catch (e) {} }
@@ -634,6 +657,9 @@ function saveCfg() {
     // (scheduleHistory определён в io.js; поднят по области IIFE). При старте (loadCfg) не
     // зовётся, поэтому лишнего шага истории на загрузке нет.
     try { scheduleHistory(); } catch (e) {}
+    // Другие окна VS Code (общий localStorage, но свой рантайм) должны увидеть правку сразу,
+    // а не через цикл самолечения. broadcastCfg объявлен в boot.js — доступен по области IIFE.
+    try { if (typeof broadcastCfg === "function") broadcastCfg(); } catch (e) {}
 }
 
 // ===== Резерв конфига (защита от неудачной замены) =====
@@ -652,121 +678,4 @@ function readBackup() {
     return null;
 }
 
-// ===== Санитайзер наборов (защита рантайма от сломанной РУЧНОЙ правки массива SETS) =====
-// Частый сценарий: пользователь лезет в исходник, добавляет/меняет набор и ошибается —
-// битый цвет, grad не массивом, лишний proc, пропущенное поле. Без страховки одна опечатка
-// роняла бы весь фон. Нормализуем КАЖДУЮ запись (имя/акцент/тип) и гарантируем непустой
-// валидный массив: неисправимые записи отбрасываются, а если валидных не осталось —
-// подставляем один безопасный градиентный набор. Дубликат белого списка proc — намеренно
-// локальный (config не знает про css.js); поля-строки картинок оставляем как есть (их
-// разрешение и проверка сети — уже в imgAllowed/imgUrl).
-var PROC_KINDS = { stars: 1, waves: 1, noise: 1, grid: 1, topo: 1, matrix: 1, cells: 1 };
-// Нормализация ОДНОЙ записи набора (общая для sanitizeSets и sanitizeUserSets/addGenSet).
-// Возвращает чистый объект (имя/акцент/тип строго проверены) или null — если это не объект.
-// Поля-строки картинок оставляем как есть (их разрешение и проверка сети — в imgAllowed/imgUrl).
-function _normSetEntry(s, fallbackName) {
-    if (!s || typeof s !== "object") return null;
-    var e = {};
-    e.name = (typeof s.name === "string" && s.name) ? s.name.slice(0, 60) : fallbackName;
-    e.accent = isColor(s.accent) ? s.accent : DEFAULTS.accent;
-    if (Array.isArray(s.grad)) { var g = []; for (var k = 0; k < s.grad.length; k++) if (isColor(s.grad[k])) g.push(s.grad[k]); if (g.length >= 2) e.grad = g; }
-    if (typeof s.proc === "string" && PROC_KINDS[s.proc]) { e.proc = s.proc; e.base = isColor(s.base) ? s.base : "#181825"; }
-    if (typeof s.editor === "string" && s.editor) e.editor = s.editor;
-    if (typeof s.sidebar === "string" && s.sidebar) e.sidebar = s.sidebar;
-    if (typeof s.panel === "string" && s.panel) e.panel = s.panel;
-    return e;
-}
-// Есть ли у записи хоть один источник для отрисовки (иначе зона была бы пустой).
-function _setRenderable(e) { return !!(e && (e.grad || e.proc || e.editor || e.sidebar || e.panel)); }
-function sanitizeSets(list) {
-    var out = [];
-    if (Array.isArray(list)) {
-        for (var i = 0; i < list.length; i++) {
-            var e = _normSetEntry(list[i], "Набор " + out.length);
-            if (e) out.push(e);
-        }
-    }
-    if (!out.length) out.push({ name: "По умолчанию", grad: ["#1e1e2e", "#89b4fa", "#94e2d5"], accent: "#89b4fa" });
-    return out;
-}
-// Пользовательские (сгенерированные) наборы: как sanitizeSets, но БЕЗ подстановки дефолта
-// для пустого списка и с жёстким лимитом числа записей (защита от раздутого/подменённого
-// конфига). Пропускаем только реально отрисовываемые записи.
-var GEN_MAX = 24;
-function sanitizeUserSets(list) {
-    var out = [];
-    if (!Array.isArray(list)) return out;
-    for (var i = 0; i < list.length && out.length < GEN_MAX; i++) {
-        var e = _normSetEntry(list[i], "Мой набор " + (out.length + 1));
-        if (_setRenderable(e)) out.push(e);
-    }
-    return out;
-}
-// Сколько записей отбросил санитайзер (битые) — показываем в диагностике, чтобы правку было
-// видно, а не «молча пропал набор».
-var SETS_DROPPED = (function () {
-    var before = Array.isArray(SETS) ? SETS.length : 0;
-    SETS = sanitizeSets(SETS);
-    return Math.max(0, before - SETS.length);
-})();
-
-// ===== Сгенерированные наборы (по seed/палитре) =====
-// Пользователь создаёт согласованный набор из seed-строки или базового цвета (genSetFromSeed
-// в css.js). Такие наборы хранятся в cfg.genSets и ДОЗАГРУЖАЮТСЯ в хвост SETS при старте —
-// ПЕРЕД loadCfg(), чтобы санитизация mode/setOp/workspaceSets (проверка индекса < SETS.length)
-// уже учитывала их и выбранный сгенерированный набор переживал перезапуск.
-// GEN_BASE — индекс первого сгенерированного набора (граница «встроенные | пользовательские»).
-var GEN_BASE = SETS.length;
-(function _appendGenSets() {
-    try {
-        var raw = localStorage.getItem(CFG_KEY);
-        if (!raw || raw.length > 256 * 1024) return;
-        var p = safeParse(raw);
-        var us = (p && typeof p === "object") ? sanitizeUserSets(p.genSets) : [];
-        for (var i = 0; i < us.length; i++) SETS.push(us[i]);
-    } catch (e) {}
-})();
-
 var cfg = loadCfg();
-
-// Добавить один сгенерированный набор: нормализуем, кладём и в cfg.genSets (сохранится),
-// и в хвост SETS (виден сразу). Возвращает индекс нового набора или -1 (мусор) / -2 (лимит).
-function addGenSet(s) {
-    var e = _normSetEntry(s, "Мой набор " + (cfg.genSets.length + 1));
-    if (!_setRenderable(e)) return -1;
-    if (cfg.genSets.length >= GEN_MAX) return -2;
-    cfg.genSets.push(e);
-    SETS.push(e);
-    return SETS.length - 1;
-}
-// Убрать ВСЕ сгенерированные наборы (они всегда в хвосте, поэтому обрезаем SETS до GEN_BASE).
-// Чистим привязки к удалённым индексам (яркость/акцент/имя/картинки/выбранный набор), чтобы
-// не осталось «висячих» ссылок на несуществующие наборы.
-function removeGenSets() {
-    SETS.length = GEN_BASE;
-    cfg.genSets = [];
-    [cfg.setOp, cfg.setAccent, cfg.setName, cfg.setImg].forEach(function (o) {
-        if (o) for (var k in o) if (/^\d+$/.test(k) && parseInt(k, 10) >= SETS.length) delete o[k];
-    });
-    if (cfg.workspaceSets) for (var wk in cfg.workspaceSets) {
-        var wv = cfg.workspaceSets[wk];
-        if (typeof wv === "string" && parseInt(wv, 10) >= SETS.length) delete cfg.workspaceSets[wk];
-    }
-    var mi = parseInt(cfg.mode, 10);
-    if (!isNaN(mi) && mi >= SETS.length) cfg.mode = "0";
-}
-// Пересобрать хвост SETS из cfg.genSets. Нужно после ПОЛНОЙ подмены cfg (импорт файла,
-// применение пресета, восстановление из резерва, применение кода образа, сброс к дефолту):
-// _appendGenSets дозагружает сгенерированные наборы только на СТАРТЕ (из localStorage, до
-// создания cfg), поэтому без этого импортированные ген-наборы не появлялись бы в списке до
-// перезапуска, а сброшенные — наоборот, висели бы в SETS. Обрезаем до встроенных (GEN_BASE),
-// нормализуем cfg.genSets тем же санитайзером и дозагружаем; затем чистим mode, если он указывал
-// на исчезнувший набор. Идемпотентна: повторный вызов при неизменном cfg ничего не ломает.
-function syncGenSets() {
-    SETS.length = GEN_BASE;
-    var us = sanitizeUserSets(cfg.genSets || []);
-    cfg.genSets = us; // нормализованная форма — та же, что уйдёт в localStorage
-    for (var i = 0; i < us.length; i++) SETS.push(us[i]);
-    var mi = parseInt(cfg.mode, 10);
-    if (!isNaN(mi) && mi >= SETS.length) cfg.mode = "0";
-}

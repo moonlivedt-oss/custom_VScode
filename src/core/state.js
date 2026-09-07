@@ -42,6 +42,25 @@ function workspaceIndex() {
     }
     return null;
 }
+// Набор, закреплённый за текущей git-веткой (cfg.branchSets[ветка]), если «фон по ветке»
+// включён. gitBranch() объявлена в boot.js — в общей области видимости IIFE она доступна из
+// рантайма (activeIndex зовётся уже после сборки). null — тогда идём дальше по приоритету.
+function branchIndex() {
+    if (!cfg.autoBranch) return null;
+    var b = (typeof gitBranch === "function") ? gitBranch() : "";
+    var v = (b && cfg.branchSets) ? cfg.branchSets[b] : null;
+    if (typeof v === "string" && /^\d+$/.test(v)) { var i = parseInt(v, 10); if (i >= 0 && i < SETS.length) return i; }
+    return null;
+}
+// Набор, закреплённый за расширением активного файла (cfg.langSets[ext]), если «фон по языку»
+// включён. editorFileExt() объявлена в scrape.js (доступна из рантайма через область IIFE).
+function langIndex() {
+    if (!cfg.autoLang) return null;
+    var e = (typeof editorFileExt === "function") ? editorFileExt() : "";
+    var v = (e && cfg.langSets) ? cfg.langSets[e] : null;
+    if (typeof v === "string" && /^\d+$/.test(v)) { var i = parseInt(v, 10); if (i >= 0 && i < SETS.length) return i; }
+    return null;
+}
 // previewMode — индекс набора, «примеряемого» при наведении на его чип в панели
 // (см. previewSet/previewEnd в controls.js). Пока он задан, весь UI считает активным
 // именно его — поэтому превью работает и в режиме «случайно», и при «фоне по проекту»,
@@ -50,9 +69,15 @@ var previewMode = null;
 function activeIndex() {
     // Превью при наведении важнее всего — иначе оно не перебило бы «фон по проекту».
     if (previewMode !== null && previewMode >= 0 && previewMode < SETS.length) return previewMode;
-    // «Фон по проекту» имеет приоритет над mode/слайдшоу/временем суток.
+    // Контекстные приоритеты (все opt-in): проект важнее ветки, ветка важнее языка файла,
+    // всё это важнее mode/слайдшоу/времени суток. Так при одновременном включении «побеждает»
+    // более осознанный контекст (закреплённый проект), а язык файла — самый частый и низший.
     var wi = workspaceIndex();
     if (wi !== null) return wi;
+    var bi = branchIndex();
+    if (bi !== null) return bi;
+    var li = langIndex();
+    if (li !== null) return li;
     if (cfg.mode === "random") {
         if (sessionRandomIndex === null) sessionRandomIndex = pickRandom();
         return sessionRandomIndex;
@@ -64,11 +89,15 @@ function activeIndex() {
 // яркость активного набора (своя или базовая)
 function getOp() {
     var idx = activeIndex(), o = cfg.setOp[idx] || {};
-    return {
-        editor: typeof o.editor === "number" ? o.editor : cfg.baseOp.editor,
-        side: typeof o.side === "number" ? o.side : cfg.baseOp.side,
-        panel: typeof o.panel === "number" ? o.panel : cfg.baseOp.panel
-    };
+    // Приоритет: правка пользователя для этого набора -> стартовая прозрачность самого
+    // набора (SETS[idx].op — у светлых кадров она ниже, чтобы код читался) -> общая baseOp.
+    var d = (SETS[idx] && SETS[idx].op) || {};
+    function pick(k) {
+        if (typeof o[k] === "number") return o[k];
+        if (typeof d[k] === "number") return d[k];
+        return cfg.baseOp[k];
+    }
+    return { editor: pick("editor"), side: pick("side"), panel: pick("panel") };
 }
 function setOpValue(key, v) {
     var idx = activeIndex();
@@ -99,6 +128,10 @@ function isAbsUrl(u) { return /^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(u); }
 // Абсолютный удалённый URL без согласия пользователя (imgAllowed) не пропускаем — "" отдаёт
 // пробе «битую» ссылку, и зона откатывается на акцентную подложку вместо сетевого запроса.
 function imgUrl(rel) {
+    // Пусто -> пусто. У наборов без картинок (шейдерные, генеративные) зона не имеет файла, и
+    // раньше пустой путь склеивался с базой в адрес ПАПКИ плагина: браузер честно пытался
+    // загрузить её как картинку, получал ошибку, и чип набора помечался красным «не грузится».
+    if (!rel) return "";
     if (isAbsUrl(rel)) return imgAllowed(rel) ? rel : "";
     return imgBase() + rel;
 }
@@ -110,7 +143,13 @@ function setImage(idx, zone) {
     // Свой путь используем, только если он разрешён (локальный, либо сеть явно включена);
     // заблокированный удалённый override игнорируем -> зона берёт «родную» картинку набора.
     if (typeof ov === "string" && ov && imgAllowed(ov)) return ov;
-    var s = SETS[idx]; return (s && s[zone]) ? s[zone] : "";
+    var s = SETS[idx];
+    if (s && s[zone]) return s[zone];
+    // Набор одной мастер-картинкой: у зон нет своих файлов — все три берут один кадр
+    // и различаются вырезом (s.crop, см. cropBg в css.js). Один файл вместо трёх: втрое
+    // меньше веса и гарантированно единая палитра всех зон.
+    if (s && s.master && s.crop && s.crop[zone]) return s.master;
+    return "";
 }
 // Готовый абсолютный URL картинки зоны (переопределение -> resolve).
 function zoneUrl(idx, zone) { return imgUrl(setImage(idx, zone)); }

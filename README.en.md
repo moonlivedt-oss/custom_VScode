@@ -12,12 +12,12 @@ Per-zone images · sets with their own palette · generative backgrounds with no
 Ken Burns, frosted glass, Aurora, spotlight · background per project · status-bar widgets · RU / EN interface
 
 [![CI](https://github.com/moonlivedt-oss/custom_VScode/actions/workflows/ci.yml/badge.svg)](https://github.com/moonlivedt-oss/custom_VScode/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-v19-cba6f7)
-![vscode](https://img.shields.io/badge/VS%20Code-custom--css-007ACC?logo=visualstudiocode&logoColor=white)
-![sets](https://img.shields.io/badge/sets-25-f5a97f)
-![effects](https://img.shields.io/badge/effects-~44-f38ba8)
+![version](https://img.shields.io/badge/version-v20-cba6f7)
+![vscode](https://img.shields.io/badge/VS%20Code-custom--css%20%7C%20custom--ui--style-007ACC?logo=visualstudiocode&logoColor=white)
+![sets](https://img.shields.io/badge/sets-37-f5a97f)
+![effects](https://img.shields.io/badge/effects-51-f38ba8)
 ![lang](https://img.shields.io/badge/language-RU%20%7C%20EN-89b4fa)
-![tests](https://img.shields.io/badge/tests-247%20ok-a6e3a1)
+![tests](https://img.shields.io/badge/tests-352%20ok-a6e3a1)
 ![deps](https://img.shields.io/badge/dependencies-0-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -31,25 +31,41 @@ Ken Burns, frosted glass, Aurora, spotlight · background per project · status-
 
 ## Quick start
 
-1. Install the **be5invis.vscode-custom-css** extension (Marketplace or
-   `code --install-extension be5invis.vscode-custom-css`).
+1. Install a **loader** — the extension that injects the script into the editor window. Either one
+   works:
+   - **Custom UI Style** (recommended) — `code --install-extension subframe7536.custom-ui-style`.
+     It backs up the editor's original files and restores them before every patch, so it
+     **survives VS Code updates**, suppresses the "installation appears corrupt" warning and can
+     make the window truly transparent.
+   - **Custom CSS and JS** — `code --install-extension be5invis.vscode-custom-css`. The classic
+     path; its injection is lost after every editor update and has to be re-enabled.
 2. Clone the repo: `git clone https://github.com/moonlivedt-oss/custom_VScode.git`
-3. Add the path to `custom-bg.js` in your `settings.json`
-   (`Ctrl+Shift+P` → *Open User Settings (JSON)*):
+3. Register the path to `custom-bg.js` — easiest with `npm run setup` (it detects which loader is
+   installed and writes the import in the right format, backing up your settings first).
+   Manually, `Ctrl+Shift+P` → *Open User Settings (JSON)*:
    ```jsonc
+   // Custom UI Style
+   "custom-ui-style.external.imports": [
+     { "type": "js", "url": "file:///d:/path/to/vscode-bg/custom-bg.js" }
+   ]
+   // or Custom CSS and JS
    "vscode_custom_css.imports": [
      "file:///d:/path/to/vscode-bg/custom-bg.js"
    ]
    ```
-4. `Ctrl+Shift+P` → **Enable Custom CSS and JS**, then **fully restart** VS Code (`File → Exit`).
+4. Apply it: for Custom UI Style run `Ctrl+Shift+P` → **Custom UI Style: Reload**; for Custom CSS
+   run `Ctrl+Shift+P` → **Enable Custom CSS and JS**. Then **fully restart** VS Code
+   (`File → Exit`).
 
 Done — a **`BG 0`** button appears at the right of the status bar; click it to open the
-**Background & design** panel. Details, moving the folder and troubleshooting are below.
+**Background & design** panel. The active loader is shown in **System → Loader**.
 
 > The interface is bilingual: it auto-detects your VS Code display language, or set it manually in
 > **System → Panel language** (Auto / Русский / English).
-
----
+>
+> **True window transparency** (Mica / vibrancy) needs Custom UI Style plus Electron options. The
+> ready-made settings are copied by **System → Loader → Copy transparency options**; then enable
+> the **True transparency** effect on the View tab.
 
 ## What is it
 
@@ -63,14 +79,16 @@ that adds a full theming panel right inside the editor.
 | | Regular theme | "Image on background" plugin | MoonLight custom-bg |
 |---|---|---|---|
 | Custom image | no | yes (one for everything) | **yes, separately for editor / sidebar / panel** |
-| Sets with a palette | no | no | **yes, 12 photo sets, each with its own accent** |
+| Sets with a palette | no | no | **yes, 20 photo sets, each with its own accent** |
 | Assetless sets | no | no | **yes, 6 gradient + 7 procedural sets (zero assets)** |
 | UI palette from the image | no | no | **yes, the "living border" is painted with the image colors** |
 | Background per open project | no | no | **yes, a set is pinned to a folder (and to forks: Cursor / VSCodium / Windsurf)** |
 | Timed slideshow | no | no | **yes, with preloading (no flashing)** |
 | Setup without editing files | partly | no | **yes, a panel inside the editor + settings search** |
 | Undo changes | no | no | **yes, look Undo/Redo (`Ctrl+Alt+Z` / `Ctrl+Alt+Y`)** |
-| Effects (Ken Burns, glass, parallax, flow, tint, error reaction) | no | no | **yes, ~44 of them** |
+| Effects (Ken Burns, glass, acrylic, living background, UI animations, cursor trail, tint) | no | no | **yes, ~50 of them** |
+| Code readability over an image | — | no | **yes: adaptive scrim driven by a luminance map + a contrast meter with one-click fix** |
+| True window transparency | no | no | **yes, through Custom UI Style (Mica / vibrancy)** |
 | Status-bar widgets | no | no | **yes: clock, pomodoro timer, particles (incl. seasonal)** |
 | Interface language | — | — | **RU / EN (auto by VS Code, or manual)** |
 | Profiles / power saving | no | no | **yes: 5 one-click profiles + FPS auto-budget** |
@@ -83,23 +101,30 @@ that adds a full theming panel right inside the editor.
 
 Everything is configured in the **Background & design** panel (the `BG N` button in the status bar):
 
-> **New in v19:**
-> - **RU / EN interface** — panel, tooltips and toasts are translated; the language is chosen
->   automatically by your VS Code language, or manually (System → Panel language).
-> - **Quick-start profiles** — 5 ready-made looks (Calm, Focus, Presentation, Minimal, Maximum) set
->   the whole appearance in one click (Data → Profiles).
-> - **FPS auto-budget** — on a weak machine heavy effects dim themselves when the FPS drops and
->   return once frames recover.
-> - **Sync via `settings.json`** — your look travels to other machines through Settings Sync
->   (requires the companion extension).
-> - **A fifth "Data" tab** — look and config management moved out of "System" to declutter it.
-> - **Refined tooltips** — the "?" texts were rewritten; the popup has frosted glass, an arrow to the
->   button and a smooth entrance; it adapts to the light/dark theme.
-> - **DOM-scrape health** in Diagnostics, **web / Codespaces themes** and a **health-check** in the
->   companion extension, a **minified build** via `npm run build:min`.
+> **New in v20:**
+> - **Adaptive scrim** — the background is dimmed exactly where it is brighter than comfortable
+>   (an 8×8 luminance map), instead of dimming the whole image with one slider: a bright window
+>   behind your code stops interfering while the rest of the picture stays visible.
+> - **Readability meter** — the contrast of code against the real backdrop as a number, with a
+>   “Fix” button that picks an opacity meeting WCAG AA.
+> - **OKLab palette** — the accent is extracted in a perceptual space (like pywal / Material You)
+>   instead of HSL, so colors stopped being either acid or invisible.
+> - **Instant first frame** — image metrics and thumbnails are cached: no empty background and no
+>   accent jump on startup.
+> - **Jank-free sliders** — numbers moved into CSS variables, so dragging no longer rebuilds the
+>   stylesheet.
+> - **Two loaders** — works through `be5invis.vscode-custom-css` and through
+>   `subframe7536.custom-ui-style`; the latter survives VS Code updates and unlocks **true window
+>   transparency** (Mica / vibrancy), not just in-window glass.
+> - **Selector health** in diagnostics — see which workbench elements stopped matching after an
+>   editor update.
+> - **WebGL shader sets** and **8 new photo sets** built from a single master frame (three times
+>   fewer files, zones share one palette).
+> - **Quick switcher** `Ctrl+Alt+P` with live preview, and **cross-window sync**.
 
-- **Background sets** — 12 photo sets (images for editor / sidebar / panel), 6 **generative** gradient
-  sets and 7 **procedural** ones (starfield, dunes, grain, grid, topography, matrix, cells — the
+- **Background sets** — 12 photo sets (images for editor / sidebar / panel), 8 **master-frame**
+  sets (one 21:9 frame per set, zones are crops of it), 4 **shader** sets (the frame is computed
+  on the GPU), 6 **generative** gradient sets and 7 **procedural** ones (starfield, dunes, grain, grid, topography, matrix, cells — the
   texture is drawn on a canvas, without a single asset). Generative and procedural sets load
   instantly and work on any machine; each zone gets its own gradient shape. Pick a set or "random".
   Every set has **its own accent color** that repaints the UI to match. Rename a set right in the
@@ -136,7 +161,7 @@ Everything is configured in the **Background & design** panel (the `BG N` button
   saturation / blur) and a **custom image path** per zone.
 - **Effects** — Ken Burns, frosted glass, vignette, cursor glow, living border and more, including
   **accent tint**, **code legibility**, **error reaction**, **Present mode**, **Contrast+** and a
-  **focus session** tied to the pomodoro. ~44 toggles, each with a "?" hint.
+  **focus session** tied to the pomodoro. ~50 toggles, each with a "?" hint.
 - **Terminal** — font (width-compatible Nerd fonts), ligatures, glow, cursor size/height/color,
   selection color.
 
@@ -144,8 +169,19 @@ Everything is configured in the **Background & design** panel (the `BG N` button
 
 ## Background sets
 
-The plugin ships 25 sets: 12 photo, 6 gradient and 7 procedural. Each has its own accent that
-repaints the interface.
+The plugin ships 37 sets: 12 photo, 8 master-frame, 6 gradient, 7 procedural and 4 shader ones.
+Each has its own accent that repaints the interface.
+
+### How a master frame is cut
+
+<img src="docs/screenshots/master-crops.jpg" alt="A master frame with the zone crops marked: a narrow strip on the left is the sidebar, the wide area on the right is the editor, the bottom band is the panel" width="880">
+
+<sub>One file instead of three: <b>green</b> is the sidebar crop (leftmost 16% of the frame),
+<b>blue</b> is the editor (the right 56%, the calmest part), <b>orange</b> is the panel (bottom
+22%). The composition keeps the subject on the left and at the bottom so the code always sits on a
+quiet area. The crops are computed by <code>scripts/import-master.js</code>: it measures the frame
+on a luminance grid, picks the calmer half for the editor and prints a ready
+<code>SETS</code> entry.</sub>
 
 ### Gallery: sets in action
 
@@ -193,7 +229,7 @@ design** panel. At the top is the master toggle; below it settings are laid out 
   </tr>
   <tr valign="top">
     <td align="center"><img src="docs/screenshots/menu-en-sets.png" width="165" alt="Sets tab: chips for 25 sets, generator, slideshow, by time of day, by project"></td>
-    <td align="center"><img src="docs/screenshots/menu-en-view.png" width="165" alt="View tab: brightness, image and 40+ effects with search and FPS auto-budget"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-view.png" width="165" alt="View tab: brightness, image and ~50 effects with search and FPS auto-budget"></td>
     <td align="center"><img src="docs/screenshots/menu-en-terminal.png" width="165" alt="Terminal tab: font, ligatures, glow, cursor"></td>
     <td align="center"><img src="docs/screenshots/menu-en-system.png" width="165" alt="System tab: panel language, diagnostics, plugin folder, hotkeys"></td>
     <td align="center"><img src="docs/screenshots/menu-en-data.png" width="165" alt="Data tab: profiles, presets, sync, share, theme export"></td>
@@ -203,7 +239,7 @@ design** panel. At the top is the master toggle; below it settings are laid out 
 - **Sets** — set chips with previews (hover previews, click selects; a red "!" means an image failed
   to load), plus **Generator**, **Slideshow**, **By time of day** and **By project**.
 - **View** — **Set brightness**, **Image** (accent, filters and a custom image path per zone) and
-  **Effects** — 40+ toggles with a search filter, then "Strength" sliders, particle style and the
+  **Effects** — ~50 toggles with a search filter, then "Strength" sliders, particle style and the
   **FPS auto-budget**.
 - **Terminal** — font, ligatures, glow, cursor and selection.
 - **System** — panel language (**RU / EN / Auto**), install **Diagnostics**, **Plugin folder** and a

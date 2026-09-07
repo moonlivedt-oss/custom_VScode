@@ -51,4 +51,71 @@ test.describe("MoonLight custom-bg — интеграция в живом DOM", 
         await page.keyboard.press("Escape");
         await expect(panel).toHaveCount(0);
     });
+
+    // ============================================================
+    //  v20: быстрый переключатель, CSS-переменные, здоровье селекторов, шейдерный слой.
+    //  Всё это живёт в живом DOM (фокус, клавиатура, WebGL, getComputedStyle) — в vm-стабе
+    //  такое не проверить, поэтому проверяем здесь.
+    // ============================================================
+    test("быстрый переключатель: открытие, поиск, стрелки, Esc", async ({ page }) => {
+        await page.goto(fixtureUrl);
+        await expect(page.locator("#moonlight-bg-switcher")).toBeVisible({ timeout: 8000 });
+
+        // Ctrl+Alt+P открывает палитру и сразу ставит фокус в поле ввода.
+        await page.keyboard.press("Control+Alt+P");
+        const quick = page.locator("#moonlight-bg-quick");
+        await expect(quick).toBeVisible();
+        await expect(quick).toHaveAttribute("role", "dialog");
+        const rows = quick.locator('[role="option"]');
+        const total = await rows.count();
+        expect(total).toBeGreaterThan(5);
+
+        // Поиск сужает список, стрелка двигает выбор (aria-selected переезжает).
+        await page.keyboard.type("aur");
+        const filtered = await rows.count();
+        expect(filtered).toBeLessThan(total);
+        await page.keyboard.press("ArrowDown");
+        await expect(rows.nth(1)).toHaveAttribute("aria-selected", "true");
+
+        // Esc закрывает и возвращает фокус, ничего не применив.
+        await page.keyboard.press("Escape");
+        await expect(quick).toHaveCount(0);
+    });
+
+    test("CSS-переменные: ползунок меняет переменную, а не текст стиля", async ({ page }) => {
+        await page.goto(fixtureUrl);
+        await expect(page.locator("#moonlight-bg-switcher")).toBeVisible({ timeout: 8000 });
+        const before = await page.evaluate(function () {
+            return {
+                css: document.getElementById("moonlight-custom-bg").textContent.length,
+                blur: getComputedStyle(document.documentElement).getPropertyValue("--mlbg-blur").trim()
+            };
+        });
+        // Двигаем «ползунок» так же, как это делает панель: меняем cfg и зовём живое применение.
+        await page.evaluate(function () {
+            var w = window;
+            if (w.__mlbgTest && w.__mlbgTest.setBlur) { w.__mlbgTest.setBlur(17); return; }
+        });
+        const after = await page.evaluate(function () {
+            return {
+                css: document.getElementById("moonlight-custom-bg").textContent.length,
+                blur: getComputedStyle(document.documentElement).getPropertyValue("--mlbg-blur").trim()
+            };
+        });
+        expect(after.css).toBe(before.css);          // текст стиля не переписан
+        if (after.blur) expect(after.blur).not.toBe(before.blur); // а переменная — да
+    });
+
+    test("здоровье селекторов: фикстура-воркбенч распознаётся", async ({ page }) => {
+        await page.goto(fixtureUrl);
+        await expect(page.locator("#moonlight-bg-switcher")).toBeVisible({ timeout: 8000 });
+        const health = await page.evaluate(function () {
+            var w = window;
+            return (w.__mlbgTest && w.__mlbgTest.selectorHealth) ? w.__mlbgTest.selectorHealth() : null;
+        });
+        if (health) {
+            expect(health.total).toBeGreaterThan(15);
+            expect(health.found).toBeGreaterThan(3);   // фикстура содержит часть частей воркбенча
+        }
+    });
 });

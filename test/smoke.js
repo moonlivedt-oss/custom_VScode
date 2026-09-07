@@ -46,6 +46,7 @@ function ctxStub() {
         fillStyle: "", strokeStyle: "", lineWidth: 1, lineCap: "butt",
         clearRect: noop, beginPath: noop, arc: noop, ellipse: noop, fill: noop, stroke: noop,
         fillRect: noop, drawImage: noop, moveTo: noop, lineTo: noop, closePath: noop,
+        quadraticCurveTo: noop, bezierCurveTo: noop,
         save: noop, restore: noop, translate: noop, rotate: noop,
         getImageData: function () { return { data: [] }; }
     };
@@ -190,9 +191,11 @@ ok(sandbox.isLightTheme() === false, "тема vs-dark распознана ка
 // ---- 5. autoDim реально влияет на CSS при светлой картинке ----
 var edUrl = sandbox.IMG + sandbox.SETS[0].editor;
 sandbox._imgState[edUrl] = { ok: true, luma: 0.95 }; // почти белая картинка
-sandbox.cfg.autoDim = true;  var withDim = build();
-sandbox.cfg.autoDim = false; var noDim = build();
-ok(withDim !== noDim, "autoDim меняет CSS для светлой картинки (занижает яркость editor)");
+// v20: числа переехали в CSS-переменные (buildVars), поэтому эффект проверяем там —
+// сам текст стиля от ползунков и авто-дима больше не зависит (в этом и был смысл правки).
+sandbox.cfg.autoDim = true;  var withDim = sandbox.buildVars()["--mlbg-op-editor"];
+sandbox.cfg.autoDim = false; var noDim = sandbox.buildVars()["--mlbg-op-editor"];
+ok(parseFloat(withDim) < parseFloat(noDim), "autoDim занижает --mlbg-op-editor для светлой картинки (" + withDim + " < " + noDim + ")");
 sandbox.cfg.autoDim = true;
 delete sandbox._imgState[edUrl];
 
@@ -363,7 +366,20 @@ contains(build(), "o.jpg", "генеративный набор: своя кар
 sandbox.cfg.setImg = {}; sandbox.cfg.mode = "0";
 
 // ---- 17a2. Наборы: 12 фото + 6 генеративных + 7 процедурных, у зон разная форма градиента ----
-ok(sandbox.SETS.length === 25, "SETS: всего 25 наборов (12 фото + 6 градиентных + 7 процедурных)");
+ok(sandbox.SETS.length === 37, "SETS: всего 37 наборов (12 фото + 6 градиентных + 7 процедурных + 8 мастер-кадров + 4 шейдерных)");
+var shIdx = -1;
+for (var _i = 0; _i < sandbox.SETS.length; _i++) if (sandbox.SETS[_i].shader) { shIdx = _i; break; }
+ok(shIdx >= 0 && sandbox.isShaderSet(shIdx), "шейдерный набор распознаётся (isShaderSet)");
+sandbox.cfg.mode = String(shIdx);
+var cssShader = build();
+ok(cssShader.indexOf("url('") < 0, "шейдерный набор: картинок (url) в CSS нет — фон рисует GPU");
+contains(cssShader, "linear-gradient", "шейдерный набор: в CSS есть запасной градиент (если WebGL недоступен)");
+ok(typeof sandbox.shaderActive === "function" && sandbox.shaderActive() === true,
+   "шейдерный набор активен по конфигу (shaderActive)");
+var shThrew = false;
+try { sandbox.ensureShader(); } catch (e) { shThrew = true; }
+ok(!shThrew, "ensureShader без WebGL не бросает исключение (слой молча выключается)");
+sandbox.cfg.mode = "0";
 var gradCount = 0, procCount = 0;
 for (var gj = 0; gj < sandbox.SETS.length; gj++) { if (sandbox.isGradSet(gj)) gradCount++; if (sandbox.isProcSet(gj)) procCount++; }
 ok(gradCount === 6, "isGradSet: ровно 6 градиентных наборов");
@@ -643,10 +659,10 @@ sandbox.cfg.fx.dimInactive = false;
 ok(build().indexOf(".editor-group-container:not(.active)") < 0, "dimInactive выкл: правила нет");
 
 // 18b. Режим чтения занижает прозрачность фона редактора (CSS отличается)
-var noRead = build();
+var noRead = parseFloat(sandbox.buildVars()["--mlbg-op-editor"]);
 sandbox.cfg.fx.reading = true;
-var withRead = build();
-ok(withRead !== noRead, "reading: включённый режим чтения меняет CSS (гасит фон редактора)");
+var withRead = parseFloat(sandbox.buildVars()["--mlbg-op-editor"]);
+ok(withRead < noRead, "reading: режим чтения гасит фон редактора через --mlbg-op-editor (" + withRead + " < " + noRead + ")");
 sandbox.cfg.fx.reading = false;
 
 // 18c. Стекло палитры команд
@@ -736,6 +752,143 @@ ok(typeof sandbox.problemsCount === "function" && sandbox.problemsCount() === 0,
 var _errThrew = null; try { sandbox.cfg.fx.errorReact = false; sandbox.ensureErrorClass(); } catch (e) { _errThrew = e; }
 ok(_errThrew === null, "ensureErrorClass: отрабатывает без исключений (эффект выкл — класс снят)");
 
+// ---- 18k. v21: Живой фон / Анимации UI / Акрил ----
+sandbox.cfg.mode = "0"; sandbox.cfg.enabled = true;
+["liveBg", "uiAnim", "acrylic", "cursorTrail"].forEach(function (k) { sandbox.cfg.fx[k] = false; });
+// Живой фон: на фото-наборе (mode 0) правил нет (у фото свой Ken Burns); на градиентном — есть.
+sandbox.cfg.fx.liveBg = true;
+ok(build().indexOf("mlbg-livebg") < 0, "liveBg: на фото-наборе пан-фона нет (у фото свой Ken Burns)");
+sandbox.cfg.mode = String(gradIdx);
+contains(build(), "@keyframes mlbg-livebg", "liveBg: на градиентном наборе есть keyframes пана фона");
+sandbox.cfg.fx.liveBg = false;
+ok(build().indexOf("mlbg-livebg") < 0, "liveBg выкл: пан-анимации нет");
+sandbox.cfg.mode = "0";
+// Анимации UI: keyframes появления виджетов
+sandbox.cfg.fx.uiAnim = true;
+contains(build(), "@keyframes mlbg-uipop", "uiAnim: keyframes появления виджетов присутствуют");
+sandbox.cfg.fx.uiAnim = false;
+ok(build().indexOf("mlbg-uipop") < 0, "uiAnim выкл: анимаций интерфейса нет");
+// Акрил: усиленный backdrop-filter (blur+saturate) на весь воркбенч
+sandbox.cfg.fx.acrylic = true;
+contains(build(), "saturate(1.5)", "acrylic: усиленное матовое стекло (blur+saturate) на воркбенч");
+sandbox.cfg.fx.acrylic = false;
+ok(build().indexOf("saturate(1.5)") < 0, "acrylic выкл: усиленного стекла нет");
+
+// ---- 18l. v21: Шлейф курсора / Питомец (рантайм-виджеты, без исключений) ----
+sandbox.cfg.mode = "0"; sandbox.cfg.enabled = true;
+var trailThrew = null;
+try {
+    sandbox.cfg.fx.cursorTrail = true; sandbox.ensureCursorTrail();
+    sandbox.pushTrail(10, 10); sandbox.pushTrail(20, 22); sandbox.loopTrail();
+    sandbox.cfg.fx.cursorTrail = false; sandbox.ensureCursorTrail();
+} catch (e) { trailThrew = e; }
+ok(trailThrew === null, "cursorTrail: создание/точка/кадр/удаление шлейфа без исключений" + (trailThrew ? " (" + trailThrew.message + ")" : ""));
+var petThrew = null;
+try {
+    sandbox.cfg.fx.pet = true; sandbox.ensurePet();
+    sandbox.petState.typedAt = Date.now(); sandbox.loopPet(1000);                    // «печатаешь»
+    sandbox.petState.typedAt = 0; sandbox.petState.errors = 3; sandbox.loopPet(2000); // «ошибки»
+    sandbox.petState.errors = 0; sandbox.loopPet(3000);                              // «покой»
+    sandbox.cfg.fx.pet = false; sandbox.ensurePet();
+} catch (e) { petThrew = e; }
+ok(petThrew === null, "pet: маскот во всех настроениях (покой/печать/ошибки) рисуется без исключений" + (petThrew ? " (" + petThrew.message + ")" : ""));
+sandbox.cfg.fx.pet = true; sandbox.petState.errors = 0; sandbox.petState.typedAt = 0;
+ok(sandbox.petMood() === "idle", "petMood: без печати и ошибок — покой");
+sandbox.petState.errors = 2;
+ok(sandbox.petMood() === "alert", "petMood: при ошибках в коде — тревога");
+sandbox.petState.errors = 0; sandbox.petState.typedAt = Date.now();
+ok(sandbox.petMood() === "type", "petMood: недавняя печать — «печатаешь»");
+sandbox.cfg.fx.pet = false; sandbox.petState.errors = 0; sandbox.petState.typedAt = 0;
+
+// ---- 18m. v21: фон по ветке / по языку + рассвет-закат ----
+// Санитизация карт контекста (как workspaceSets): валидные индексы-строки, мусор отброшен.
+var bsm = sandbox.mergeCfg({ autoBranch: true, branchSets: { "main": "2", "bad": "999", "x": 5 }, autoLang: true, langSets: { "js": "3", "py": "999" } });
+ok(bsm.autoBranch === true && bsm.branchSets.main === "2" && !("bad" in bsm.branchSets) && !("x" in bsm.branchSets),
+    "mergeCfg: branchSets — только валидные индексы-строки существующих наборов");
+ok(bsm.autoLang === true && bsm.langSets.js === "3" && !("py" in bsm.langSets),
+    "mergeCfg: langSets — только валидные индексы (несуществующий отброшен)");
+ok(sandbox.mergeCfg({ autoBranch: "yes" }).autoBranch === false, "mergeCfg: autoBranch принимает только булево");
+// Приоритет activeIndex: проект > ветка > язык > mode (подменяем чтение ветки/расширения).
+var _gb = sandbox.gitBranch, _ef = sandbox.editorFileExt;
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" });
+sandbox.gitBranch = function () { return "feature"; };
+sandbox.editorFileExt = function () { return "py"; };
+sandbox.cfg.autoBranch = true; sandbox.cfg.branchSets = { "feature": "3" };
+ok(sandbox.activeIndex() === 3, "activeIndex: закреплённый за веткой набор перебивает mode");
+sandbox.cfg.autoLang = true; sandbox.cfg.langSets = { "py": "5" };
+ok(sandbox.activeIndex() === 3, "activeIndex: ветка приоритетнее языка файла");
+sandbox.cfg.autoBranch = false;
+ok(sandbox.activeIndex() === 5, "activeIndex: без ветки срабатывает набор по языку файла (.py -> 5)");
+sandbox.cfg.autoWorkspace = true; sandbox.cfg.workspaceSets = { "Repo": "1" }; sandbox.document.title = "a.py - Repo - Visual Studio Code";
+ok(sandbox.activeIndex() === 1, "activeIndex: проект приоритетнее и ветки, и языка");
+sandbox.gitBranch = _gb; sandbox.editorFileExt = _ef; // восстановить оригиналы (иначе сломаем тест scrapeHealth ниже)
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" }); sandbox.document.title = "";
+ok(sandbox.editorFileExt() === "", "editorFileExt: без активной вкладки возвращает пустую строку (не бросает)");
+// Рассвет/закат: sunTimes даёт числовые часы, isDaytime в sun-режиме не бросает.
+var _st = sandbox.sunTimes(55.75, 37.62, new Date(2026, 5, 21, 12, 0));
+ok(_st && typeof _st.rise === "number" && typeof _st.set === "number" &&
+    _st.rise >= 0 && _st.rise < 24 && _st.set >= 0 && _st.set < 24,
+    "sunTimes: возвращает восход/закат в местных часах [0,24)");
+sandbox.cfg.autoTime = { on: false, day: 1, night: 5, from: 8, to: 20, mode: "sun", lat: 55.75, lon: 37.62 };
+var _sunThrew = null, _dt; try { _dt = sandbox.isDaytime(); } catch (e) { _sunThrew = e; }
+ok(_sunThrew === null && typeof _dt === "boolean", "isDaytime: режим рассвет/закат считает день/ночь без исключений");
+var atc2 = sandbox.mergeCfg({ autoTime: { mode: "sun", lat: 200, lon: -400 } }).autoTime;
+ok(atc2.mode === "sun" && atc2.lat === 90 && atc2.lon === -180, "mergeCfg: autoTime.mode/lat/lon санитизируются (координаты зажаты)");
+sandbox.cfg.autoTime = { on: false, day: 0, night: 4, from: 8, to: 20, mode: "hours", lat: 0, lon: 0 };
+sandbox.cfg.autoLang = false; sandbox.cfg.autoWorkspace = false; sandbox.cfg.workspaceSets = {}; sandbox.cfg.mode = "0";
+
+// ---- 18n. v21: библиотека своих картинок ----
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" }); sandbox.cfg.enabled = true;
+var libm = sandbox.mergeCfg({ library: ["file:///d:/a.jpg", 123, "vscode-file://vscode-app/b.png", ""], librarySlideshow: true });
+ok(libm.library.length === 2 && libm.library[0] === "file:///d:/a.jpg" && libm.librarySlideshow === true,
+    "mergeCfg: library — только непустые строки-пути, librarySlideshow булев");
+sandbox.cfg.library = ["file:///d:/lib1.jpg", "file:///d:/lib2.jpg"]; sandbox.cfg.librarySlideshow = true; sandbox.sessionLibIndex = 0;
+ok(sandbox.libraryActive() === true, "libraryActive: включено при enabled + librarySlideshow + непустой библиотеке");
+ok(sandbox.libraryEditorUrl() === "file:///d:/lib1.jpg", "libraryEditorUrl: отдаёт текущую картинку библиотеки");
+contains(build(), "lib1.jpg", "buildCSS: библиотека показывает свою картинку в зоне редактора");
+var _liBefore = sandbox.sessionLibIndex;
+sandbox.libSlide.last = 0; sandbox.cfg.slideshow.min = 1; sandbox.libraryTick();
+ok(sandbox.sessionLibIndex === _liBefore + 1, "libraryTick: по таймеру сдвигает индекс библиотеки");
+ok(sandbox.countRemoteImgs({ library: ["http://evil/x.jpg", "assets/ok.jpg"] }) === 1, "countRemoteImgs: учитывает удалённые ссылки в библиотеке");
+sandbox.cfg.librarySlideshow = false; sandbox.cfg.library = []; sandbox.cfg.mode = "0";
+
+// ---- 18o. v21: витрина/скринсейвер при простое ----
+var ssm = sandbox.mergeCfg({ screensaver: { on: true, min: 200 } }).screensaver;
+ok(ssm.on === true && ssm.min === 120, "mergeCfg: screensaver.on булев, min зажат в 1..120");
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" }); sandbox.cfg.enabled = true;
+sandbox.cfg.screensaver = { on: true, min: 1 };
+var ssThrew = null;
+try {
+    sandbox.saver.lastAct = 0; sandbox.screensaverTick();      // давно простаиваем -> показать
+    var shown = sandbox.saver.active;
+    sandbox.screensaverBump();                                 // активность -> убрать
+    ok(shown === true && sandbox.saver.active === false, "screensaverTick/bump: простой показывает витрину, активность убирает");
+} catch (e) { ssThrew = e; }
+ok(ssThrew === null, "screensaver: показ/обновление/сокрытие без исключений" + (ssThrew ? " (" + ssThrew.message + ")" : ""));
+sandbox.cfg.screensaver = { on: false, min: 5 }; sandbox.screensaverSync();
+ok(sandbox.saver.active === false, "screensaverSync: выключение убирает активную витрину");
+sandbox.cfg.mode = "0";
+
+// ---- 18p. v21: статистика сессии ----
+sandbox.statsReset();
+ok(sandbox.statsState.keys === 0 && sandbox.statsState.fileCount === 0, "statsReset: обнуляет счётчики сессии");
+sandbox.statsOnType(); sandbox.statsOnType();
+ok(sandbox.statsState.keys === 2, "statsOnType: считает нажатия");
+ok(sandbox.fmtDur(0) === "0:00" && sandbox.fmtDur(65000) === "1:05" && sandbox.fmtDur(3665000) === "1:01:05",
+    "fmtDur: формат MM:SS и H:MM:SS");
+var statThrew = null;
+try { sandbox.cfg.fx.stats = true; sandbox.ensureStats(); sandbox.paintStats(); sandbox.statsTrackFile(); sandbox.cfg.fx.stats = false; sandbox.ensureStats(); } catch (e) { statThrew = e; }
+ok(statThrew === null, "stats: виджет/подсчёт файла без исключений (нет статусбара в стабе)" + (statThrew ? " (" + statThrew.message + ")" : ""));
+sandbox.statsReset();
+
+// ---- 18q. v21: контраст акцента + дальтоник-безопасная палитра ----
+ok(Math.round(sandbox.contrastRatio("#ffffff", "#000000")) === 21, "contrastRatio: белый/чёрный ~ 21:1 (максимум WCAG)");
+ok(Math.abs(sandbox.contrastRatio("#808080", "#808080") - 1) < 0.001, "contrastRatio: одинаковые цвета -> 1:1");
+ok(sandbox.CB_SAFE.length === 7 && sandbox.CB_SAFE.every(function (h) { return sandbox.isColor(h); }),
+    "CB_SAFE: 7 дальтоник-безопасных hex-акцентов (Окабэ-Ито)");
+sandbox.cfg.mode = "0";
+ok(sandbox.isColor(sandbox.accentContrastRef()), "accentContrastRef: возвращает валидный hex подложки набора");
+
 // ---- 19. v16: стиль частиц санитизируется по белому списку ----
 ok(sandbox.safePartStyle("sakura") === "sakura" && sandbox.safePartStyle("dots") === "dots" &&
     sandbox.safePartStyle("evil<style>") === "dots" && sandbox.safePartStyle(123) === "dots",
@@ -824,6 +977,28 @@ try { sandbox.refreshPanel(); sandbox.togglePanel({ stopPropagation: function ()
 catch (e2) { reThrew = e2; }
 ok(reThrew === null, "refreshPanel + повторный togglePanel не бросают" + (reThrew ? " (" + reThrew.message + ")" : ""));
 ok(sandbox.panelTab === 0, "panelTab: активная вкладка по умолчанию 0");
+// Указатель секций: collapsible регистрирует setOpen (нужен «Свернуть/Развернуть всё»).
+ok(sandbox.panelSections.length > 0 && typeof sandbox.panelSections[0].setOpen === "function" && typeof sandbox.panelSections[0].expand === "function",
+    "указатель секций: у секции есть setOpen/expand (свернуть-развернуть всё + переход)");
+
+// ---- 20a2. v21: настройка меню (скрыть/показать секции и эффекты) ----
+var uih = sandbox.mergeCfg({ ui: { hidden: { "Слайдшоу": true, "x": "no" }, hiddenFx: { "aurora": true, "y": 5 } } }).ui;
+ok(uih.hidden["Слайдшоу"] === true && !("x" in uih.hidden) && uih.hiddenFx.aurora === true && !("y" in uih.hiddenFx),
+    "mergeCfg: ui.hidden/hiddenFx принимают только булевы значения");
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" });
+sandbox.cfg.ui.hidden = { "Слайдшоу": true }; sandbox.panelEditMenu = false;
+sandbox.togglePanel({ stopPropagation: function () {} });
+var secTitles2 = (sandbox.panelSections || []).map(function (s) { return s.title; });
+ok(secTitles2.indexOf("Слайдшоу") < 0, "настройка меню: скрытая секция не попадает в видимые (panelSections)");
+var allTitles = (sandbox.panelAllSections || []).map(function (s) { return s.title; });
+ok(allTitles.indexOf("Слайдшоу") >= 0 && allTitles.indexOf("Настройка меню") >= 0,
+    "настройка меню: скрытая секция и сам менеджер есть в полном списке (panelAllSections)");
+sandbox.cfg.ui.hidden = {};
+sandbox.panelEditMenu = true;
+var editThrew = null; try { sandbox.togglePanel({ stopPropagation: function () {} }); } catch (e) { editThrew = e; }
+ok(editThrew === null, "настройка меню: режим редактирования строит панель без исключений" + (editThrew ? " (" + editThrew.message + ")" : ""));
+sandbox.panelEditMenu = false;
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" });
 
 // ---- 20b. Запоминание вкладки: cfg.ui.tab санитизируется и подхватывается панелью ----
 ok(sandbox.mergeCfg({ ui: { tab: 2 } }).ui.tab === 2 &&
@@ -846,6 +1021,13 @@ sandbox.cfg.fx.particles = true;
 // ---- 17. Детерминизм сборки: build() дважды даёт идентичный артефакт ----
 var B = require(path.join(ROOT, "build.js"));
 ok(B.build(false) === B.build(false), "build.js: повторная сборка даёт идентичный custom-bg.js (детерминизм)");
+// Сборка должна быть одинаковой и на РАЗНЫХ машинах. Windows-инструменты оставляют в
+// исходниках CRLF, и раньше «пустая» строка с CR получала отступ в четыре пробела: артефакт
+// с Windows отличался от собранного на Linux, и CI падал на сверке. build.js нормализует
+// переводы строк на входе — проверяем результат прямо здесь.
+var _art = B.build(false);
+ok(_art.indexOf("\r") < 0, "build.js: в артефакте нет CR — сборка одинакова на Windows и Linux");
+ok(!/^[ \t]+$/m.test(_art), "build.js: нет строк из одних пробелов (следствие CRLF в исходниках)");
 
 // ---- 18. В src/ нет многострочных шаблонных литералов (backtick) ----
 // build.js.indent() сдвигает КАЖДУЮ строку модуля на 4 пробела. Это безопасно, только пока
@@ -1071,7 +1253,7 @@ sandbox.PROFILES.forEach(function (p) {
 ok(profFxBad.length === 0, "линтер: fx-ключи всех PROFILES есть в DEFAULTS.fx" + (profFxBad.length ? "  (лишние: " + profFxBad.join(", ") + ")" : ""));
 ok(sandbox.profileById("focus") && !sandbox.profileById("нет-такого"), "profileById: находит существующий профиль, на несуществующий -> null");
 
-// ---- 32. DOM-скрейпинг: учёт «здоровья» селекторов (улучшение 6) ----
+// ---- 32. DOM-скрейпинг: учёт «здоровья» селекторов ----
 var h0 = sandbox.scrapeHealth();
 ok(Array.isArray(h0) && h0.length >= 3, "scrapeHealth: возвращает статус по каждому скрейперу (>=3)");
 for (var sc = 0; sc < 10; sc++) sandbox.gitBranch(); // в песочнице статусбар пуст -> все попытки без попаданий
@@ -1083,7 +1265,7 @@ ok(gh && gh.tries >= 8 && gh.hits === 0 && gh.ok === false,
 ok(sandbox.DEFAULTS.perfGuard === true, "perfGuard: включён по умолчанию");
 ok(sandbox.mergeCfg({ perfGuard: false }).perfGuard === false, "mergeCfg: perfGuard принимает булево");
 
-// ---- 34. Мост settings.json: seed из window.__MLBG_SEED__ (улучшение 5) ----
+// ---- 34. Мост settings.json: seed из window.__MLBG_SEED__ ----
 ok(sandbox.seedConfig() === null, "seedConfig: без window.__MLBG_SEED__ базового конфига нет");
 sandbox.window.__MLBG_SEED__ = { accent: "#abcdef", mode: "2" };
 ok(!!sandbox.seedConfig(), "seedConfig: window.__MLBG_SEED__ распознан");
@@ -1093,6 +1275,242 @@ ok(seeded.accent === "#abcdef" && seeded.mode === "2", "loadCfg: при пуст
 var seedBad = sandbox.mergeCfg({ accent: "не-цвет" }); // seed проходит ту же санитизацию mergeCfg
 ok(seedBad.accent === sandbox.DEFAULTS.accent, "seed проходит санитизацию mergeCfg (мусорный акцент -> дефолт)");
 try { delete sandbox.window.__MLBG_SEED__; } catch (e) { sandbox.window.__MLBG_SEED__ = undefined; }
+
+// ---- 40. v22: группы эффектов / избранное / каталог поиска / активный профиль ----
+// Группировка эффектов: каждый эффект отнесён к существующей группе, и каждая группа непуста.
+var fxGroupOrderKeys = sandbox.FX_GROUP_ORDER.map(function (g) { return g[0]; });
+var fxNoGroup = sandbox.FX_LIST.map(function (o) { return o[0]; }).filter(function (k) { return !sandbox.FX_GROUPS[k]; });
+ok(fxNoGroup.length === 0, "линтер: у каждого эффекта FX_LIST есть группа в FX_GROUPS" + (fxNoGroup.length ? "  (без группы: " + fxNoGroup.join(", ") + ")" : ""));
+var fxBadGroup = sandbox.FX_LIST.map(function (o) { return o[0]; }).filter(function (k) { return fxGroupOrderKeys.indexOf(sandbox.FX_GROUPS[k]) < 0; });
+ok(fxBadGroup.length === 0, "линтер: группа каждого эффекта объявлена в FX_GROUP_ORDER" + (fxBadGroup.length ? "  (чужая: " + fxBadGroup.join(", ") + ")" : ""));
+var emptyGroups = fxGroupOrderKeys.filter(function (gk) { return sandbox.FX_LIST.every(function (o) { return sandbox.FX_GROUPS[o[0]] !== gk; }); });
+ok(emptyGroups.length === 0, "линтер: в каждой группе FX_GROUP_ORDER есть хотя бы один эффект" + (emptyGroups.length ? "  (пустые: " + emptyGroups.join(", ") + ")" : ""));
+
+// Избранное: mergeCfg санитизирует ui.favSec/favFx как булевы карты (как hidden/hiddenFx).
+var favm = sandbox.mergeCfg({ ui: { favSec: { "Слайдшоу": true, "x": 5 }, favFx: { "aurora": true, "y": "no" } } }).ui;
+ok(favm.favSec["Слайдшоу"] === true && !("x" in favm.favSec) && favm.favFx.aurora === true && !("y" in favm.favFx),
+    "mergeCfg: ui.favSec/favFx принимают только булевы значения");
+ok(sandbox.DEFAULTS.ui.favSec && sandbox.DEFAULTS.ui.favFx, "DEFAULTS.ui: есть карты избранного favSec/favFx");
+
+// Каталог глубокого поиска: каждая непустая секция каталога реально существует; вкладки 0..4.
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" }); sandbox.panelEditMenu = false;
+sandbox.togglePanel({ stopPropagation: function () {} });
+var allTitles40 = (sandbox.panelAllSections || []).map(function (s) { return s.title; });
+var catBadSec = sandbox.PANEL_SEARCH_CATALOG.filter(function (c) { return c[2] && allTitles40.indexOf(c[2]) < 0; });
+ok(catBadSec.length === 0, "каталог поиска: все секции каталога существуют среди секций панели" + (catBadSec.length ? "  (нет: " + catBadSec.map(function (c) { return c[2]; }).join(", ") + ")" : ""));
+var catBadTab = sandbox.PANEL_SEARCH_CATALOG.filter(function (c) { return !(c[1] >= 0 && c[1] < 5); });
+ok(catBadTab.length === 0, "каталог поиска: индексы вкладок в диапазоне 0..4");
+
+// Активный профиль: сразу после применения он активен; ручная правка снимает активность.
+var _cfgSave40 = sandbox.clone(sandbox.cfg);
+sandbox.applyProfile("calm");
+ok(sandbox.activeProfileId() === "calm", "activeProfileId: сразу после применения профиль активен");
+sandbox.cfg.fx.particles = !sandbox.cfg.fx.particles; // ручная правка ломает совпадение с патчем
+ok(sandbox.activeProfileId() === null, "activeProfileId: после ручной правки активного профиля нет");
+sandbox.cfg = _cfgSave40;
+
+// Обратимое скрытие: в режиме «Настроить» скрытая секция всё равно строится (её видно, чтобы вернуть).
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" });
+sandbox.cfg.ui.hidden = { "Слайдшоу": true };
+sandbox.panelEditMenu = true;
+sandbox.togglePanel({ stopPropagation: function () {} });
+var editTitles = (sandbox.panelSections || []).map(function (s) { return s.title; });
+ok(editTitles.indexOf("Слайдшоу") >= 0, "обратимое скрытие: в режиме «Настроить» скрытая секция показана (можно вернуть на месте)");
+sandbox.panelEditMenu = false; sandbox.cfg = sandbox.mergeCfg({ mode: "0" });
+sandbox.togglePanel({ stopPropagation: function () {} });
+
+// ---- 41. v23: ресайз ширины / превью образа / индикатор FPS / переход к эффекту ----
+// Ширина панели: mergeCfg санитизирует ui.width в разумные пределы; дефолт — null.
+ok(sandbox.DEFAULTS.ui.width === null, "DEFAULTS.ui.width: по умолчанию null (ширина 380)");
+ok(sandbox.mergeCfg({ ui: { width: 500 } }).ui.width === 500 &&
+    sandbox.mergeCfg({ ui: { width: 100 } }).ui.width === 320 &&
+    sandbox.mergeCfg({ ui: { width: 9999 } }).ui.width === 760 &&
+    sandbox.mergeCfg({ ui: { width: "x" } }).ui.width === null,
+    "mergeCfg: ui.width зажат в 320..760, мусор -> null (дефолт)");
+
+// Превью целого образа: функции есть и не пишут в localStorage (applyNoSave).
+ok(typeof sandbox.previewLook === "function" && typeof sandbox.endLookPreview === "function" &&
+    typeof sandbox.profilePreviewCfg === "function" && typeof sandbox.presetPreviewCfg === "function",
+    "превью образа: previewLook/endLookPreview/profilePreviewCfg/presetPreviewCfg объявлены");
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" }); sandbox.cfg.enabled = true;
+var _snap41 = sandbox.clone(sandbox.cfg);
+var prof = sandbox.profileById("focus");
+var pcfg = sandbox.profilePreviewCfg(_snap41, prof);
+ok(pcfg.fx.spotlight === true && pcfg.mode === _snap41.mode,
+    "profilePreviewCfg: применяет патч профиля, но НЕ трогает набор (mode из снимка)");
+sandbox.localStorage.setItem(sandbox.CFG_KEY, "SENTINEL41");
+sandbox.previewLook(function (s) { return sandbox.profilePreviewCfg(s, prof); });
+// previewLook дебаунсит через setTimeout — в стабе setTimeout не выполняет колбэк, поэтому
+// проверяем лишь то, что вызов не пишет конфиг синхронно (живое превью — applyNoSave, без saveCfg).
+ok(sandbox.localStorage.getItem(sandbox.CFG_KEY) === "SENTINEL41", "previewLook: не пишет конфиг в localStorage");
+sandbox.endLookPreview();
+sandbox.cfg = _snap41;
+
+// Пресет-превью сохраняет текущий набор/картинки (слой «эффекты + палитра»).
+var _pp = sandbox.presetPreviewCfg(sandbox.mergeCfg({ mode: "3", setImg: { "0": { editor: "keep.jpg" } } }),
+    { mode: "5", fx: { aurora: true }, setImg: { "0": { editor: "other.jpg" } } });
+ok(_pp.mode === "3" && _pp.setImg["0"].editor === "keep.jpg" && _pp.fx.aurora === true,
+    "presetPreviewCfg: набор/картинки из снимка, эффекты — из пресета");
+
+// Живой индикатор FPS: builder есть, глобальное состояние perf доступно.
+ok(typeof sandbox.makePerfStatus === "function" && typeof sandbox.perf === "object" && typeof sandbox.perfShouldRun === "function",
+    "индикатор FPS: makePerfStatus + perf + perfShouldRun доступны");
+
+// Единый поиск: переход к эффекту (goEffect) регистрирует фокус-ключ и цель прокрутки.
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" }); sandbox.panelEditMenu = false;
+sandbox.togglePanel({ stopPropagation: function () {} });
+ok(sandbox.panelFxNodes && typeof sandbox.panelFxNodes === "object" && ("aurora" in sandbox.panelFxNodes),
+    "единый поиск: строки эффектов зарегистрированы в panelFxNodes (для прокрутки к эффекту)");
+
+// ============================================================
+//  v20: движок читаемости, переменные, загрузчик, мастер-кадры, палитра OKLab,
+//  здоровье селекторов, быстрый переключатель.
+// ============================================================
+console.log("\n-- v20 --");
+
+// ---- Логика меню: зависимости пунктов объявлены корректно ----
+(function () {
+    var k, bad = [];
+    for (k in sandbox.FX_REQUIRES) {
+        if (!(k in sandbox.DEFAULTS.fx)) bad.push(k + " (нет такого эффекта)");
+        if (!(sandbox.FX_REQUIRES[k] in sandbox.DEFAULTS.fx)) bad.push(k + " -> " + sandbox.FX_REQUIRES[k] + " (нет предпосылки)");
+    }
+    ok(!bad.length, "линтер: FX_REQUIRES ссылается на существующие эффекты" + (bad.length ? " (" + bad.join(", ") + ")" : ""));
+    bad = [];
+    for (k in sandbox.PARAM_REQUIRES) {
+        if (!(k in sandbox.DEFAULTS.fxp)) bad.push(k + " (нет такого параметра)");
+        sandbox.PARAM_REQUIRES[k].forEach(function (fx) { if (!(fx in sandbox.DEFAULTS.fx)) bad.push(k + " -> " + fx); });
+    }
+    ok(!bad.length, "линтер: PARAM_REQUIRES ссылается на существующие параметры и эффекты" + (bad.length ? " (" + bad.join(", ") + ")" : ""));
+    // Каждый ползунок силы должен иметь владельца, иначе он висит в панели всегда.
+    var orphan = sandbox.PARAMS.filter(function (d) { return !sandbox.PARAM_REQUIRES[d[0]]; }).map(function (d) { return d[0]; });
+    ok(!orphan.length, "линтер: у каждого ползунка силы есть эффект-владелец" + (orphan.length ? " (без владельца: " + orphan.join(", ") + ")" : ""));
+}());
+var fxSnap0 = JSON.stringify(sandbox.cfg.fx);
+Object.keys(sandbox.cfg.fx).forEach(function (k) { sandbox.cfg.fx[k] = false; });
+ok(sandbox.paramNeeded("blur") === false, "paramNeeded: без единого стекла ползунок размытия не нужен");
+sandbox.cfg.fx.glassSide = true;
+ok(sandbox.paramNeeded("blur") === true, "paramNeeded: включённое стекло возвращает ползунок размытия");
+ok(sandbox.fxAffectsPanel("kenburns") === true, "fxAffectsPanel: Ken Burns управляет своими ползунками");
+ok(sandbox.fxAffectsPanel("rounded") === false, "fxAffectsPanel: эффект без зависимых контролов не пересобирает панель");
+sandbox.cfg.fx = JSON.parse(fxSnap0);
+
+// ---- Переменные вместо чисел в тексте стиля ----
+var vars = sandbox.buildVars();
+ok(typeof vars["--mlbg-op-editor"] === "string" && typeof vars["--mlbg-blur"] === "string",
+   "buildVars: прозрачность зон и размытие стекла — переменные");
+ok(/px$/.test(vars["--mlbg-blur"]) && /px$/.test(vars["--mlbg-spot"]),
+   "buildVars: размеры отдаются с единицами (px), иначе calc() в CSS не сложится");
+sandbox.cfg.fxp.blur = 3; var v1 = sandbox.buildVars()["--mlbg-blur"];
+sandbox.cfg.fxp.blur = 14; var v2 = sandbox.buildVars()["--mlbg-blur"];
+ok(v1 !== v2, "buildVars: ползунок меняет значение переменной (" + v1 + " -> " + v2 + ")");
+var cssA = build(); sandbox.cfg.fxp.vignette = 0.77; sandbox.cfg.baseOp.side = 0.5;
+ok(build() === cssA, "текст стиля НЕ меняется от ползунков — переразбора CSS при перетаскивании нет");
+sandbox.cfg.fxp.blur = 8; sandbox.cfg.fxp.vignette = 0.32; sandbox.cfg.baseOp.side = 0.30;
+
+// ---- Бюджет размера стиля (чтобы рост не проехал незамеченным) ----
+var fxSnapshot = JSON.stringify(sandbox.cfg.fx);
+Object.keys(sandbox.cfg.fx).forEach(function (k) { sandbox.cfg.fx[k] = true; });
+var cssAll = build();
+ok(cssAll.length < 24000, "бюджет CSS: со всеми эффектами лист меньше 24 КБ (сейчас " + cssAll.length + ")");
+sandbox.cfg.fx = JSON.parse(fxSnapshot);
+
+// ---- Палитра в OKLab ----
+var acc = sandbox.dominantAccent(red);
+ok(/^#[0-9a-f]{6}$/.test(acc), "OKLab: dominantAccent даёт корректный hex (" + acc + ")");
+var lo = "#4a4a6a", raised = sandbox.accentForContrast(lo, "#11111b", 4.5);
+ok(sandbox.contrastRatio(raised, "#11111b") >= sandbox.contrastRatio(lo, "#11111b"),
+   "accentForContrast: поднимает контраст тусклого акцента к тёмной подложке");
+var lch = sandbox.hexToOklch("#89b4fa");
+ok(lch.length === 3 && lch[0] > 0 && lch[0] < 1, "hexToOklch: светлота в диапазоне 0..1");
+
+// ---- Карта яркости и адаптивный скрим ----
+var flat = []; for (var _g = 0; _g < 32 * 32 * 4; _g++) flat.push(_g % 4 === 3 ? 255 : 10);
+var gridDark = sandbox.lumaGrid(flat, 32);
+ok(gridDark.length === 64, "lumaGrid: сетка 8x8 = 64 ячейки");
+ok(gridDark[0] < 0.05, "lumaGrid: тёмная картинка -> низкая яркость ячейки");
+var edUrl2 = sandbox.IMG + sandbox.SETS[0].editor;
+var bright = []; for (var _i2 = 0; _i2 < 64; _i2++) bright.push(_i2 === 20 ? 0.9 : 0.02); // одно яркое пятно
+sandbox._imgState[edUrl2] = { ok: true, luma: 0.2, grid: bright, resolved: true, thumb: null, accent: null, palette: null };
+sandbox.cfg.mode = "0"; sandbox.cfg.fx.autoRead = true;
+var cssRead = build();
+contains(cssRead, "radial-gradient(ellipse", "адаптивный скрим: над ярким пятном появился гасящий градиент");
+sandbox.cfg.fx.autoRead = false;
+ok(build().indexOf("radial-gradient(ellipse 26%") < 0, "адаптивный скрим выключен: гасящих пятен в CSS нет");
+sandbox.cfg.fx.autoRead = true;
+
+// ---- Метр читаемости и авто-починка ----
+var rd = sandbox.readability();
+ok(rd && rd.worstRatio > 0 && rd.ratio > 0, "readability: считает контраст кода к подложке");
+// Скрим гасит самые светлые ячейки, поэтому метр должен учитывать его и не пугать зря.
+sandbox.cfg.fx.autoRead = false; var wOff = sandbox.readability().worstRatio;
+sandbox.cfg.fx.autoRead = true;  var wOn = sandbox.readability().worstRatio;
+ok(wOn >= wOff, "readability: с адаптивным скримом худший участок не хуже (" + wOff.toFixed(1) + " -> " + wOn.toFixed(1) + ")");
+sandbox.cfg.enabled = false;
+ok(sandbox.readability().off === true, "readability: при выключенном фоне отвечает «выключено», а не «нет данных»");
+sandbox.cfg.enabled = true;
+sandbox.cfg.baseOp.editor = 0.9;                       // заведомо нечитаемо
+var before = sandbox.readability().worstRatio;
+sandbox.fixReadability(4.5);
+var after = sandbox.readability().worstRatio;
+ok(after >= before, "fixReadability: контраст худшего участка не ухудшился (" + before.toFixed(1) + " -> " + after.toFixed(1) + ")");
+sandbox.cfg.setOp = {}; sandbox.cfg.baseOp.editor = 0.06;
+delete sandbox._imgState[edUrl2];
+
+// ---- Наборы одной мастер-картинкой ----
+var mIdx = -1;
+for (var _m = 0; _m < sandbox.SETS.length; _m++) if (sandbox.SETS[_m].master) { mIdx = _m; break; }
+ok(mIdx >= 0, "в наборах есть мастер-кадры (master + crop)");
+sandbox.cfg.mode = String(mIdx);
+var cssMaster = build();
+contains(cssMaster, "assets/sets/", "мастер-набор: все зоны берут один файл из assets/sets/");
+ok(/100\.00% 50\.00% \/ 178\.57%/.test(cssMaster), "мастер-набор: вырез редактора посчитан по формуле background-position/size");
+ok(sandbox.cropFor(mIdx, "sidebar") !== null, "cropFor: у сайдбара свой вырез");
+sandbox.cfg.setImg = {}; sandbox.cfg.setImg[mIdx] = { sidebar: "file:///d:/my.jpg" };
+ok(sandbox.cropFor(mIdx, "sidebar") === null, "своя картинка зоны отменяет вырез (показывается целиком)");
+sandbox.cfg.setImg = {};
+// Стартовая прозрачность набора (светлые кадры) уважает пользовательскую правку
+var brightSet = -1;
+for (var _b = 0; _b < sandbox.SETS.length; _b++) if (sandbox.SETS[_b].op) { brightSet = _b; break; }
+if (brightSet >= 0) {
+    sandbox.cfg.mode = String(brightSet);
+    ok(sandbox.getOp().editor === sandbox.SETS[brightSet].op.editor, "op набора: светлый кадр стартует с пониженной прозрачности");
+    sandbox.cfg.setOp[brightSet] = { editor: 0.5 };
+    ok(sandbox.getOp().editor === 0.5, "правка пользователя важнее стартовой прозрачности набора");
+    sandbox.cfg.setOp = {};
+}
+sandbox.cfg.mode = "0";
+
+// ---- Загрузчик и настоящая прозрачность ----
+ok(sandbox.loaderKind().id === "custom-css", "loaderKind: без данных компаньона считаем загрузчиком be5invis");
+sandbox.window.__MLBG_ENV__ = { loader: "custom-ui-style", version: "1.2.3", transparent: true };
+ok(sandbox.loaderKind().id === "custom-ui-style" && sandbox.loaderKind().sure === true,
+   "loaderKind: компаньон сообщает загрузчик точно");
+ok(sandbox.trueGlassReady() === true, "trueGlassReady: окно создано прозрачным");
+sandbox.cfg.fx.trueGlass = true;
+contains(build(), "background: transparent !important", "trueGlass при прозрачном окне: воркбенч становится прозрачным");
+sandbox.window.__MLBG_ENV__ = null;
+ok(build().indexOf("body, .monaco-workbench, .monaco-workbench > .part.editor { background: transparent") < 0,
+   "trueGlass без прозрачного окна: полной прозрачности НЕ включаем (иначе чёрное окно)");
+sandbox.cfg.fx.trueGlass = false;
+contains(sandbox.trueGlassSnippet(), "custom-ui-style.electron", "готовый сниппет опций Electron для settings.json");
+contains(sandbox.loaderImportSnippet(), "imports", "готовый сниппет импорта для settings.json");
+
+// ---- Здоровье селекторов вёрстки ----
+var sh = sandbox.selectorHealthSummary();
+ok(sh && typeof sh.total === "number" && sh.total >= 15, "selectorHealth: проверяется весь список ключевых селекторов");
+ok(Object.prototype.toString.call(sh.missingRequired) === "[object Array]", "selectorHealth: список обязательных промахов");
+
+// ---- Быстрый переключатель ----
+ok(sandbox.quickScore("Звёздный причал", "звпр") >= 0, "быстрый поиск: подпоследовательность находит набор");
+ok(sandbox.quickScore("Звёздный причал", "xyz") < 0, "быстрый поиск: несовпадение отсекается");
+ok(sandbox.quickScore("Кот и звезды", "ёзды") >= 0, "быстрый поиск: ё и е равнозначны");
+var qi = sandbox.quickItems();
+ok(qi.length >= sandbox.SETS.length + sandbox.FX_LIST.length, "быстрый переключатель: в списке и наборы, и эффекты");
+
+// ---- Синхронизация окон ----
+ok(typeof sandbox.broadcastCfg === "function", "синхронизация окон: broadcastCfg объявлен");
+ok(typeof sandbox.initBattery === "function" && sandbox.perf.battery === false, "экономия по батарее: флаг есть, по умолчанию выключен");
 
 // ============================================================
 console.log("\nИтог: " + passed + " ok, " + failed + " fail.");
