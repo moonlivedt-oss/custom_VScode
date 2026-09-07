@@ -26,7 +26,10 @@
     "lint:dead": "node scripts/lint-dead.js",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.tools.json",
     "analyze": "python scripts/analyze_sets.py --crops",
-    "analyze:sheet": "python scripts/analyze_sets.py --sheet"
+    "analyze:sheet": "python scripts/analyze_sets.py --sheet",
+    "test:visual": "node build.js && playwright test test/visual.spec.js",
+    "test:visual:update": "node build.js && playwright test test/visual.spec.js --update-snapshots",
+    "package": "node scripts/package-extension.js"
   },
   "engines": {
     "node": ">=14"
@@ -47,6 +50,7 @@
     "@playwright/test": "^1.47.0",
     "@types/node": "^26.4.1",
     "@types/vscode": "^1.136.0",
+    "@vscode/vsce": "^3.9.2",
     "typescript": "^5.9.3"
   }
 }

@@ -21,3 +21,11 @@ test-results/
 playwright-report/
 .playwright/
 blob-report/
+
+# Копии, которые кладёт внутрь расширения упаковщик (scripts/package-extension.js), и сам пакет.
+# Источник правды — custom-bg.js и assets/ в корне; в extension/ они появляются только на время сборки.
+extension/custom-bg.js
+extension/LICENSE
+extension/assets/
+dist/
+*.vsix

@@ -2,7 +2,7 @@
 
 **Русский** · [English](README.en.md)
 
-<img src="docs/screenshots/logo.png" alt="Логотип MoonLight custom-bg: кот под звёздным небом и логотип VS Code" width="120">
+<img src="docs/screenshots/logo.webp" alt="Логотип MoonLight custom-bg: кот под звёздным небом и логотип VS Code" width="120">
 
 # MoonLight custom-bg
 
@@ -21,7 +21,7 @@ Ken Burns, матовое стекло, Aurora, спотлайт · фон по�
 ![deps](https://img.shields.io/badge/зависимостей-0-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
-<img src="docs/screenshots/hero.png" alt="MoonLight custom-bg в работе: код, дерево файлов и фоновая картинка набора" width="880">
+<img src="docs/screenshots/hero.webp" alt="MoonLight custom-bg в работе: код, дерево файлов и фоновая картинка набора" width="880">
 
 <sub>Один самодостаточный скрипт · ноль npm-зависимостей · настройка в пару кликов, без правки файлов</sub>
 
@@ -30,6 +30,11 @@ Ken Burns, матовое стекло, Aurora, спотлайт · фон по�
 ---
 
 ## Быстрый старт
+
+**Самый простой путь — готовый пакет.** `npm run package` собирает `.vsix`, внутри которого уже
+лежат и плагин, и картинки, и темы: `code --install-extension dist/moonlight-custom-bg-setup-*.vsix`.
+После установки расширение само предложит поставить загрузчик и пропишет импорт — остальные шаги
+не нужны. Ниже — ручной путь, если ставишь из исходников.
 
 1. Поставь **загрузчик** — расширение, которое внедряет скрипт в окно редактора. Подойдёт любое
    из двух:
@@ -269,19 +274,19 @@ Ken Burns, матовое стекло, Aurora, спотлайт · фон по�
 
 <table>
   <tr valign="top">
-    <td align="center" width="33%"><img src="docs/screenshots/set-bloodmoon.png" alt="Набор «Алые кроны»: багряный замок и маки за кодом, красный акцент" width="280"><br><sub><b>Алые кроны</b> · фото</sub></td>
-    <td align="center" width="33%"><img src="docs/screenshots/set-cats.png" alt="Набор «Кот и звёзды»: звёздная ночь и силуэт кота, сиреневый акцент" width="280"><br><sub><b>Кот и звёзды</b> · фото</sub></td>
-    <td align="center" width="33%"><img src="docs/screenshots/set-mist-scroll.png" alt="Набор «Свиток тумана»: туманные горы и водопады" width="280"><br><sub><b>Свиток тумана</b> · фото</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-bloodmoon.webp" alt="Набор «Алые кроны»: багряный замок и маки за кодом, красный акцент" width="280"><br><sub><b>Алые кроны</b> · фото</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-cats.webp" alt="Набор «Кот и звёзды»: звёздная ночь и силуэт кота, сиреневый акцент" width="280"><br><sub><b>Кот и звёзды</b> · фото</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-mist-scroll.webp" alt="Набор «Свиток тумана»: туманные горы и водопады" width="280"><br><sub><b>Свиток тумана</b> · фото</sub></td>
   </tr>
   <tr valign="top">
-    <td align="center"><img src="docs/screenshots/set-crystal-lake.png" alt="Набор «Хрустальное озеро»: зимнее озеро, голубой акцент" width="280"><br><sub><b>Хрустальное озеро</b> · фото</sub></td>
-    <td align="center"><img src="docs/screenshots/set-star-pier.png" alt="Набор «Звёздный причал»: кот на крыше и цветущая сакура" width="280"><br><sub><b>Звёздный причал</b> · фото</sub></td>
-    <td align="center"><img src="docs/screenshots/set-falling-star.png" alt="Набор «Ночь падающей звезды»: сакура и фигура под ночным небом" width="280"><br><sub><b>Ночь падающей звезды</b> · фото</sub></td>
+    <td align="center"><img src="docs/screenshots/set-crystal-lake.webp" alt="Набор «Хрустальное озеро»: зимнее озеро, голубой акцент" width="280"><br><sub><b>Хрустальное озеро</b> · фото</sub></td>
+    <td align="center"><img src="docs/screenshots/set-star-pier.webp" alt="Набор «Звёздный причал»: кот на крыше и цветущая сакура" width="280"><br><sub><b>Звёздный причал</b> · фото</sub></td>
+    <td align="center"><img src="docs/screenshots/set-falling-star.webp" alt="Набор «Ночь падающей звезды»: сакура и фигура под ночным небом" width="280"><br><sub><b>Ночь падающей звезды</b> · фото</sub></td>
   </tr>
   <tr valign="top">
-    <td align="center"><img src="docs/screenshots/set-dunes.png" alt="Процедурный набор «Дюны»: тёплые волны-дюны на canvas" width="280"><br><sub><b>Дюны</b> · процедурный</sub></td>
-    <td align="center"><img src="docs/screenshots/set-grid.png" alt="Процедурный набор «Сетка»: техно-сетка на canvas" width="280"><br><sub><b>Сетка</b> · процедурный</sub></td>
-    <td align="center"><img src="docs/screenshots/set-cells.png" alt="Процедурный набор «Клетки»: органичные клетки на canvas" width="280"><br><sub><b>Клетки</b> · процедурный</sub></td>
+    <td align="center"><img src="docs/screenshots/set-dunes.webp" alt="Процедурный набор «Дюны»: тёплые волны-дюны на canvas" width="280"><br><sub><b>Дюны</b> · процедурный</sub></td>
+    <td align="center"><img src="docs/screenshots/set-grid.webp" alt="Процедурный набор «Сетка»: техно-сетка на canvas" width="280"><br><sub><b>Сетка</b> · процедурный</sub></td>
+    <td align="center"><img src="docs/screenshots/set-cells.webp" alt="Процедурный набор «Клетки»: органичные клетки на canvas" width="280"><br><sub><b>Клетки</b> · процедурный</sub></td>
   </tr>
 </table>
 
@@ -376,18 +381,18 @@ Ken Burns, матовое стекло, Aurora, спотлайт · фон по�
     <th align="center">Данные / Data</th>
   </tr>
   <tr valign="top">
-    <td align="center"><img src="docs/screenshots/menu-ru-sets.png" width="165" alt="Вкладка «Набор»: плитки 25 наборов, генератор, слайдшоу, по времени суток, по проекту (русский интерфейс, голубой акцент)"></td>
-    <td align="center"><img src="docs/screenshots/menu-ru-view.png" width="165" alt="Вкладка «Вид»: яркость, картинка и ~50 эффектов с поиском и авто-бюджетом FPS (русский интерфейс)"></td>
-    <td align="center"><img src="docs/screenshots/menu-ru-terminal.png" width="165" alt="Вкладка «Терминал»: шрифт, лигатуры, свечение, курсор (русский интерфейс)"></td>
-    <td align="center"><img src="docs/screenshots/menu-ru-system.png" width="165" alt="Вкладка «Система»: язык панели, диагностика, папка плагина, горячие клавиши (русский интерфейс)"></td>
-    <td align="center"><img src="docs/screenshots/menu-ru-data.png" width="165" alt="Вкладка «Данные»: профили, пресеты, синхронизация, поделиться, экспорт темы (русский интерфейс)"></td>
+    <td align="center"><img src="docs/screenshots/menu-ru-sets.webp" width="165" alt="Вкладка «Набор»: плитки 25 наборов, генератор, слайдшоу, по времени суток, по проекту (русский интерфейс, голубой акцент)"></td>
+    <td align="center"><img src="docs/screenshots/menu-ru-view.webp" width="165" alt="Вкладка «Вид»: яркость, картинка и ~50 эффектов с поиском и авто-бюджетом FPS (русский интерфейс)"></td>
+    <td align="center"><img src="docs/screenshots/menu-ru-terminal.webp" width="165" alt="Вкладка «Терминал»: шрифт, лигатуры, свечение, курсор (русский интерфейс)"></td>
+    <td align="center"><img src="docs/screenshots/menu-ru-system.webp" width="165" alt="Вкладка «Система»: язык панели, диагностика, папка плагина, горячие клавиши (русский интерфейс)"></td>
+    <td align="center"><img src="docs/screenshots/menu-ru-data.webp" width="165" alt="Вкладка «Данные»: профили, пресеты, синхронизация, поделиться, экспорт темы (русский интерфейс)"></td>
   </tr>
   <tr valign="top">
-    <td align="center"><img src="docs/screenshots/menu-en-sets.png" width="165" alt="Sets tab in English (pink accent)"></td>
-    <td align="center"><img src="docs/screenshots/menu-en-view.png" width="165" alt="View tab in English: image and ~50 effects"></td>
-    <td align="center"><img src="docs/screenshots/menu-en-terminal.png" width="165" alt="Terminal tab in English"></td>
-    <td align="center"><img src="docs/screenshots/menu-en-system.png" width="165" alt="System tab in English: panel language, diagnostics, plugin folder, hotkeys"></td>
-    <td align="center"><img src="docs/screenshots/menu-en-data.png" width="165" alt="Data tab in English: profiles, presets, sync, share, theme export"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-sets.webp" width="165" alt="Sets tab in English (pink accent)"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-view.webp" width="165" alt="View tab in English: image and ~50 effects"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-terminal.webp" width="165" alt="Terminal tab in English"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-system.webp" width="165" alt="System tab in English: panel language, diagnostics, plugin folder, hotkeys"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-data.webp" width="165" alt="Data tab in English: profiles, presets, sync, share, theme export"></td>
   </tr>
 </table>
 

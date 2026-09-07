@@ -40,6 +40,26 @@ jobs:
             exit 1
           fi
 
+  # Темы генерируются из того же каталога наборов, что и фон (build-themes.js). Если добавить
+  # набор и забыть пересобрать темы, расширение будет отдавать не тот список — та же беда, что
+  # с несобранным custom-bg.js, и ловится тем же способом.
+  themes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Темы пересобраны из SETS
+        run: |
+          node build-themes.js
+          if ! git diff --quiet -- extension/themes extension/package.json; then
+            echo "::error::Темы расходятся с каталогом наборов. Запусти 'npm run build:themes' и закоммить результат."
+            git diff --stat -- extension/themes extension/package.json
+            exit 1
+          fi
+
   # Проверка типов (TypeScript как линтер, без сборки). Рантайм остаётся ES5-джаваскриптом:
   # tsc работает с checkJs/noEmit и ловит то, что смоук увидел бы только в рантайме, —
   # потерянные при переносе имена, дубли ключей локализации, неверные типы аргументов.
@@ -58,6 +78,31 @@ jobs:
       - name: Инструменты (build/scripts/test/extension)
         run: npx tsc -p tsconfig.tools.json
 
+  # Визуальные регрессии: снимок фикстуры сравнивается с эталоном. Эталоны привязаны к
+  # платформе (Playwright добавляет суффикс -win32/-linux), поэтому джоб идёт на Windows —
+  # той же ОС, на которой они сняты. Обновлять эталоны: npm run test:visual:update.
+  visual:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Установить Playwright
+        run: npm i -D @playwright/test && npx playwright install --with-deps chromium
+      - name: Сборка артефакта
+        run: node build.js
+      - name: Визуальные тесты
+        run: npx playwright test test/visual.spec.js
+      - name: Отчёт с диффами при падении
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diff
+          path: test-results/
+          retention-days: 7
+
   # Интеграционный тест (улучшение 7): реальный Chromium открывает фикстуру-воркбенч с
   # собранным custom-bg.js и проверяет живой DOM (кнопка/панель/инжект/локализация). Отдельным
   # джобом, т.к. требует Playwright (dev-зависимость) — основной smoke остаётся ноль-зависимостей.
@@ -74,4 +119,4 @@ jobs:
       - name: Сборка артефакта
         run: node build.js
       - name: E2E (Playwright)
-        run: npx playwright test
+        run: npx playwright test test/e2e.spec.js

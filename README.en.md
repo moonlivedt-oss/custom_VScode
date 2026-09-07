@@ -2,7 +2,7 @@
 
 [Русский](README.md) · **English**
 
-<img src="docs/screenshots/logo.png" alt="MoonLight custom-bg logo: a cat under a starry sky and the VS Code mark" width="120">
+<img src="docs/screenshots/logo.webp" alt="MoonLight custom-bg logo: a cat under a starry sky and the VS Code mark" width="120">
 
 # MoonLight custom-bg
 
@@ -21,7 +21,7 @@ Ken Burns, frosted glass, Aurora, spotlight · background per project · status-
 ![deps](https://img.shields.io/badge/dependencies-0-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
-<img src="docs/screenshots/hero.png" alt="MoonLight custom-bg in action: code, file tree and a set background" width="880">
+<img src="docs/screenshots/hero.webp" alt="MoonLight custom-bg in action: code, file tree and a set background" width="880">
 
 <sub>One self-contained script · zero npm dependencies · set up in a couple of clicks, no file editing</sub>
 
@@ -190,19 +190,19 @@ scrollbar, cursor, borders, active-line highlight — all change together with t
 
 <table>
   <tr valign="top">
-    <td align="center" width="33%"><img src="docs/screenshots/set-bloodmoon.png" alt="Set: crimson castle and poppies behind code, red accent" width="280"><br><sub><b>Crimson Crowns</b> · photo</sub></td>
-    <td align="center" width="33%"><img src="docs/screenshots/set-cats.png" alt="Set: starry night with a cat silhouette, lilac accent" width="280"><br><sub><b>Cat and Stars</b> · photo</sub></td>
-    <td align="center" width="33%"><img src="docs/screenshots/set-mist-scroll.png" alt="Set: misty mountains and waterfalls" width="280"><br><sub><b>Mist Scroll</b> · photo</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-bloodmoon.webp" alt="Set: crimson castle and poppies behind code, red accent" width="280"><br><sub><b>Crimson Crowns</b> · photo</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-cats.webp" alt="Set: starry night with a cat silhouette, lilac accent" width="280"><br><sub><b>Cat and Stars</b> · photo</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-mist-scroll.webp" alt="Set: misty mountains and waterfalls" width="280"><br><sub><b>Mist Scroll</b> · photo</sub></td>
   </tr>
   <tr valign="top">
-    <td align="center"><img src="docs/screenshots/set-crystal-lake.png" alt="Set: winter lake, blue accent" width="280"><br><sub><b>Crystal Lake</b> · photo</sub></td>
-    <td align="center"><img src="docs/screenshots/set-star-pier.png" alt="Set: a cat on a roof and blooming sakura" width="280"><br><sub><b>Star Pier</b> · photo</sub></td>
-    <td align="center"><img src="docs/screenshots/set-falling-star.png" alt="Set: sakura and a figure under a night sky" width="280"><br><sub><b>Falling Star Night</b> · photo</sub></td>
+    <td align="center"><img src="docs/screenshots/set-crystal-lake.webp" alt="Set: winter lake, blue accent" width="280"><br><sub><b>Crystal Lake</b> · photo</sub></td>
+    <td align="center"><img src="docs/screenshots/set-star-pier.webp" alt="Set: a cat on a roof and blooming sakura" width="280"><br><sub><b>Star Pier</b> · photo</sub></td>
+    <td align="center"><img src="docs/screenshots/set-falling-star.webp" alt="Set: sakura and a figure under a night sky" width="280"><br><sub><b>Falling Star Night</b> · photo</sub></td>
   </tr>
   <tr valign="top">
-    <td align="center"><img src="docs/screenshots/set-dunes.png" alt="Procedural set: warm dune waves on canvas" width="280"><br><sub><b>Dunes</b> · procedural</sub></td>
-    <td align="center"><img src="docs/screenshots/set-grid.png" alt="Procedural set: a techy grid on canvas" width="280"><br><sub><b>Grid</b> · procedural</sub></td>
-    <td align="center"><img src="docs/screenshots/set-cells.png" alt="Procedural set: organic cells on canvas" width="280"><br><sub><b>Cells</b> · procedural</sub></td>
+    <td align="center"><img src="docs/screenshots/set-dunes.webp" alt="Procedural set: warm dune waves on canvas" width="280"><br><sub><b>Dunes</b> · procedural</sub></td>
+    <td align="center"><img src="docs/screenshots/set-grid.webp" alt="Procedural set: a techy grid on canvas" width="280"><br><sub><b>Grid</b> · procedural</sub></td>
+    <td align="center"><img src="docs/screenshots/set-cells.webp" alt="Procedural set: organic cells on canvas" width="280"><br><sub><b>Cells</b> · procedural</sub></td>
   </tr>
 </table>
 
@@ -228,11 +228,11 @@ design** panel. At the top is the master toggle; below it settings are laid out 
     <th align="center">Data</th>
   </tr>
   <tr valign="top">
-    <td align="center"><img src="docs/screenshots/menu-en-sets.png" width="165" alt="Sets tab: chips for 25 sets, generator, slideshow, by time of day, by project"></td>
-    <td align="center"><img src="docs/screenshots/menu-en-view.png" width="165" alt="View tab: brightness, image and ~50 effects with search and FPS auto-budget"></td>
-    <td align="center"><img src="docs/screenshots/menu-en-terminal.png" width="165" alt="Terminal tab: font, ligatures, glow, cursor"></td>
-    <td align="center"><img src="docs/screenshots/menu-en-system.png" width="165" alt="System tab: panel language, diagnostics, plugin folder, hotkeys"></td>
-    <td align="center"><img src="docs/screenshots/menu-en-data.png" width="165" alt="Data tab: profiles, presets, sync, share, theme export"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-sets.webp" width="165" alt="Sets tab: chips for 25 sets, generator, slideshow, by time of day, by project"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-view.webp" width="165" alt="View tab: brightness, image and ~50 effects with search and FPS auto-budget"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-terminal.webp" width="165" alt="Terminal tab: font, ligatures, glow, cursor"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-system.webp" width="165" alt="System tab: panel language, diagnostics, plugin folder, hotkeys"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-data.webp" width="165" alt="Data tab: profiles, presets, sync, share, theme export"></td>
   </tr>
 </table>
 

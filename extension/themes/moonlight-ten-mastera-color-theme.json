@@ -32,7 +32,7 @@
     "editorError.foreground": "#f38ba8",
     "editorWarning.foreground": "#f9e2af",
     "editorInfo.foreground": "#94e2d5",
-    "editorGutter.modifiedBackground": "#87aede",
+    "editorGutter.modifiedBackground": "#75c4e3",
     "editorGutter.addedBackground": "#a6e3a1",
     "editorGutter.deletedBackground": "#f38ba8",
     "editorWidget.background": "#242f2d",
@@ -114,7 +114,7 @@
     "scrollbarSlider.background": "#94e2d538",
     "scrollbarSlider.hoverBackground": "#94e2d561",
     "scrollbarSlider.activeBackground": "#94e2d58c",
-    "gitDecoration.modifiedResourceForeground": "#87aede",
+    "gitDecoration.modifiedResourceForeground": "#75c4e3",
     "gitDecoration.untrackedResourceForeground": "#a6e3a1",
     "gitDecoration.deletedResourceForeground": "#f38ba8",
     "minimap.selectionHighlight": "#94e2d580",
@@ -140,7 +140,7 @@
         "string.template"
       ],
       "settings": {
-        "foreground": "#ce87de"
+        "foreground": "#c1aae8"
       }
     },
     {
@@ -151,7 +151,7 @@
         "constant.other"
       ],
       "settings": {
-        "foreground": "#de8795"
+        "foreground": "#e99fb2"
       }
     },
     {
@@ -184,7 +184,7 @@
         "meta.function-call.generic"
       ],
       "settings": {
-        "foreground": "#ded287"
+        "foreground": "#e0ab7a"
       }
     },
     {
@@ -196,7 +196,7 @@
         "entity.other.inherited-class"
       ],
       "settings": {
-        "foreground": "#87de91"
+        "foreground": "#99c68f"
       }
     },
     {
@@ -225,7 +225,7 @@
         "support.variable"
       ],
       "settings": {
-        "foreground": "#de8795"
+        "foreground": "#e99fb2"
       }
     },
     {
@@ -244,7 +244,7 @@
         "support.type.property-name"
       ],
       "settings": {
-        "foreground": "#87aede"
+        "foreground": "#75c4e3"
       }
     },
     {
@@ -262,7 +262,7 @@
         "markup.bold"
       ],
       "settings": {
-        "foreground": "#de8795",
+        "foreground": "#e99fb2",
         "fontStyle": "bold"
       }
     },
@@ -271,7 +271,7 @@
         "markup.italic"
       ],
       "settings": {
-        "foreground": "#ce87de",
+        "foreground": "#c1aae8",
         "fontStyle": "italic"
       }
     },
@@ -281,7 +281,7 @@
         "markup.fenced_code"
       ],
       "settings": {
-        "foreground": "#ded287"
+        "foreground": "#e0ab7a"
       }
     },
     {

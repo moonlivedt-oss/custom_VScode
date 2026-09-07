@@ -297,8 +297,23 @@ async function healthCheck(context, proactive) {
     if (!pick) { context.globalState.update(LAST_VER_KEY, s.curVer); return; }
     try {
         if (pick === "Поставить загрузчик") {
-            // Показываем оба варианта разом: пусть человек выберет, а не гадает, какой ставить.
-            await vscode.commands.executeCommand("workbench.extensions.search", "custom css js loader OR custom ui style");
+            // Ставим прямо отсюда, а не отправляем человека искать в маркетплейсе: сам плагин и
+            // картинки уже внутри этого пакета, загрузчик — последнее недостающее звено.
+            // Рекомендуем Custom UI Style: он переживает обновления редактора и умеет прозрачность.
+            var choice = await vscode.window.showInformationMessage(
+                "Какой загрузчик поставить? Custom UI Style переживает обновления VS Code и умеет настоящую прозрачность окна; Custom CSS and JS — классический вариант.",
+                "Custom UI Style", "Custom CSS and JS", "Отмена");
+            var id = choice === "Custom UI Style" ? CUS_ID : (choice === "Custom CSS and JS" ? BE5_ID : null);
+            if (id) {
+                try {
+                    await vscode.commands.executeCommand("workbench.extensions.installExtension", id);
+                    vscode.window.showInformationMessage("Загрузчик установлен. Прописываю импорт…");
+                    await ensureImport(context);
+                } catch (e) {
+                    // Установка из кода доступна не во всех сборках/форках — тогда просто открываем поиск.
+                    await vscode.commands.executeCommand("workbench.extensions.search", id);
+                }
+            }
         } else if (pick === "Прописать импорт") {
             await ensureImport(context);
         } else if (pick === "Включить Custom CSS") {

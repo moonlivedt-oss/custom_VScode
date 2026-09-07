@@ -1,32 +1,126 @@
 <!doctype html>
 <!--
-  Фикстура для интеграционного теста (улучшение 7). Минимальный «скелет» воркбенча VS Code:
-  .monaco-workbench (тема vs-dark), статусбар с .right-items (куда плагин вставляет кнопку BG)
-  и редактор. Реальный custom-bg.js подключается ниже и должен: вставить кнопку BG в статусбар,
-  инжектить <style id="moonlight-custom-bg"> и по клику открыть панель #moonlight-bg-panel.
-  lang="en" — проверяем заодно авто-локализацию (панель должна быть на английском).
+  Фикстура для интеграционных и визуальных тестов: скелет воркбенча VS Code с теми узлами, на
+  которых держится оформление плагина. Раньше здесь был минимум (редактор + статусбар), и из-за
+  этого визуальные тесты видели почти пустую страницу: правило для сайдбара, вкладок или
+  виньетки просто не на что было применить.
+
+  Состав повторяет список UI_SELECTORS из src/core/scrape.js — именно его проверяет
+  «здоровье селекторов». Если VS Code переименует класс, правку нужно внести в оба места.
+
+  lang="en" — заодно проверяется авто-локализация (панель должна открыться на английском).
 -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>MoonLight custom-bg — e2e fixture</title>
+  <title>MoonLight custom-bg — test fixture</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #1e1e2e; }
+    html, body { margin: 0; height: 100%; background: #1e1e2e; color: #cdd6f4;
+                 font: 12px/1.5 "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+    /* Раскладка как в реальном окне: титлбар, ряд «актив-бар + сайдбар + редактор», статусбар. */
     .monaco-workbench { display: flex; flex-direction: column; height: 100vh; }
-    .part.editor { flex: 1 1 auto; }
-    .monaco-editor { height: 100%; }
-    /* статусбар внизу, с контейнером right-items — как в реальном VS Code */
-    .part.statusbar { height: 22px; display: flex; justify-content: flex-end; background: #181825; }
+    .part.titlebar { height: 30px; flex: 0 0 auto; background: #181825; display: flex;
+                     align-items: center; padding: 0 10px; }
+    .mlbg-row { flex: 1 1 auto; display: flex; min-height: 0; }
+    .part.activitybar { width: 48px; flex: 0 0 auto; background: #181825; position: relative; }
+    .part.sidebar { width: 260px; flex: 0 0 auto; background: #1e1e2e; position: relative;
+                    display: flex; flex-direction: column; }
+    .pane-header { padding: 6px 12px; font-size: 11px; text-transform: uppercase;
+                   letter-spacing: 0.6px; color: #bac2de; }
+    .monaco-list-row { padding: 3px 12px; }
+    .mlbg-main { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+    .part.editor { flex: 1 1 auto; min-height: 0; position: relative; display: flex; flex-direction: column; }
+    .part.editor > .content { flex: 1 1 auto; display: flex; min-height: 0; position: relative; }
+    .editor-group-container { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0;
+                              position: relative; }
+    .editor-group-container > .title { height: 35px; flex: 0 0 auto; background: #181825; }
+    .tabs-container { display: flex; height: 100%; }
+    .tab { padding: 8px 14px; background: #181825; color: #a6adc8; }
+    .tab.active { background: #1e1e2e; color: #cdd6f4; }
+    .editor-container { flex: 1 1 auto; position: relative; min-height: 0; }
+    .monaco-editor { height: 100%; position: relative; }
+    .overflow-guard { height: 100%; position: relative; }
+    .monaco-scrollable-element { height: 100%; position: relative; }
+    .margin { position: absolute; left: 0; top: 0; bottom: 0; width: 48px; color: #6c7086; }
+    .view-lines { position: absolute; left: 56px; top: 0; right: 0;
+                  font-family: "Cascadia Code", Consolas, monospace; white-space: pre; }
+    .minimap { position: absolute; right: 0; top: 0; bottom: 0; width: 70px; opacity: 0.5; }
+    .cursors-layer { position: absolute; left: 56px; top: 0; }
+    .cursor { display: inline-block; width: 2px; height: 18px; background: #f5e0dc; }
+    .part.panel { height: 160px; flex: 0 0 auto; background: #181825; position: relative; }
+    .xterm { height: 100%; padding: 8px 12px; font-family: Consolas, monospace; }
+    .xterm-rows > div { line-height: 1.4; }
+    .part.statusbar { height: 22px; flex: 0 0 auto; display: flex; justify-content: flex-end;
+                      background: #181825; }
     .statusbar .right-items { display: flex; align-items: center; }
-    .statusbar-item { color: #cdd6f4; font: 12px sans-serif; }
+    .statusbar-item { color: #cdd6f4; font-size: 12px; padding: 0 6px; }
+    .monaco-scrollable-element > .scrollbar { position: absolute; right: 0; top: 0; bottom: 0; width: 10px; }
+    .monaco-scrollable-element > .scrollbar > .slider { position: absolute; top: 20%; height: 30%;
+                                                        width: 100%; background: #45475a; }
+    .quick-input-widget { display: none; }
   </style>
 </head>
 <body>
   <div class="monaco-workbench vs-dark">
-    <div class="part editor">
-      <div class="monaco-editor">
-        <div class="overflow-guard">
-          <div class="monaco-scrollable-element"></div>
+    <div class="part titlebar">fixture.js — vscode-bg</div>
+    <div class="mlbg-row">
+      <div class="part activitybar"></div>
+      <div class="part sidebar">
+        <div class="pane-header">Проводник</div>
+        <div class="monaco-list-row">src</div>
+        <div class="monaco-list-row">core</div>
+        <div class="monaco-list-row">config.js</div>
+        <div class="monaco-list-row">sets.js</div>
+        <div class="monaco-list-row">fx</div>
+        <div class="monaco-list-row">css.js</div>
+      </div>
+      <div class="mlbg-main">
+        <div class="part editor">
+          <div class="content">
+            <div class="editor-group-container active">
+              <div class="title">
+                <div class="tabs-container">
+                  <div class="tab active" aria-label="fixture.js">fixture.js</div>
+                  <div class="tab" aria-label="README.md">README.md</div>
+                </div>
+              </div>
+              <div class="editor-container">
+                <div class="monaco-editor">
+                  <div class="overflow-guard">
+                    <div class="monaco-scrollable-element">
+                      <div class="margin">  1
+  2
+  3
+  4
+  5
+  6
+  7
+  8</div>
+                      <div class="view-lines">function buildCSS() {
+    var ac = safeColor(getAccent(), DEFAULTS.accent);
+    var idx = activeIndex(), fx = cfg.fx;
+    // фон зоны редактора рисуется псевдоэлементом
+    add(".monaco-editor .view-lines { color: " + ac + "; }");
+    return out.join("\n");
+}</div>
+                      <div class="cursors-layer"><span class="cursor"></span></div>
+                      <div class="minimap"></div>
+                      <div class="scrollbar"><div class="slider"></div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="part panel">
+          <div class="xterm">
+            <div class="xterm-rows">
+              <div>PS D:\vscode-bg&gt; npm run check</div>
+              <div>OK: custom-bg.js собран из 38 модулей</div>
+              <div>Итог: 378 ok, 0 fail.</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -34,10 +128,10 @@
       <div class="right-items"></div>
     </div>
   </div>
-  <!-- Реальный собранный артефакт (node build.js). Путь относительный: фикстура в test/. -->
-  <!-- Мост для интеграционного теста (v20): плагин откроет window.__mlbgTest только при этом
-       флаге, поэтому в реальном VS Code никакой глобальной поверхности не появляется. -->
+  <!-- Мост для интеграционного теста: плагин откроет window.__mlbgTest только при этом флаге,
+       поэтому в реальном воркбенче никакой глобальной поверхности не появляется. -->
   <script>window.__MLBG_TEST_HOOKS__ = true;</script>
+  <!-- Реальный собранный артефакт (node build.js). Путь относительный: фикстура в test/. -->
   <script src="../custom-bg.js"></script>
 </body>
 </html>

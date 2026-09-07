@@ -1,9 +1,9 @@
 {
   "name": "moonlight-custom-bg-setup",
   "displayName": "MoonLight custom-bg (авто-настройка)",
-  "description": "Прописывает MoonLight custom-bg в настройки загрузчика (be5invis.vscode-custom-css или subframe7536.custom-ui-style), сообщает плагину среду окна и умеет включать настоящую прозрачность (Mica/vibrancy).",
+  "description": "Живой фон и панель оформления для VS Code: наборы по зонам, движок читаемости, шейдерные фоны, 37 тем. Ставит и настраивает всё сам.",
   "author": "moonlivedt (MoonLightDeath) <moonlivedt@gmail.com>",
-  "version": "0.3.0",
+  "version": "20.0.0",
   "publisher": "moonlivedt",
   "icon": "icon.png",
   "license": "MIT",
@@ -182,7 +182,89 @@
         "label": "MoonLight Клетки",
         "uiTheme": "vs-dark",
         "path": "./themes/moonlight-kletki-color-theme.json"
+      },
+      {
+        "label": "MoonLight Неоновый дождь",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-neonovyy-dozhd-color-theme.json"
+      },
+      {
+        "label": "MoonLight Свечной зал",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-svechnoy-zal-color-theme.json"
+      },
+      {
+        "label": "MoonLight Сияние фьорда",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-siyanie-forda-color-theme.json"
+      },
+      {
+        "label": "MoonLight Дюны под звёздами",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-dyuny-pod-zvezdami-color-theme.json"
+      },
+      {
+        "label": "MoonLight Бамбук в тумане",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-bambuk-v-tumane-color-theme.json"
+      },
+      {
+        "label": "MoonLight Сакура у фонаря",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-sakura-u-fonarya-color-theme.json"
+      },
+      {
+        "label": "MoonLight Ледяная пещера",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-ledyanaya-peschera-color-theme.json"
+      },
+      {
+        "label": "MoonLight Кровавая луна",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-krovavaya-luna-color-theme.json"
+      },
+      {
+        "label": "MoonLight Сияние GPU",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-siyanie-gpu-color-theme.json"
+      },
+      {
+        "label": "MoonLight Плазма",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-plazma-color-theme.json"
+      },
+      {
+        "label": "MoonLight Туманность",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-tumannost-color-theme.json"
+      },
+      {
+        "label": "MoonLight Свой шейдер",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moonlight-svoy-sheyder-color-theme.json"
       }
     ]
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/moonlivedt-oss/custom_VScode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/moonlivedt-oss/custom_VScode/issues"
+  },
+  "homepage": "https://github.com/moonlivedt-oss/custom_VScode#readme",
+  "keywords": [
+    "background",
+    "wallpaper",
+    "theme",
+    "custom css",
+    "glass",
+    "shader",
+    "readability"
+  ],
+  "galleryBanner": {
+    "color": "#1e1e2e",
+    "theme": "dark"
+  },
+  "qna": false
 }
