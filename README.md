@@ -666,10 +666,7 @@ MIT — см. [LICENSE](LICENSE). Наборы фонов и палитры — 
 ---
 
 <div align="center">
-<sub>
-
-**MoonLight custom-bg** — один скрипт, ноль зависимостей, весь вид в твоих руках.<br>
-Нашёл баг или есть идея? — [Issues](https://github.com/moonlivedt-oss/custom_VScode/issues) · [Discussions](https://github.com/moonlivedt-oss/custom_VScode/discussions)
-
-</sub>
+  <sub><b>MoonLight custom-bg</b> — один скрипт, ноль зависимостей, весь вид в твоих руках.</sub>
+  <br>
+  <sub>Нашёл баг или есть идея? — <a href="https://github.com/moonlivedt-oss/custom_VScode/issues">Issues</a> · <a href="https://github.com/moonlivedt-oss/custom_VScode/discussions">Discussions</a></sub>
 </div>

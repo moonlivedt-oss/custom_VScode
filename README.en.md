@@ -352,10 +352,7 @@ MIT — see [LICENSE](LICENSE). Background sets and palettes are part of the pro
 ---
 
 <div align="center">
-<sub>
-
-**MoonLight custom-bg** — one script, zero dependencies, the whole look in your hands.<br>
-Found a bug or have an idea? — [Issues](https://github.com/moonlivedt-oss/custom_VScode/issues) · [Discussions](https://github.com/moonlivedt-oss/custom_VScode/discussions)
-
-</sub>
+  <sub><b>MoonLight custom-bg</b> — one script, zero dependencies, the whole look in your hands.</sub>
+  <br>
+  <sub>Found a bug or have an idea? — <a href="https://github.com/moonlivedt-oss/custom_VScode/issues">Issues</a> · <a href="https://github.com/moonlivedt-oss/custom_VScode/discussions">Discussions</a></sub>
 </div>

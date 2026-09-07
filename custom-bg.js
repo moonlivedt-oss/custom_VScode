@@ -5285,6 +5285,9 @@
             "position:fixed; bottom:44px; right:16px; z-index:100004; padding:9px 13px; border-radius:9px;" +
             "max-width:min(360px,80vw); line-height:1.4;" + // длинные предупреждения переносятся, а не уезжают за край
             "font-weight:600; font-family:var(--vscode-font-family,sans-serif); box-shadow:0 8px 24px rgba(0,0,0,0.5);", msg);
+        // Класс нужен, чтобы тост можно было найти снаружи: генератор скриншотов убирает их
+        // перед съёмкой (иначе уведомление ложится поверх панели), а тесты — проверяют текст.
+        t.className = "mlbg-toast";
         t.style.background = ok === false ? "rgba(243,139,168,0.96)" : "rgba(166,227,161,0.96)";
         t.style.color = "#181825";
         // Скринридер озвучит текст тоста (например «Пресет сохранён»). Ошибки — настойчивее.

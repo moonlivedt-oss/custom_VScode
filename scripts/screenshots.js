@@ -58,8 +58,14 @@ function startServer() {
         for (const L of LANGS) {
             // Свежий контекст на язык: сид применяется до загрузки, retina-масштаб для чётких PNG.
             const ctx = await browser.newContext({ deviceScaleFactor: 2 });
-            await ctx.addInitScript((seed) => { try { window.__MLBG_SEED__ = seed; } catch (e) {} },
-                { lang: L.code, mode: L.mode, enabled: true });
+            // Тосты на скриншотах документации перекрывали панель. Две причины: приветствие
+            // первого запуска (localStorage пуст в свежем контексте) и «экономия ресурсов» —
+            // headless-браузер рисует медленно, и авто-бюджет FPS честно срабатывает.
+            // Первое гасим флагом онбординга, второе — выключенным perfGuard.
+            await ctx.addInitScript((seed) => {
+                try { localStorage.setItem("moonlight-bg-onboarded", "1"); } catch (e) {}
+                try { window.__MLBG_SEED__ = seed; } catch (e) {}
+            }, { lang: L.code, mode: L.mode, enabled: true, perfGuard: false });
             const page = await ctx.newPage();
             await page.goto(base, { waitUntil: "networkidle" });
             const btn = page.locator("#moonlight-bg-switcher");
@@ -71,6 +77,11 @@ function startServer() {
             for (let i = 0; i < TABS.length; i++) {
                 await tabs.nth(i).click();
                 await page.waitForTimeout(400); // дать раскрыться секциям и подгрузиться миниатюрам
+                // Страховка: любой тост, успевший появиться, убираем — он рисуется поверх панели.
+                await page.evaluate(() => {
+                    var n = document.querySelectorAll(".mlbg-toast");
+                    for (var i = 0; i < n.length; i++) n[i].remove();
+                });
                 const file = path.join(OUT, "menu-" + L.code + "-" + TABS[i] + ".png");
                 await panel.screenshot({ path: file });
                 console.log("saved", path.relative(ROOT, file));
