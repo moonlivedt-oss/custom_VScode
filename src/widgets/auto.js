@@ -110,7 +110,7 @@ function sunTimes(lat, lon, date) {
     try {
         var rad = Math.PI / 180, deg = 180 / Math.PI;
         var start = new Date(date.getFullYear(), 0, 0);
-        var day = Math.floor((date - start) / 86400000); // день года (1..366)
+        var day = Math.floor((date.getTime() - start.getTime()) / 86400000); // день года (1..366)
         var lngHour = lon / 15, off = -date.getTimezoneOffset() / 60;
         function calc(isRise) {
             var tt = day + ((isRise ? 6 : 18) - lngHour) / 24;

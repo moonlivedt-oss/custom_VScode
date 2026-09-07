@@ -349,8 +349,8 @@ ok(sandbox.mergeCfg({ version: 0 }).version === sandbox.CFG_VERSION &&
 // ---- 16. Резерв конфига: backupCfg -> readBackup возвращает равнозначный конфиг ----
 sandbox.cfg = sandbox.mergeCfg({ mode: "2", accent: "#123456" });
 sandbox.backupCfg();
-var rb = sandbox.readBackup();
-ok(rb && rb.mode === "2" && rb.accent === "#123456" && sandbox.hasBackup() === true,
+var backupRead = sandbox.readBackup();
+ok(backupRead && backupRead.mode === "2" && backupRead.accent === "#123456" && sandbox.hasBackup() === true,
     "backupCfg/readBackup: резерв сохраняется и корректно читается");
 
 // ---- 17a. Генеративные наборы: градиент вместо картинки, без url() ----
@@ -1511,6 +1511,55 @@ ok(qi.length >= sandbox.SETS.length + sandbox.FX_LIST.length, "быстрый п
 // ---- Синхронизация окон ----
 ok(typeof sandbox.broadcastCfg === "function", "синхронизация окон: broadcastCfg объявлен");
 ok(typeof sandbox.initBattery === "function" && sandbox.perf.battery === false, "экономия по батарее: флаг есть, по умолчанию выключен");
+
+// ============================================================
+//  Живые данные из хоста расширений: приоритет над скрейпингом DOM и санитизация.
+// ============================================================
+console.log("\n-- живые данные --");
+
+ok(sandbox.mlbgLive() === null, "живых данных нет -> mlbgLive() === null (работает скрейпинг DOM)");
+ok(sandbox.liveStr("branch") === null && sandbox.liveNum("errors") === null, "без данных liveStr/liveNum отдают null");
+
+// Файл живых данных лежит на диске и в теории может быть подменён: пропускаем только
+// известные поля известных типов и режем длину.
+sandbox.window.__MLBG_LIVE__ = {
+    rev: 3, branch: "feature/x", remote: "moonlivedt-oss/custom_VScode", dirty: true,
+    errors: 4, warnings: 2, languageId: "JavaScript", fileExt: "JS", folder: "vscode-bg",
+    evil: "<script>", errorsExtra: 99
+};
+var lv = sandbox.mlbgLive();
+ok(lv && lv.branch === "feature/x" && lv.errors === 4, "живые данные читаются");
+ok(lv.languageId === "javascript" && lv.fileExt === "js", "языковые ключи нормализуются к нижнему регистру");
+ok(lv.evil === undefined, "неизвестные поля отбрасываются");
+ok(sandbox.mlbgLive(null) !== undefined, "mlbgLive устойчив к вызову без аргументов");
+sandbox.window.__MLBG_LIVE__ = { branch: 123, errors: "много", languageId: { x: 1 } };
+var bad = sandbox.mlbgLive();
+ok(bad.branch === "" && bad.errors === 0 && bad.languageId === "", "значения не тех типов заменяются пустыми");
+
+// Приоритет: пока живые данные есть, DOM не спрашиваем.
+sandbox.window.__MLBG_LIVE__ = { branch: "release/1.2", errors: 7, folder: "живая-папка", remote: "acme/tool" };
+ok(sandbox.gitBranch() === "release/1.2", "gitBranch: живые данные важнее статусбара");
+ok(sandbox.problemsCount() === 7, "problemsCount: счётчик из диагностики API");
+ok(sandbox.workspaceName() === "живая-папка", "workspaceName: папка воркспейса важнее заголовка окна");
+
+// Фон по репозиторию — привязка, которую из DOM не сделать вовсе.
+sandbox.cfg.autoRemote = true;
+sandbox.cfg.remoteSets = { "acme/tool": "3" };
+ok(sandbox.remoteIndex() === 3, "remoteIndex: набор закреплён за удалённым репозиторием");
+sandbox.cfg.remoteSets = { "acme/tool": "999" };
+ok(sandbox.remoteIndex() === null, "remoteIndex: индекс вне диапазона игнорируется");
+sandbox.cfg.autoRemote = false;
+ok(sandbox.remoteIndex() === null, "remoteIndex: выключенная привязка ничего не выбирает");
+
+// Приоритет привязок: проект > репозиторий > ветка > язык файла.
+sandbox.cfg.autoRemote = true; sandbox.cfg.remoteSets = { "acme/tool": "3" };
+sandbox.cfg.autoBranch = true; sandbox.cfg.branchSets = { "release/1.2": "5" };
+ok(sandbox.activeIndex() === 3, "приоритет: репозиторий важнее ветки");
+sandbox.cfg.autoWorkspace = true; sandbox.cfg.workspaceSets = { "живая-папка": "7" };
+ok(sandbox.activeIndex() === 7, "приоритет: проект важнее репозитория");
+sandbox.cfg.autoWorkspace = false; sandbox.cfg.autoRemote = false; sandbox.cfg.autoBranch = false;
+sandbox.cfg.workspaceSets = {}; sandbox.cfg.remoteSets = {}; sandbox.cfg.branchSets = {};
+sandbox.window.__MLBG_LIVE__ = null;
 
 // ============================================================
 console.log("\nИтог: " + passed + " ok, " + failed + " fail.");

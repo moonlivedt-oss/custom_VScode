@@ -19,11 +19,14 @@
     "test": "node test/smoke.js",
     "test:e2e": "node build.js && playwright test",
     "screenshots": "node build.js && node scripts/screenshots.js",
-    "check": "node build.js && node test/smoke.js && node scripts/lint-dead.js",
+    "check": "node build.js && node test/smoke.js && node scripts/lint-dead.js && npm run typecheck",
     "setup": "node install.js",
     "hooks": "git config core.hooksPath hooks",
     "import-master": "node scripts/import-master.js",
-    "lint:dead": "node scripts/lint-dead.js"
+    "lint:dead": "node scripts/lint-dead.js",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.tools.json",
+    "analyze": "python scripts/analyze_sets.py --crops",
+    "analyze:sheet": "python scripts/analyze_sets.py --sheet"
   },
   "engines": {
     "node": ">=14"
@@ -41,6 +44,9 @@
   ],
   "//devDependencies": "Только для интеграционного теста (npm run test:e2e). Основной поток (build + smoke) зависимостей НЕ требует; ставь эту dev-зависимость лишь для e2e.",
   "devDependencies": {
-    "@playwright/test": "^1.47.0"
+    "@playwright/test": "^1.47.0",
+    "@types/node": "^26.4.1",
+    "@types/vscode": "^1.136.0",
+    "typescript": "^5.9.3"
   }
 }

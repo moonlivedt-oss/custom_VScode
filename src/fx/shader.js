@@ -100,8 +100,10 @@ function ensureShader() {
         var c = document.createElement("canvas");
         c.id = "mlbg-shader";
         c.style.cssText = "position:absolute; inset:0; width:100%; height:100%; z-index:0; pointer-events:none; display:block;";
-        var gl = c.getContext("webgl", { alpha: false, antialias: false, depth: false, powerPreference: "low-power" })
-              || c.getContext("experimental-webgl");
+        var gl = /** @type {WebGLRenderingContext} */ (
+            c.getContext("webgl", { alpha: false, antialias: false, depth: false, powerPreference: "low-power" })
+            || c.getContext("experimental-webgl")
+        );
         if (!gl) { shd.failed = true; return; }
         var vs = _compile(gl, gl.VERTEX_SHADER, VERT_SRC);
         var fs = _compile(gl, gl.FRAGMENT_SHADER, fragSource(shaderBody(s.shader)));

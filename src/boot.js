@@ -15,6 +15,9 @@ function heal() {
     // Шейдерный фон: холст живёт внутри части «редактор», а VS Code пересоздаёт её
     // при смене раскладки/групп — поэтому проверяем и возвращаем его в том же цикле heal.
     try { ensureShader(); } catch (e) {}
+    // Живые данные редактора: переподключаем файл компаньона тем же циклом, что и лечение
+    // виджетов, — своего таймера не заводим.
+    try { liveRefresh(); } catch (e) {}
     syncWidgets();
 }
 // ===== Реакция на ошибки в коде (fx.errorReact) =====
@@ -26,6 +29,10 @@ function problemsCount() {
     try {
         // Чтение статусбара вынесено в scrapeStatusItem (scrape.js) + учёт «здоровья»
         // селектора: если у нового VS Code иконка ошибок переедет, диагностика это покажет.
+        // Компаньон отдаёт счётчик из languages.getDiagnostics — это ровно то число, что
+        // показывает редактор, без разбора текста статусбара.
+        var liveErrors = liveNum("errors");
+        if (liveErrors !== null) { scrapeMark("problems", true); return liveErrors; }
         var txt = scrapeStatusItem("codicon-error").replace(/\s+/g, " ");
         var m = txt.match(/\d+/); // первое число у иконки ошибок = количество ошибок
         scrapeMark("problems", !!txt); // «нашли элемент», даже если ошибок 0 (сам виджет на месте)
@@ -205,8 +212,9 @@ document.addEventListener("mousemove", onMouseFx, true);
 var BRANCH_ID = "moonlight-branch";
 function gitBranch() {
     try {
-        // Имя ветки берём из статусбара через общий scrapeStatusItem + учёт «здоровья»:
-        // если git-виджет статусбара сменит разметку в новой версии, это всплывёт в диагностике.
+        // Точные данные от компаньона важнее: они из git API, а не из вёрстки статусбара.
+        var liveVal = liveStr("branch");
+        if (liveVal) { scrapeMark("gitBranch", true); return liveVal; }
         var txt = scrapeStatusItem("codicon-git-branch").replace(/\s+/g, " ").trim().slice(0, 80);
         scrapeMark("gitBranch", !!txt);
         return txt;
@@ -274,7 +282,8 @@ try {
             setBlur: function (v) { cfg.fxp.blur = v; applyThrottledLive(); ensureVars(); },
             selectorHealth: function () { return selectorHealthSummary(); },
             readability: function () { return readability(); },
-            loader: function () { return loaderKind(); }
+            loader: function () { return loaderKind(); },
+            live: function () { var d = mlbgLive(); return { branch: d && d.branch, source: liveSource() }; }
         };
     }
 } catch (e) {}

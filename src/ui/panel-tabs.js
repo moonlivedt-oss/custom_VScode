@@ -58,6 +58,9 @@ function buildTabSets(tSet) {
     secWs.appendChild(makeAmbientBranchToggle());
 
     // Фон по git-ветке: разный набор на main/master и на фиче-ветках (ветка из статусбара).
+    var secRemote = collapsible(tSet, "По репозиторию", "Набор под удалённый репозиторий (владелец/имя): один и тот же проект, склонированный в разные папки, получает один фон. Адрес репозитория берётся из git через компаньон-расширение — из вёрстки редактора его не достать.");
+    secRemote.appendChild(makeRemoteAutoUI());
+
     var secBranch = collapsible(tSet, "По ветке", "Набор под текущую git-ветку: main/master — один, фиче-ветки — другой. Приоритетнее слайдшоу и времени суток, но уступает «по проекту». Ветка читается из статусбара VS Code.");
     secBranch.appendChild(makeBranchAutoUI());
 

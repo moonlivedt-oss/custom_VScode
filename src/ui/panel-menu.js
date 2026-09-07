@@ -74,7 +74,9 @@ function buildMenuManager(secMenuBody, tabPanes) {
 // Строим В КОНЦЕ: нужны и полный список секций (panelAllSections), и навигация (sectionByTitle/
 // selectTab/flashSection). Секции показываем чипами-переходами (перенести их DOM в два места
 // нельзя), а эффекты — реальными тумблерами (быстрое включение без прыжков по вкладкам).
-function buildFavorites(favBox, panelBody) {
+// nav — то, что осталось внутри togglePanel и нужно переходам по избранным секциям:
+// поиск секции по заголовку, список панелей-вкладок, переключение вкладки и подсветка.
+function buildFavorites(favBox, panelBody, nav) {
         var box = favBox; if (!box) return;
         box.textContent = ""; box.hidden = true;
         var favSecTitles = [], favFxItems = [];
@@ -97,9 +99,9 @@ function buildFavorites(favBox, panelBody) {
                     chip.addEventListener("mouseenter", function () { chip.style.background = "rgba(var(--mlbg-accent-rgb),0.2)"; });
                     chip.addEventListener("mouseleave", function () { chip.style.background = "rgba(var(--mlbg-accent-rgb),0.1)"; });
                     chip.addEventListener("click", function () {
-                        var s = sectionByTitle(title); if (!s) return;
-                        var ti = tabPanes.indexOf(s.parent); if (ti >= 0) selectTab(ti);
-                        try { s.expand(); } catch (e) {} try { flashSection(s.head); } catch (e) {}
+                        var s = nav.sectionByTitle(title); if (!s) return;
+                        var ti = nav.tabPanes.indexOf(s.parent); if (ti >= 0) nav.selectTab(ti);
+                        try { s.expand(); } catch (e) {} try { nav.flashSection(s.head); } catch (e) {}
                     });
                     keyActivate(chip, t("Перейти к секции") + ": " + t(title));
                     chipRow.appendChild(chip);

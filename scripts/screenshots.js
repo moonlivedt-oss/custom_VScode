@@ -41,7 +41,7 @@ function startServer() {
                 res.end(buf);
             });
         });
-        srv.listen(0, "127.0.0.1", () => resolve({ srv, port: srv.address().port }));
+        srv.listen(0, "127.0.0.1", () => resolve({ srv, port: /** @type {import("net").AddressInfo} */ (srv.address()).port }));
     });
 }
 

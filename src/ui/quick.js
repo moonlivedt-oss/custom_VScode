@@ -172,7 +172,7 @@ function openQuick() {
             document.addEventListener("mousedown", function onOut(ev) {
                 var b = document.getElementById(QUICK_ID);
                 if (!b) { document.removeEventListener("mousedown", onOut, true); return; }
-                if (!b.contains(ev.target)) { document.removeEventListener("mousedown", onOut, true); quickClose(true); }
+                if (!b.contains(/** @type {Node} */ (ev.target))) { document.removeEventListener("mousedown", onOut, true); quickClose(true); }
             }, true);
         } catch (e) {}
     }, 0);

@@ -17,7 +17,7 @@
 var IMG_FALLBACK = "";
 var IMG = (function () {
     try {
-        var src = (document.currentScript && document.currentScript.src) || "";
+        var src = (/** @type {HTMLScriptElement} */ (document.currentScript) || {}).src || "";
         var i = src.lastIndexOf("/");
         if (i >= 0) return src.slice(0, i + 1); // .../vscode-bg/custom-bg.js -> .../vscode-bg/
     } catch (e) {}
@@ -41,6 +41,26 @@ function imgBase() {
 // набора интерфейс перекрашивается автоматически (см. getAccent). Пользователь может
 // переопределить акцент конкретного набора — правка хранится в cfg.setAccent[idx].
 // name — короткое имя набора (в тултипе кнопки BG, на чипах и в статусбаре).
+/**
+ * Запись каталога наборов. Обязательны только name и accent; источник фона — ровно один из:
+ * фотографии по зонам (editor/sidebar/panel), мастер-кадр с вырезами (master + crop),
+ * градиент (grad), процедурная текстура (proc + base) или шейдер (shader + base).
+ * @typedef {Object} MlbgSet
+ * @property {string} name           подпись набора в панели и на кнопке BG
+ * @property {string} [accent]       акцент интерфейса для этого набора (#rrggbb)
+ * @property {string} [editor]       путь картинки зоны редактора
+ * @property {string} [sidebar]      путь картинки сайдбара
+ * @property {string} [panel]        путь картинки нижней панели
+ * @property {string} [master]       один кадр на весь набор; зоны берут из него вырезы
+ * @property {Object.<string, number[]>} [crop] вырезы зон в процентах кадра: [x, y, w, h]
+ * @property {string[]} [grad]       палитра для градиентного набора (2+ цвета)
+ * @property {string} [proc]         вид процедурной текстуры (см. PROC_KINDS)
+ * @property {string} [shader]       вид шейдера (см. SHADER_KINDS)
+ * @property {string} [base]         цвет подложки для proc/shader
+ * @property {Object.<string, number>} [op] стартовая прозрачность зон именно этого набора
+ */
+
+/** @type {MlbgSet[]} */
 var SETS = [
     { name: "Алые кроны",           editor: "assets/editor/editor_0.jpg", sidebar: "assets/sidebar/sidebar_0.jpg", panel: "assets/panel/panel_0.jpg", accent: "#f38ba8" }, // 0
     { name: "Кот и звёзды",         editor: "assets/editor/editor_1.jpg", sidebar: "assets/sidebar/sidebar_1.jpg", panel: "assets/panel/panel_1.jpg", accent: "#cba6f7" }, // 1
@@ -143,19 +163,30 @@ var SHADER_KINDS = { aurora: 1, plasma: 1, nebula: 1, custom: 1 };
 // Нормализация ОДНОЙ записи набора (общая для sanitizeSets и sanitizeUserSets/addGenSet).
 // Возвращает чистый объект (имя/акцент/тип строго проверены) или null — если это не объект.
 // Поля-строки картинок оставляем как есть (их разрешение и проверка сети — в imgAllowed/imgUrl).
+/**
+ * Привести запись набора к безопасному виду: пропускаем только известные поля известных
+ * типов, всё остальное отбрасываем. Через эту функцию проходят и встроенные наборы, и
+ * пользовательские из генератора/импорта.
+ * @param {*} s сырая запись
+ * @param {string} fallbackName имя, если своего нет
+ * @returns {MlbgSet|null} null — если это вообще не объект
+ */
 function _normSetEntry(s, fallbackName) {
     if (!s || typeof s !== "object") return null;
-    var e = {};
+    /** @type {MlbgSet} */
+    var e = { name: "" };
     e.name = (typeof s.name === "string" && s.name) ? s.name.slice(0, 60) : fallbackName;
     e.accent = isColor(s.accent) ? s.accent : DEFAULT_ACCENT;
-    if (Array.isArray(s.grad)) { var g = []; for (var k = 0; k < s.grad.length; k++) if (isColor(s.grad[k])) g.push(s.grad[k]); if (g.length >= 2) e.grad = g; }
+    if (Array.isArray(s.grad)) { /** @type {string[]} */ var g = []; for (var k = 0; k < s.grad.length; k++) if (isColor(s.grad[k])) g.push(s.grad[k]); if (g.length >= 2) e.grad = g; }
     if (typeof s.proc === "string" && PROC_KINDS[s.proc]) { e.proc = s.proc; e.base = isColor(s.base) ? s.base : "#181825"; }
     // Шейдерный набор: имя из белого списка + цвет подложки. Сам GLSL живёт в
     // src/fx/shader.js (или в cfg.shaderSrc для «своего» шейдера) — сюда попадает только ключ.
     if (typeof s.shader === "string" && SHADER_KINDS[s.shader]) { e.shader = s.shader; e.base = isColor(s.base) ? s.base : "#11111b"; }
     // Набор одной мастер-картинкой: master + вырезы зон в процентах кадра.
     if (typeof s.master === "string" && s.master && s.crop && typeof s.crop === "object") {
-        var cr = {}, zk = ["editor", "sidebar", "panel"], zi, r, j, okRect;
+        /** @type {Object.<string, number[]>} */
+        var cr = {};
+        var zk = ["editor", "sidebar", "panel"], zi, r, j, okRect;
         for (zi = 0; zi < zk.length; zi++) {
             r = s.crop[zk[zi]];
             if (Object.prototype.toString.call(r) !== "[object Array]" || r.length !== 4) continue;
@@ -168,7 +199,9 @@ function _normSetEntry(s, fallbackName) {
     // Стартовая прозрачность зон конкретного набора: светлым кадрам нужна меньшая.
     // Это ДЕФОЛТ, а не настройка пользователя: cfg.setOp[idx] по-прежнему главнее.
     if (s.op && typeof s.op === "object") {
-        var op = {}, ok2 = ["editor", "side", "panel"], oi, ov;
+        /** @type {Object.<string, number>} */
+        var op = {};
+        var ok2 = ["editor", "side", "panel"], oi, ov;
         for (oi = 0; oi < ok2.length; oi++) {
             ov = s.op[ok2[oi]];
             if (typeof ov === "number" && isFinite(ov) && ov >= 0 && ov <= 1) op[ok2[oi]] = ov;

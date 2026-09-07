@@ -19,7 +19,11 @@ function mlbgEnv() {
             version: (typeof e.version === "string") ? e.version.replace(/[^0-9a-z.\-]/gi, "").slice(0, 24) : "",
             vscode: (typeof e.vscode === "string") ? e.vscode.replace(/[^0-9a-z.\-]/gi, "").slice(0, 24) : "",
             transparent: e.transparent === true,   // окно создано прозрачным (опции Electron заданы)
-            script: (typeof e.script === "string") ? e.script.slice(0, 512) : ""
+            script: (typeof e.script === "string") ? e.script.slice(0, 512) : "",
+            // Адрес файла живых данных. Пускаем только локальные схемы: этот URL уходит в
+            // src подключаемого <script>, и сетевой адрес отсюда означал бы, что подменённый
+            // пролог заставил редактор исполнять чужой код.
+            live: (typeof e.live === "string" && /^(?:file|vscode-file|vscode-resource|https?):\/\//i.test(e.live) && !isRemoteUrl(e.live)) ? e.live.slice(0, 1024) : ""
         };
     } catch (e) { return null; }
 }
@@ -67,7 +71,7 @@ function trueGlassSnippet() {
 // url берём из адреса текущего скрипта (IMG + имя файла), если он известен.
 function loaderImportSnippet() {
     var url = "";
-    try { url = (document.currentScript && document.currentScript.src) || ""; } catch (e) {}
+    try { url = (/** @type {HTMLScriptElement} */ (document.currentScript) || {}).src || ""; } catch (e) {}
     if (!url) url = (typeof IMG === "string" && IMG ? IMG : "file:///path/to/") + "custom-bg.js";
     if (loaderKind().id === "custom-ui-style") {
         return '"custom-ui-style.external.imports": [\n  { "type": "js", "url": "' + url + '" }\n]';

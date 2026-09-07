@@ -84,7 +84,7 @@ function updateLabel() {
     // Приоритет у авто-по-времени (оно перебивает слайдшоу, см. slideTick).
     var auto = !!(cfg.autoTime && cfg.autoTime.on);
     var slide = !auto && !!(cfg.slideshow && cfg.slideshow.on);
-    var dot = item.querySelector(".mlbg-mode-dot");
+    var dot = /** @type {HTMLElement} */ (item.querySelector(".mlbg-mode-dot"));
     var mode = auto ? "auto" : (slide ? "slide" : "");
     if (mode) {
         if (!dot) {

@@ -339,6 +339,15 @@ function makeCtxAutoUI(opts) {
     }
     return box;
 }
+function makeRemoteAutoUI() {
+    return makeCtxAutoUI({
+        flag: "autoRemote", map: "remoteSets", info: INFO.auto_remote,
+        read: function () { return (typeof liveStr === "function") ? (liveStr("remote") || "") : ""; },
+        toggle: "Фон по репозиторию", detected: "Репозиторий: ",
+        none: "Репозиторий не определён — нужен компаньон и git-remote",
+        pin: "Набор для репо"
+    });
+}
 function makeBranchAutoUI() {
     return makeCtxAutoUI({
         flag: "autoBranch", map: "branchSets", info: INFO.auto_branch,
@@ -361,7 +370,7 @@ function makeAutoTimeMode() {
     wrap.appendChild(el("span", mutedLabel(92), t("Границы дня")));
     var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
     var cur = (cfg.autoTime && cfg.autoTime.mode === "sun") ? "sun" : "hours";
-    [["hours", "Часы"], ["sun", "Рассвет/закат"]].forEach(function (o) {
+    [["hours", "По часам"], ["sun", "Рассвет/закат"]].forEach(function (o) {
         var op = el("option", null, t(o[1])); op.value = o[0]; if (o[0] === cur) op.selected = true; sel.appendChild(op);
     });
     sel.addEventListener("change", function () {

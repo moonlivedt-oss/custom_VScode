@@ -42,6 +42,17 @@ function scrapeStatusItem(iconClass) {
 // Нормализуем к [a-z0-9_], ограничиваем длину. Пусто -> "" (тогда langIndex не сработает).
 function editorFileExt() {
     try {
+        // У компаньона есть document.languageId — это надёжнее расширения из подписи вкладки
+        // (одно расширение бывает у разных языков, и наоборот). Ключ ищем сначала по языку,
+        // потом по расширению: старые конфиги, где закреплено «js», продолжают работать.
+        var d = (typeof mlbgLive === "function") ? mlbgLive() : null;
+        if (d && (d.languageId || d.fileExt)) {
+            scrapeMark("editorFile", true);
+            var map = cfg && cfg.langSets;
+            if (d.languageId && map && Object.prototype.hasOwnProperty.call(map, d.languageId)) return d.languageId;
+            if (d.fileExt && map && Object.prototype.hasOwnProperty.call(map, d.fileExt)) return d.fileExt;
+            return d.languageId || d.fileExt;
+        }
         var wb = document.querySelector(".monaco-workbench");
         if (!wb) { scrapeMark("editorFile", false); return ""; }
         var tab = wb.querySelector(".editor-group-container.active .tab.active .tab-label")

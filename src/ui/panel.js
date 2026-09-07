@@ -24,6 +24,7 @@ var panelAllSections = [], panelEditMenu = false;
 // («язык», «курсор», «яркость», «интервал») не находились. Этот каталог добавляет их в индекс:
 // [подпись, индекс вкладки, заголовок секции ("" — контрол вне секции), синонимы (RU+EN)].
 // Совпадение по подписи ИЛИ синониму ведёт к секции (разворот+подсветка) или просто к вкладке.
+/** @type {Array<[string, number, string, string]>} подпись, вкладка, секция, синонимы */
 var PANEL_SEARCH_CATALOG = [
     ["Яркость: редактор", 1, "Яркость набора", "прозрачность opacity фон код editor brightness"],
     ["Яркость: сайдбар", 1, "Яркость набора", "прозрачность opacity sidebar проводник"],
@@ -427,7 +428,9 @@ function togglePanel(ev) {
 
     buildMenuManager(secMenuBody, tabPanes);
 
-    buildFavorites(favBox, p);
+    buildFavorites(favBox, p, {
+        tabPanes: tabPanes, sectionByTitle: sectionByTitle, selectTab: selectTab, flashSection: flashSection
+    });
 
     document.body.appendChild(p);
 

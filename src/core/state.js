@@ -18,6 +18,9 @@ function pickRandom() {
 var APP_TITLE_RE = /\s*[—\-]\s*(?:Visual Studio Code|Code - OSS|VSCodium|Cursor|Windsurf)\s*$/i;
 function workspaceName() {
     try {
+        // Компаньон знает папку воркспейса напрямую; заголовок окна — запасной путь.
+        var liveVal = (typeof liveStr === "function") ? liveStr("folder") : null;
+        if (liveVal) { if (typeof scrapeMark === "function") scrapeMark("workspace", true); return liveVal; }
         var t = (document.title || "").trim();
         if (!t) return "";
         t = t.replace(APP_TITLE_RE, "").trim();
@@ -40,6 +43,17 @@ function workspaceIndex() {
         var i = parseInt(v, 10);
         if (i >= 0 && i < SETS.length) return i;
     }
+    return null;
+}
+// Набор, закреплённый за удалённым репозиторием (cfg.remoteSets["владелец/имя"]). В отличие
+// от «по проекту» это не зависит от того, как названа папка на диске: один и тот же репозиторий,
+// склонированный дважды под разными именами, получит один фон. Работает только с живыми данными
+// компаньона — из DOM удалённый адрес не достать.
+function remoteIndex() {
+    if (!cfg.autoRemote) return null;
+    var r = (typeof liveStr === "function") ? liveStr("remote") : null;
+    var v = (r && cfg.remoteSets) ? cfg.remoteSets[r] : null;
+    if (typeof v === "string" && /^\d+$/.test(v)) { var i = parseInt(v, 10); if (i >= 0 && i < SETS.length) return i; }
     return null;
 }
 // Набор, закреплённый за текущей git-веткой (cfg.branchSets[ветка]), если «фон по ветке»
@@ -74,6 +88,8 @@ function activeIndex() {
     // более осознанный контекст (закреплённый проект), а язык файла — самый частый и низший.
     var wi = workspaceIndex();
     if (wi !== null) return wi;
+    var ri = remoteIndex();
+    if (ri !== null) return ri;
     var bi = branchIndex();
     if (bi !== null) return bi;
     var li = langIndex();

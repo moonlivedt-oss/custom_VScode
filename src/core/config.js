@@ -23,6 +23,8 @@ var DEFAULTS = {
     workspaceSets: {},                                  // закреплённые наборы по проектам: { "имя папки": "индекс" }
     autoBranch: false,                                  // фон по git-ветке: набор выбирается по имени текущей ветки
     branchSets: {},                                     // закреплённые наборы по веткам: { "имя ветки": "индекс" }
+    autoRemote: false,                                  // фон по удалённому репозиторию (владелец/имя) — нужны живые данные компаньона
+    remoteSets: {},                                     // закреплённые наборы по репозиториям: { "owner/repo": "индекс" }
     autoLang: false,                                    // фон по языку/расширению активного файла
     langSets: {},                                       // закреплённые наборы по расширениям: { "js": "индекс", "py": "индекс" }
     ambientBranch: false,                               // тонкая полоска-индикатор ветки git (main -> красная, фича -> зелёная)
@@ -445,6 +447,8 @@ function mergeCfg(p) {
         if (typeof p.autoBranch === "boolean") c.autoBranch = p.autoBranch;
         c.branchSets = _sanSetMap(p.branchSets, 120);
         // фон по языку/расширению активного файла: флаг + карта «расширение -> индекс набора»
+        if (typeof p.autoRemote === "boolean") c.autoRemote = p.autoRemote;
+        c.remoteSets = _sanSetMap(p.remoteSets, 140);
         if (typeof p.autoLang === "boolean") c.autoLang = p.autoLang;
         c.langSets = _sanSetMap(p.langSets, 32);
         // индикатор ветки: только булево

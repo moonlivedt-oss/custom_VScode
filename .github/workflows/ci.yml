@@ -40,6 +40,24 @@ jobs:
             exit 1
           fi
 
+  # Проверка типов (TypeScript как линтер, без сборки). Рантайм остаётся ES5-джаваскриптом:
+  # tsc работает с checkJs/noEmit и ловит то, что смоук увидел бы только в рантайме, —
+  # потерянные при переносе имена, дубли ключей локализации, неверные типы аргументов.
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Установить TypeScript
+        run: npm i -D typescript@5 @types/node @types/vscode
+      - name: Рантайм (src/**)
+        run: npx tsc -p tsconfig.json
+      - name: Инструменты (build/scripts/test/extension)
+        run: npx tsc -p tsconfig.tools.json
+
   # Интеграционный тест (улучшение 7): реальный Chromium открывает фикстуру-воркбенч с
   # собранным custom-bg.js и проверяет живой DOM (кнопка/панель/инжект/локализация). Отдельным
   # джобом, т.к. требует Playwright (dev-зависимость) — основной smoke остаётся ноль-зависимостей.

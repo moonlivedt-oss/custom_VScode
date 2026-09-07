@@ -1,0 +1,7 @@
+# Зависимости ТОЛЬКО для оффлайн-инструментов подготовки ассетов (scripts/analyze_sets.py).
+# Рантайм плагина и основной поток сборки (node build.js + node test/smoke.js) не требуют
+# ни Python, ни этих пакетов — «ноль зависимостей» остаётся в силе.
+#
+# Установка:  pip install -r requirements-dev.txt
+pillow>=10
+numpy>=1.24

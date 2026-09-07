@@ -172,6 +172,7 @@ function _procMatrix(cx, W, H, acc) {
 // часть клеток мягко залита акцентом, часть вершин — яркими точками.
 function _procCells(cx, W, H, acc) {
     var cols = 8, rows = 6, gx = W / cols, gy = H / rows, r, c;
+    /** @type {number[][][]} сетка узлов: pts[строка][колонка] = [x, y] */
     var pts = [];
     for (r = 0; r <= rows; r++) {
         pts[r] = [];

@@ -114,7 +114,7 @@
     var IMG_FALLBACK = "";
     var IMG = (function () {
         try {
-            var src = (document.currentScript && document.currentScript.src) || "";
+            var src = (/** @type {HTMLScriptElement} */ (document.currentScript) || {}).src || "";
             var i = src.lastIndexOf("/");
             if (i >= 0) return src.slice(0, i + 1); // .../vscode-bg/custom-bg.js -> .../vscode-bg/
         } catch (e) {}
@@ -138,6 +138,26 @@
     // набора интерфейс перекрашивается автоматически (см. getAccent). Пользователь может
     // переопределить акцент конкретного набора — правка хранится в cfg.setAccent[idx].
     // name — короткое имя набора (в тултипе кнопки BG, на чипах и в статусбаре).
+    /**
+     * Запись каталога наборов. Обязательны только name и accent; источник фона — ровно один из:
+     * фотографии по зонам (editor/sidebar/panel), мастер-кадр с вырезами (master + crop),
+     * градиент (grad), процедурная текстура (proc + base) или шейдер (shader + base).
+     * @typedef {Object} MlbgSet
+     * @property {string} name           подпись набора в панели и на кнопке BG
+     * @property {string} [accent]       акцент интерфейса для этого набора (#rrggbb)
+     * @property {string} [editor]       путь картинки зоны редактора
+     * @property {string} [sidebar]      путь картинки сайдбара
+     * @property {string} [panel]        путь картинки нижней панели
+     * @property {string} [master]       один кадр на весь набор; зоны берут из него вырезы
+     * @property {Object.<string, number[]>} [crop] вырезы зон в процентах кадра: [x, y, w, h]
+     * @property {string[]} [grad]       палитра для градиентного набора (2+ цвета)
+     * @property {string} [proc]         вид процедурной текстуры (см. PROC_KINDS)
+     * @property {string} [shader]       вид шейдера (см. SHADER_KINDS)
+     * @property {string} [base]         цвет подложки для proc/shader
+     * @property {Object.<string, number>} [op] стартовая прозрачность зон именно этого набора
+     */
+
+    /** @type {MlbgSet[]} */
     var SETS = [
         { name: "Алые кроны",           editor: "assets/editor/editor_0.jpg", sidebar: "assets/sidebar/sidebar_0.jpg", panel: "assets/panel/panel_0.jpg", accent: "#f38ba8" }, // 0
         { name: "Кот и звёзды",         editor: "assets/editor/editor_1.jpg", sidebar: "assets/sidebar/sidebar_1.jpg", panel: "assets/panel/panel_1.jpg", accent: "#cba6f7" }, // 1
@@ -240,19 +260,30 @@
     // Нормализация ОДНОЙ записи набора (общая для sanitizeSets и sanitizeUserSets/addGenSet).
     // Возвращает чистый объект (имя/акцент/тип строго проверены) или null — если это не объект.
     // Поля-строки картинок оставляем как есть (их разрешение и проверка сети — в imgAllowed/imgUrl).
+    /**
+     * Привести запись набора к безопасному виду: пропускаем только известные поля известных
+     * типов, всё остальное отбрасываем. Через эту функцию проходят и встроенные наборы, и
+     * пользовательские из генератора/импорта.
+     * @param {*} s сырая запись
+     * @param {string} fallbackName имя, если своего нет
+     * @returns {MlbgSet|null} null — если это вообще не объект
+     */
     function _normSetEntry(s, fallbackName) {
         if (!s || typeof s !== "object") return null;
-        var e = {};
+        /** @type {MlbgSet} */
+        var e = { name: "" };
         e.name = (typeof s.name === "string" && s.name) ? s.name.slice(0, 60) : fallbackName;
         e.accent = isColor(s.accent) ? s.accent : DEFAULT_ACCENT;
-        if (Array.isArray(s.grad)) { var g = []; for (var k = 0; k < s.grad.length; k++) if (isColor(s.grad[k])) g.push(s.grad[k]); if (g.length >= 2) e.grad = g; }
+        if (Array.isArray(s.grad)) { /** @type {string[]} */ var g = []; for (var k = 0; k < s.grad.length; k++) if (isColor(s.grad[k])) g.push(s.grad[k]); if (g.length >= 2) e.grad = g; }
         if (typeof s.proc === "string" && PROC_KINDS[s.proc]) { e.proc = s.proc; e.base = isColor(s.base) ? s.base : "#181825"; }
         // Шейдерный набор: имя из белого списка + цвет подложки. Сам GLSL живёт в
         // src/fx/shader.js (или в cfg.shaderSrc для «своего» шейдера) — сюда попадает только ключ.
         if (typeof s.shader === "string" && SHADER_KINDS[s.shader]) { e.shader = s.shader; e.base = isColor(s.base) ? s.base : "#11111b"; }
         // Набор одной мастер-картинкой: master + вырезы зон в процентах кадра.
         if (typeof s.master === "string" && s.master && s.crop && typeof s.crop === "object") {
-            var cr = {}, zk = ["editor", "sidebar", "panel"], zi, r, j, okRect;
+            /** @type {Object.<string, number[]>} */
+            var cr = {};
+            var zk = ["editor", "sidebar", "panel"], zi, r, j, okRect;
             for (zi = 0; zi < zk.length; zi++) {
                 r = s.crop[zk[zi]];
                 if (Object.prototype.toString.call(r) !== "[object Array]" || r.length !== 4) continue;
@@ -265,7 +296,9 @@
         // Стартовая прозрачность зон конкретного набора: светлым кадрам нужна меньшая.
         // Это ДЕФОЛТ, а не настройка пользователя: cfg.setOp[idx] по-прежнему главнее.
         if (s.op && typeof s.op === "object") {
-            var op = {}, ok2 = ["editor", "side", "panel"], oi, ov;
+            /** @type {Object.<string, number>} */
+            var op = {};
+            var ok2 = ["editor", "side", "panel"], oi, ov;
             for (oi = 0; oi < ok2.length; oi++) {
                 ov = s.op[ok2[oi]];
                 if (typeof ov === "number" && isFinite(ov) && ov >= 0 && ov <= 1) op[ok2[oi]] = ov;
@@ -396,6 +429,8 @@
         workspaceSets: {},                                  // закреплённые наборы по проектам: { "имя папки": "индекс" }
         autoBranch: false,                                  // фон по git-ветке: набор выбирается по имени текущей ветки
         branchSets: {},                                     // закреплённые наборы по веткам: { "имя ветки": "индекс" }
+        autoRemote: false,                                  // фон по удалённому репозиторию (владелец/имя) — нужны живые данные компаньона
+        remoteSets: {},                                     // закреплённые наборы по репозиториям: { "owner/repo": "индекс" }
         autoLang: false,                                    // фон по языку/расширению активного файла
         langSets: {},                                       // закреплённые наборы по расширениям: { "js": "индекс", "py": "индекс" }
         ambientBranch: false,                               // тонкая полоска-индикатор ветки git (main -> красная, фича -> зелёная)
@@ -818,6 +853,8 @@
             if (typeof p.autoBranch === "boolean") c.autoBranch = p.autoBranch;
             c.branchSets = _sanSetMap(p.branchSets, 120);
             // фон по языку/расширению активного файла: флаг + карта «расширение -> индекс набора»
+            if (typeof p.autoRemote === "boolean") c.autoRemote = p.autoRemote;
+            c.remoteSets = _sanSetMap(p.remoteSets, 140);
             if (typeof p.autoLang === "boolean") c.autoLang = p.autoLang;
             c.langSets = _sanSetMap(p.langSets, 32);
             // индикатор ветки: только булево
@@ -1074,6 +1111,9 @@
     var APP_TITLE_RE = /\s*[—\-]\s*(?:Visual Studio Code|Code - OSS|VSCodium|Cursor|Windsurf)\s*$/i;
     function workspaceName() {
         try {
+            // Компаньон знает папку воркспейса напрямую; заголовок окна — запасной путь.
+            var liveVal = (typeof liveStr === "function") ? liveStr("folder") : null;
+            if (liveVal) { if (typeof scrapeMark === "function") scrapeMark("workspace", true); return liveVal; }
             var t = (document.title || "").trim();
             if (!t) return "";
             t = t.replace(APP_TITLE_RE, "").trim();
@@ -1096,6 +1136,17 @@
             var i = parseInt(v, 10);
             if (i >= 0 && i < SETS.length) return i;
         }
+        return null;
+    }
+    // Набор, закреплённый за удалённым репозиторием (cfg.remoteSets["владелец/имя"]). В отличие
+    // от «по проекту» это не зависит от того, как названа папка на диске: один и тот же репозиторий,
+    // склонированный дважды под разными именами, получит один фон. Работает только с живыми данными
+    // компаньона — из DOM удалённый адрес не достать.
+    function remoteIndex() {
+        if (!cfg.autoRemote) return null;
+        var r = (typeof liveStr === "function") ? liveStr("remote") : null;
+        var v = (r && cfg.remoteSets) ? cfg.remoteSets[r] : null;
+        if (typeof v === "string" && /^\d+$/.test(v)) { var i = parseInt(v, 10); if (i >= 0 && i < SETS.length) return i; }
         return null;
     }
     // Набор, закреплённый за текущей git-веткой (cfg.branchSets[ветка]), если «фон по ветке»
@@ -1130,6 +1181,8 @@
         // более осознанный контекст (закреплённый проект), а язык файла — самый частый и низший.
         var wi = workspaceIndex();
         if (wi !== null) return wi;
+        var ri = remoteIndex();
+        if (ri !== null) return ri;
         var bi = branchIndex();
         if (bi !== null) return bi;
         var li = langIndex();
@@ -1255,6 +1308,17 @@
     // Нормализуем к [a-z0-9_], ограничиваем длину. Пусто -> "" (тогда langIndex не сработает).
     function editorFileExt() {
         try {
+            // У компаньона есть document.languageId — это надёжнее расширения из подписи вкладки
+            // (одно расширение бывает у разных языков, и наоборот). Ключ ищем сначала по языку,
+            // потом по расширению: старые конфиги, где закреплено «js», продолжают работать.
+            var d = (typeof mlbgLive === "function") ? mlbgLive() : null;
+            if (d && (d.languageId || d.fileExt)) {
+                scrapeMark("editorFile", true);
+                var map = cfg && cfg.langSets;
+                if (d.languageId && map && Object.prototype.hasOwnProperty.call(map, d.languageId)) return d.languageId;
+                if (d.fileExt && map && Object.prototype.hasOwnProperty.call(map, d.fileExt)) return d.fileExt;
+                return d.languageId || d.fileExt;
+            }
             var wb = document.querySelector(".monaco-workbench");
             if (!wb) { scrapeMark("editorFile", false); return ""; }
             var tab = wb.querySelector(".editor-group-container.active .tab.active .tab-label")
@@ -1369,7 +1433,11 @@
                 version: (typeof e.version === "string") ? e.version.replace(/[^0-9a-z.\-]/gi, "").slice(0, 24) : "",
                 vscode: (typeof e.vscode === "string") ? e.vscode.replace(/[^0-9a-z.\-]/gi, "").slice(0, 24) : "",
                 transparent: e.transparent === true,   // окно создано прозрачным (опции Electron заданы)
-                script: (typeof e.script === "string") ? e.script.slice(0, 512) : ""
+                script: (typeof e.script === "string") ? e.script.slice(0, 512) : "",
+                // Адрес файла живых данных. Пускаем только локальные схемы: этот URL уходит в
+                // src подключаемого <script>, и сетевой адрес отсюда означал бы, что подменённый
+                // пролог заставил редактор исполнять чужой код.
+                live: (typeof e.live === "string" && /^(?:file|vscode-file|vscode-resource|https?):\/\//i.test(e.live) && !isRemoteUrl(e.live)) ? e.live.slice(0, 1024) : ""
             };
         } catch (e) { return null; }
     }
@@ -1417,12 +1485,91 @@
     // url берём из адреса текущего скрипта (IMG + имя файла), если он известен.
     function loaderImportSnippet() {
         var url = "";
-        try { url = (document.currentScript && document.currentScript.src) || ""; } catch (e) {}
+        try { url = (/** @type {HTMLScriptElement} */ (document.currentScript) || {}).src || ""; } catch (e) {}
         if (!url) url = (typeof IMG === "string" && IMG ? IMG : "file:///path/to/") + "custom-bg.js";
         if (loaderKind().id === "custom-ui-style") {
             return '"custom-ui-style.external.imports": [\n  { "type": "js", "url": "' + url + '" }\n]';
         }
         return '"vscode_custom_css.imports": [\n  "' + url + '"\n]';
+    }
+
+    // ===================== src/core/live.js =====================
+    // ===== Живые данные из хоста расширений =====
+    // Скрипт фона живёт в окне редактора: у него нет ни API расширений, ни git. Всё, что ему
+    // нужно знать о работе — ветка, ошибки, язык открытого файла, папка проекта, — до сих пор
+    // добывалось скрейпингом DOM. Это работает, но держится на чужой вёрстке и ломается на
+    // обновлениях редактора; ради этого пришлось завести целую систему здоровья селекторов.
+    //
+    // Компаньон-расширение живёт там, где эти данные точные (см. extension/live.js), и кладёт их
+    // в маленький JS-файл, который выставляет window.__MLBG_LIVE__. Рантайм переподключает файл
+    // на своём цикле самолечения — отдельного таймера не нужно, а цена одного цикла измерена и
+    // составляет доли миллисекунды (создание и удаление одного <script>).
+    //
+    // Данных может не быть вовсе: компаньон не установлен, git выключен, окно без папки. Поэтому
+    // живые данные — это ПРЕДПОЧТЕНИЕ, а не требование: где их нет, работает прежний скрейпинг.
+
+    // Санитизация: файл лежит на диске и в теории может быть подменён, а значения уходят в UI и
+    // в ключи конфига. Пропускаем только известные поля известных типов и ограничиваем длину.
+    function mlbgLive() {
+        try {
+            var d = (typeof window !== "undefined") ? window.__MLBG_LIVE__ : null;
+            if (!d || typeof d !== "object") return null;
+            function str(v, max) { return (typeof v === "string") ? v.slice(0, max) : ""; }
+            function num(v) { return (typeof v === "number" && isFinite(v) && v >= 0) ? Math.round(v) : 0; }
+            return {
+                rev: num(d.rev),
+                branch: str(d.branch, 80),
+                remote: str(d.remote, 120),
+                dirty: d.dirty === true,
+                errors: num(d.errors),
+                warnings: num(d.warnings),
+                languageId: str(d.languageId, 40).toLowerCase().replace(/[^a-z0-9_+-]/g, ""),
+                fileExt: str(d.fileExt, 16).toLowerCase().replace(/[^a-z0-9_]/g, ""),
+                folder: str(d.folder, 120)
+            };
+        } catch (e) { return null; }
+    }
+    // Есть ли вообще живой источник (компаньон прописал адрес файла в пролог).
+    function liveUrl() {
+        var e = (typeof mlbgEnv === "function") ? mlbgEnv() : null;
+        return (e && typeof e.live === "string" && e.live) ? e.live : "";
+    }
+
+    // Переподключение файла: адрес один и тот же, поэтому браузер отдал бы его из кэша —
+    // добавляем метку. Старый тег снимаем сразу после загрузки, чтобы в <head> не копились сотни
+    // элементов за сессию. Ошибка загрузки (файла ещё нет) — нормальная ситуация, молчим.
+    var _liveBusy = false;
+    function liveRefresh() {
+        var url = liveUrl();
+        if (!url || _liveBusy) return;
+        try {
+            _liveBusy = true;
+            var s = document.createElement("script");
+            s.src = url + (url.indexOf("?") >= 0 ? "&" : "?") + "r=" + Date.now();
+            s.async = true;
+            var done = function () { _liveBusy = false; try { s.remove(); } catch (e) {} };
+            s.onload = done;
+            s.onerror = done;
+            document.head.appendChild(s);
+        } catch (e) { _liveBusy = false; }
+    }
+
+    // Значение с приоритетом живых данных: если поле есть и непустое — берём его, иначе null,
+    // и вызывающий сам решает, чем это заменить (обычно — скрейпингом DOM).
+    function liveStr(key) {
+        var d = mlbgLive();
+        var v = d ? d[key] : null;
+        return (typeof v === "string" && v) ? v : null;
+    }
+    function liveNum(key) {
+        var d = mlbgLive();
+        var v = d ? d[key] : null;
+        return (typeof v === "number") ? v : null;
+    }
+    // Откуда пришло значение — показываем в диагностике, чтобы было видно, работает ли мостик.
+    function liveSource() {
+        if (!liveUrl()) return "DOM (компаньон не подключён)";
+        return mlbgLive() ? "хост расширений" : "DOM (данные ещё не пришли)";
     }
 
     // ===================== src/core/i18n.js =====================
@@ -1661,7 +1808,6 @@
         "Фон включён": "Background on",
         "Фон выключен": "Background off",
         "Режим чтения включён": "Reading mode on",
-        "Режим чтения выключен": "Reading mode off",
         "Введите имя пресета": "Enter a preset name",
         "Резерва нет": "No backup",
         "Восстановлены прежние настройки": "Previous settings restored",
@@ -1767,7 +1913,6 @@
         // -- Секция «Картинка»: акцент + фильтры --
         "Акцент": "Accent",
         "Акцент HEX": "Accent HEX",
-        "Безопасные акценты": "Safe accents",
         "Контраст к фону: ": "Contrast to background: ",
         "AA (крупный)": "AA (large)",
         "низкий": "low",
@@ -1812,7 +1957,7 @@
         "Набор для ветки": "Set for branch",
         "Набор для расширения": "Set for extension",
         "Границы дня": "Day bounds",
-        "Часы": "Hours",
+        "По часам": "Fixed hours",
         "Рассвет/закат": "Sunrise/sunset",
         "Широта": "Latitude",
         "Долгота": "Longitude",
@@ -2027,7 +2172,20 @@
         "Шейдер рисуется только в наборе «Свой шейдер» — сейчас выбран другой.": "The shader is drawn only in the “Custom shader” set — another set is active right now.",
         "Выбрать": "Switch",
         "Выбрать набор «Свой шейдер»": "Switch to the “Custom shader” set",
-        "Читаемость: фон выключен": "Readability: background is off"
+        "Читаемость: фон выключен": "Readability: background is off",
+        "Данные редактора": "Editor data",
+        "хост расширений": "extension host",
+        "DOM (компаньон не подключён)": "DOM (companion not connected)",
+        "DOM (данные ещё не пришли)": "DOM (no data yet)",
+        "Живые данные": "Live data",
+        "ветка": "branch",
+        "репозиторий": "repository",
+        "язык": "language",
+        "ошибок": "errors",
+        "Фон по репозиторию": "Background per repository",
+        "Репозиторий: ": "Repository: ",
+        "Репозиторий не определён — нужен компаньон и git-remote": "Repository unknown — needs the companion and a git remote",
+        "Набор для репо": "Set for repo"
     };
 
     // ===================== src/fx/color.js =====================
@@ -2578,6 +2736,7 @@
     // часть клеток мягко залита акцентом, часть вершин — яркими точками.
     function _procCells(cx, W, H, acc) {
         var cols = 8, rows = 6, gx = W / cols, gy = H / rows, r, c;
+        /** @type {number[][][]} сетка узлов: pts[строка][колонка] = [x, y] */
         var pts = [];
         for (r = 0; r <= rows; r++) {
             pts[r] = [];
@@ -2789,6 +2948,10 @@
     // приходит одним контекстом — так таблица не зависит от порядка объявлений внутри buildCSS
     // и живёт отдельным файлом, а не тремя сотнями строк посреди сборщика.
 
+    /**
+     * @param {Object} c контекст сборки стиля (акценты, палитра поверхностей, примитивы)
+     * @returns {Array<[string, function(): string[]]>} пары «ключ эффекта -> строки правил»
+     */
     function fxBlocks(c) {
         var ac = c.ac, ac2 = c.ac2, ac3 = c.ac3, acRGB = c.acRGB, ac2RGB = c.ac2RGB, ac3RGB = c.ac3RGB;
         var light = c.light, surfRGB = c.surfRGB, scrimRGB = c.scrimRGB, shadowRGB = c.shadowRGB, titleSolid = c.titleSolid;
@@ -3706,8 +3869,10 @@
             var c = document.createElement("canvas");
             c.id = "mlbg-shader";
             c.style.cssText = "position:absolute; inset:0; width:100%; height:100%; z-index:0; pointer-events:none; display:block;";
-            var gl = c.getContext("webgl", { alpha: false, antialias: false, depth: false, powerPreference: "low-power" })
-                  || c.getContext("experimental-webgl");
+            var gl = /** @type {WebGLRenderingContext} */ (
+                c.getContext("webgl", { alpha: false, antialias: false, depth: false, powerPreference: "low-power" })
+                || c.getContext("experimental-webgl")
+            );
             if (!gl) { shd.failed = true; return; }
             var vs = _compile(gl, gl.VERTEX_SHADER, VERT_SRC);
             var fs = _compile(gl, gl.FRAGMENT_SHADER, fragSource(shaderBody(s.shader)));
@@ -3931,6 +4096,7 @@
         fx_liveBg: "«Живой фон»: у градиентных и процедурных наборов фон медленно панорамируется — картина «дышит», а не стоит статично. Для фото-наборов есть отдельный Ken Burns. Гаснет при системной «уменьшить движение» и в эконом-режиме FPS.",
         fx_uiAnim: "Анимации интерфейса: мягкое появление палитры команд, автодополнения и подсказок, плавные переходы вкладок и строк списков, выезд уведомлений. Только оформление; появления гаснут при системной «уменьшить движение».",
         fx_acrylic: "Акрил: усиленное «матовое стекло» на весь воркбенч (сайдбар, панель, актив-бар, статусбар, титлбар, вкладки) — эстетика Acrylic/Mica одним тумблером, поверх точечных «стекло …». Это внутриредакторный морозный вид: настоящую прозрачность ДО рабочего стола custom-css дать не может — для неё нужно отдельное расширение прозрачности окна (например vscode-vibrancy-continued). Учитывает системную «уменьшить прозрачность».",
+        auto_remote: "Фон под удалённый репозиторий: ключом служит «владелец/имя» из git-remote, поэтому один и тот же проект, склонированный в две разные папки, откроется с одним фоном — в отличие от привязки «по проекту», которая смотрит на имя папки. Приоритет: проект > репозиторий > ветка > язык файла. Требует компаньон-расширение: адрес репозитория есть только в git API, из вёрстки редактора его не прочитать.",
         fx_autoRead: "Адаптивный скрим: фон гасится не целиком ползунком, а ТОЧЕЧНО — в тех местах кадра, где он светлее комфортного порога. Плагин один раз измеряет картинку сеткой 8x8 и подмешивает поверх неё несколько мягких тёмных пятен, поэтому яркое окно или фонарь за кодом перестают мешать, а остальная картина остаётся видимой. Стоит ноль кадров (это обычные CSS-градиенты) и работает вместе с авто-яркостью.",
         fx_trueGlass: "Настоящая прозрачность: сквозь редактор виден рабочий стол, а система подмешивает свой материал (Mica на Windows 11, vibrancy на macOS). В отличие от «Акрила», это не размытие своей же картинки внутри окна. Требует, чтобы окно было СОЗДАНО прозрачным: загрузчик Custom UI Style с опциями Electron (Система → Загрузчик → «Скопировать опции прозрачности», затем полный перезапуск). Если окно обычное, тумблер даёт просто усиленное стекло и ничего не ломает.",
         fx_cursorTrail: "Шлейф курсора: за указателем мыши тянется короткий тающий след акцентного цвета. Рисуется на canvas поверх интерфейса, клики проходят сквозь. Гаснет при системной «уменьшить движение» и в эконом-режиме FPS.",
@@ -4039,6 +4205,7 @@
         fx_errorReact: "When the code has errors (the count by the status-bar error icon is above zero), the status bar softly glows red. The count is read from the status-bar DOM — like the git-branch indicator.",
         fx_present: "A mode for streaming, screencasts and course recording: it hides visual noise (breadcrumbs, minimap, editor actions — revealed on hover) and presents accents LARGER (a thicker tab underline, a brighter activity-bar indicator and active line). Styling only — nothing is moved.",
         fx_highContrast: "Accessibility: a dense shadow under code and sidebar/panel labels for readability over a bright background (Monaco metrics untouched) and a thicker focus outline for keyboard navigation. Complements the system “reduce motion” and “reduce transparency”, which the plugin honors on its own.",
+        auto_remote: "Background per remote repository: the key is “owner/name” from the git remote, so the same project cloned into two different folders opens with the same background — unlike the per-project binding, which looks at the folder name. Priority: project > repository > branch > file language. Requires the companion extension: the remote address exists only in the git API and cannot be read from the editor markup.",
         fx_autoRead: "Adaptive scrim: instead of dimming the whole image with one slider, the background is dimmed EXACTLY where it is brighter than comfortable. The image is measured once on an 8x8 luminance grid, and a few soft dark spots are blended on top of it — a bright window or a lantern behind your code stops interfering while the rest of the picture stays visible. Costs no frames (plain CSS gradients) and works together with auto-brightness.",
         fx_trueGlass: "True transparency: the desktop shows through the editor and the OS blends in its own material (Mica on Windows 11, vibrancy on macOS). Unlike “Acrylic”, this is not a blur of our own image inside the window. It requires the window to be CREATED transparent: the Custom UI Style loader with Electron options (System → Loader → “Copy transparency options”, then a full restart). If the window is opaque, the switch simply gives stronger glass and breaks nothing.",
         fx_liveBg: "“Living background”: for gradient and procedural sets the background slowly pans — the scene “breathes” instead of sitting still. Photo sets have a separate Ken Burns. Disabled by the system “reduce motion” and in the FPS power-saving mode.",
@@ -4685,6 +4852,15 @@
         }
         return box;
     }
+    function makeRemoteAutoUI() {
+        return makeCtxAutoUI({
+            flag: "autoRemote", map: "remoteSets", info: INFO.auto_remote,
+            read: function () { return (typeof liveStr === "function") ? (liveStr("remote") || "") : ""; },
+            toggle: "Фон по репозиторию", detected: "Репозиторий: ",
+            none: "Репозиторий не определён — нужен компаньон и git-remote",
+            pin: "Набор для репо"
+        });
+    }
     function makeBranchAutoUI() {
         return makeCtxAutoUI({
             flag: "autoBranch", map: "branchSets", info: INFO.auto_branch,
@@ -4707,7 +4883,7 @@
         wrap.appendChild(el("span", mutedLabel(92), t("Границы дня")));
         var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
         var cur = (cfg.autoTime && cfg.autoTime.mode === "sun") ? "sun" : "hours";
-        [["hours", "Часы"], ["sun", "Рассвет/закат"]].forEach(function (o) {
+        [["hours", "По часам"], ["sun", "Рассвет/закат"]].forEach(function (o) {
             var op = el("option", null, t(o[1])); op.value = o[0]; if (o[0] === cur) op.selected = true; sel.appendChild(op);
         });
         sel.addEventListener("change", function () {
@@ -6142,6 +6318,19 @@
             var ld = loaderKind();
             add("Загрузчик", ld.title + (ld.version ? " " + ld.version : "") + (ld.sure ? "" : "  [" + t("определено косвенно") + "]"));
         }
+        // Источник данных о работе: живой мостик компаньона или скрейпинг DOM. Это первое, что
+        // хочется знать, когда «фон по ветке» показывает не то.
+        if (typeof liveSource === "function") {
+            add("Данные редактора", t(liveSource()));
+            var lv = mlbgLive();
+            if (lv) {
+                lines.push(t("Живые данные") + ": " +
+                    t("ветка") + " " + (lv.branch || "—") + " · " +
+                    t("репозиторий") + " " + (lv.remote || "—") + " · " +
+                    t("язык") + " " + (lv.languageId || "—") + " · " +
+                    t("ошибок") + " " + lv.errors);
+            }
+        }
         // «Здоровье» CSS-селекторов воркбенча: не читаем данные, а проверяем, что
         // элементы, на которые вешается оформление, вообще существуют в текущей версии VS Code.
         if (typeof selectorHealthSummary === "function") {
@@ -6359,7 +6548,7 @@
                 document.addEventListener("mousedown", function onOut(ev) {
                     var b = document.getElementById(QUICK_ID);
                     if (!b) { document.removeEventListener("mousedown", onOut, true); return; }
-                    if (!b.contains(ev.target)) { document.removeEventListener("mousedown", onOut, true); quickClose(true); }
+                    if (!b.contains(/** @type {Node} */ (ev.target))) { document.removeEventListener("mousedown", onOut, true); quickClose(true); }
                 }, true);
             } catch (e) {}
         }, 0);
@@ -6453,7 +6642,7 @@
         // Приоритет у авто-по-времени (оно перебивает слайдшоу, см. slideTick).
         var auto = !!(cfg.autoTime && cfg.autoTime.on);
         var slide = !auto && !!(cfg.slideshow && cfg.slideshow.on);
-        var dot = item.querySelector(".mlbg-mode-dot");
+        var dot = /** @type {HTMLElement} */ (item.querySelector(".mlbg-mode-dot"));
         var mode = auto ? "auto" : (slide ? "slide" : "");
         if (mode) {
             if (!dot) {
@@ -6761,7 +6950,9 @@
     // Строим В КОНЦЕ: нужны и полный список секций (panelAllSections), и навигация (sectionByTitle/
     // selectTab/flashSection). Секции показываем чипами-переходами (перенести их DOM в два места
     // нельзя), а эффекты — реальными тумблерами (быстрое включение без прыжков по вкладкам).
-    function buildFavorites(favBox, panelBody) {
+    // nav — то, что осталось внутри togglePanel и нужно переходам по избранным секциям:
+    // поиск секции по заголовку, список панелей-вкладок, переключение вкладки и подсветка.
+    function buildFavorites(favBox, panelBody, nav) {
             var box = favBox; if (!box) return;
             box.textContent = ""; box.hidden = true;
             var favSecTitles = [], favFxItems = [];
@@ -6784,9 +6975,9 @@
                         chip.addEventListener("mouseenter", function () { chip.style.background = "rgba(var(--mlbg-accent-rgb),0.2)"; });
                         chip.addEventListener("mouseleave", function () { chip.style.background = "rgba(var(--mlbg-accent-rgb),0.1)"; });
                         chip.addEventListener("click", function () {
-                            var s = sectionByTitle(title); if (!s) return;
-                            var ti = tabPanes.indexOf(s.parent); if (ti >= 0) selectTab(ti);
-                            try { s.expand(); } catch (e) {} try { flashSection(s.head); } catch (e) {}
+                            var s = nav.sectionByTitle(title); if (!s) return;
+                            var ti = nav.tabPanes.indexOf(s.parent); if (ti >= 0) nav.selectTab(ti);
+                            try { s.expand(); } catch (e) {} try { nav.flashSection(s.head); } catch (e) {}
                         });
                         keyActivate(chip, t("Перейти к секции") + ": " + t(title));
                         chipRow.appendChild(chip);
@@ -6873,6 +7064,9 @@
         secWs.appendChild(makeAmbientBranchToggle());
 
         // Фон по git-ветке: разный набор на main/master и на фиче-ветках (ветка из статусбара).
+        var secRemote = collapsible(tSet, "По репозиторию", "Набор под удалённый репозиторий (владелец/имя): один и тот же проект, склонированный в разные папки, получает один фон. Адрес репозитория берётся из git через компаньон-расширение — из вёрстки редактора его не достать.");
+        secRemote.appendChild(makeRemoteAutoUI());
+
         var secBranch = collapsible(tSet, "По ветке", "Набор под текущую git-ветку: main/master — один, фиче-ветки — другой. Приоритетнее слайдшоу и времени суток, но уступает «по проекту». Ветка читается из статусбара VS Code.");
         secBranch.appendChild(makeBranchAutoUI());
 
@@ -7080,6 +7274,7 @@
     // («язык», «курсор», «яркость», «интервал») не находились. Этот каталог добавляет их в индекс:
     // [подпись, индекс вкладки, заголовок секции ("" — контрол вне секции), синонимы (RU+EN)].
     // Совпадение по подписи ИЛИ синониму ведёт к секции (разворот+подсветка) или просто к вкладке.
+    /** @type {Array<[string, number, string, string]>} подпись, вкладка, секция, синонимы */
     var PANEL_SEARCH_CATALOG = [
         ["Яркость: редактор", 1, "Яркость набора", "прозрачность opacity фон код editor brightness"],
         ["Яркость: сайдбар", 1, "Яркость набора", "прозрачность opacity sidebar проводник"],
@@ -7483,7 +7678,9 @@
 
         buildMenuManager(secMenuBody, tabPanes);
 
-        buildFavorites(favBox, p);
+        buildFavorites(favBox, p, {
+            tabPanes: tabPanes, sectionByTitle: sectionByTitle, selectTab: selectTab, flashSection: flashSection
+        });
 
         document.body.appendChild(p);
 
@@ -8366,7 +8563,7 @@
         try {
             var rad = Math.PI / 180, deg = 180 / Math.PI;
             var start = new Date(date.getFullYear(), 0, 0);
-            var day = Math.floor((date - start) / 86400000); // день года (1..366)
+            var day = Math.floor((date.getTime() - start.getTime()) / 86400000); // день года (1..366)
             var lngHour = lon / 15, off = -date.getTimezoneOffset() / 60;
             function calc(isRise) {
                 var tt = day + ((isRise ? 6 : 18) - lngHour) / 24;
@@ -8453,6 +8650,9 @@
         // Шейдерный фон: холст живёт внутри части «редактор», а VS Code пересоздаёт её
         // при смене раскладки/групп — поэтому проверяем и возвращаем его в том же цикле heal.
         try { ensureShader(); } catch (e) {}
+        // Живые данные редактора: переподключаем файл компаньона тем же циклом, что и лечение
+        // виджетов, — своего таймера не заводим.
+        try { liveRefresh(); } catch (e) {}
         syncWidgets();
     }
     // ===== Реакция на ошибки в коде (fx.errorReact) =====
@@ -8464,6 +8664,10 @@
         try {
             // Чтение статусбара вынесено в scrapeStatusItem (scrape.js) + учёт «здоровья»
             // селектора: если у нового VS Code иконка ошибок переедет, диагностика это покажет.
+            // Компаньон отдаёт счётчик из languages.getDiagnostics — это ровно то число, что
+            // показывает редактор, без разбора текста статусбара.
+            var liveErrors = liveNum("errors");
+            if (liveErrors !== null) { scrapeMark("problems", true); return liveErrors; }
             var txt = scrapeStatusItem("codicon-error").replace(/\s+/g, " ");
             var m = txt.match(/\d+/); // первое число у иконки ошибок = количество ошибок
             scrapeMark("problems", !!txt); // «нашли элемент», даже если ошибок 0 (сам виджет на месте)
@@ -8643,8 +8847,9 @@
     var BRANCH_ID = "moonlight-branch";
     function gitBranch() {
         try {
-            // Имя ветки берём из статусбара через общий scrapeStatusItem + учёт «здоровья»:
-            // если git-виджет статусбара сменит разметку в новой версии, это всплывёт в диагностике.
+            // Точные данные от компаньона важнее: они из git API, а не из вёрстки статусбара.
+            var liveVal = liveStr("branch");
+            if (liveVal) { scrapeMark("gitBranch", true); return liveVal; }
             var txt = scrapeStatusItem("codicon-git-branch").replace(/\s+/g, " ").trim().slice(0, 80);
             scrapeMark("gitBranch", !!txt);
             return txt;
@@ -8712,7 +8917,8 @@
                 setBlur: function (v) { cfg.fxp.blur = v; applyThrottledLive(); ensureVars(); },
                 selectorHealth: function () { return selectorHealthSummary(); },
                 readability: function () { return readability(); },
-                loader: function () { return loaderKind(); }
+                loader: function () { return loaderKind(); },
+                live: function () { var d = mlbgLive(); return { branch: d && d.branch, source: liveSource() }; }
             };
         }
     } catch (e) {}

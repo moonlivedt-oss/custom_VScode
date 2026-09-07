@@ -11,6 +11,7 @@
 // ============================================================
 "use strict";
 const vscode = require("vscode");
+const live = require("./live");
 const fs = require("fs");
 const path = require("path");
 
@@ -91,7 +92,10 @@ async function syncSeed(context) {
                  (vscode.extensions.getExtension(loader === "custom-ui-style" ? CUS_ID : BE5_ID)).packageJSON.version || "",
         vscode: vscode.version,
         transparent: electronTransparent(),
-        script: resolveScript(context)
+        script: resolveScript(context),
+        // Адрес файла живых данных: рантайм переподключает его на своём цикле самолечения
+        // и получает ветку, счётчик ошибок и язык файла из настоящих API вместо DOM.
+        live: fileUrl(live.liveFilePath(context))
     };
     let body = "window.__MLBG_ENV__ = " + JSON.stringify(env) + ";\n";
     if (hasConfig) body += "window.__MLBG_SEED__ = " + JSON.stringify(cfgObj) + ";\n";
@@ -313,6 +317,7 @@ async function healthCheck(context, proactive) {
 }
 
 function activate(context) {
+    lastContext = context;
     context.subscriptions.push(
         vscode.commands.registerCommand("moonlightBg.setup", () => ensureImport(context)),
         vscode.commands.registerCommand("moonlightBg.remove", () => removeImport(context)),
@@ -325,6 +330,8 @@ function activate(context) {
             if (e.affectsConfiguration(SEED_SETTING) || e.affectsConfiguration(CUS_ELECTRON_KEY)) { syncSeed(context).catch(() => {}); }
         })
     );
+    // Живые данные редактора -> файл, который читает рантайм (см. extension/live.js).
+    try { live.watch(context).forEach((d) => context.subscriptions.push(d)); } catch (e) {}
     // При каждом старте подтягиваем seed под текущую настройку (могла приехать с Sync между сессиями).
     syncSeed(context).catch(() => {});
     // На первом запуске (пока не отмечали) — предложить настройку автоматически.
@@ -341,6 +348,11 @@ function activate(context) {
     }
 }
 
-function deactivate() {}
+function deactivate() {
+    // Файл живых данных без работающего расширения устареет — убираем, чтобы рантайм
+    // не считал вчерашнюю ветку текущей и честно откатился на чтение из DOM.
+    try { live.cleanup(lastContext); } catch (e) {}
+}
+let lastContext = null;
 
 module.exports = { activate, deactivate };

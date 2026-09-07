@@ -5,6 +5,10 @@
 // приходит одним контекстом — так таблица не зависит от порядка объявлений внутри buildCSS
 // и живёт отдельным файлом, а не тремя сотнями строк посреди сборщика.
 
+/**
+ * @param {Object} c контекст сборки стиля (акценты, палитра поверхностей, примитивы)
+ * @returns {Array<[string, function(): string[]]>} пары «ключ эффекта -> строки правил»
+ */
 function fxBlocks(c) {
     var ac = c.ac, ac2 = c.ac2, ac3 = c.ac3, acRGB = c.acRGB, ac2RGB = c.ac2RGB, ac3RGB = c.ac3RGB;
     var light = c.light, surfRGB = c.surfRGB, scrimRGB = c.scrimRGB, shadowRGB = c.shadowRGB, titleSolid = c.titleSolid;
