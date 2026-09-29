@@ -185,8 +185,8 @@ function makeHistoryUI() {
     var uN = _histUndo.length, rN = _histRedo.length;
     var uB = makeIoBtn("↶ Отменить" + (uN ? " (" + uN + ")" : ""));
     var rB = makeIoBtn("↷ Повторить" + (rN ? " (" + rN + ")" : ""));
-    if (!canUndo()) { uB.style.opacity = "0.45"; uB.style.cursor = "default"; }
-    if (!canRedo()) { rB.style.opacity = "0.45"; rB.style.cursor = "default"; }
+    if (!canUndo()) uB.classList.add("off");
+    if (!canRedo()) rB.classList.add("off");
     uB.addEventListener("click", function () { undo(); });
     rB.addEventListener("click", function () { redo(); });
     row.appendChild(uB); row.appendChild(rB);
@@ -195,9 +195,7 @@ function makeHistoryUI() {
 
 // Кнопка экспорта/импорта (одинаковый вид, разный обработчик навешивается снаружи).
 function makeIoBtn(text) {
-    var b = el("div", "flex:1 1 0; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", t(text));
-    b.addEventListener("mouseenter", function () { b.style.background = "rgba(137,180,250,0.26)"; });
-    b.addEventListener("mouseleave", function () { b.style.background = "rgba(137,180,250,0.14)"; });
+    var b = el("div", null, t(text)); b.className = "mlp-btn"; // вид — panel-css.js (.mlp-btn)
     keyActivate(b, t(text));
     return b;
 }

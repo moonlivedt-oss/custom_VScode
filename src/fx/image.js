@@ -105,6 +105,29 @@ function _fireImg(url, st) {
     _imgListeners[url] = null;
     for (var i = 0; i < ls.length; i++) { try { ls[i](st); } catch (e) {} }
 }
+// Картинка намного больше экрана (4K-обои на FullHD) держит в памяти весь декодированный
+// кадр и дольше перерисовывается при эффектах. Делаем копию под экран (с запасом 1.25x на
+// Ken Burns) как blob: URL и проверяем, что оболочка её грузит (CSP) — только тогда
+// st.small подменяет оригинал в CSS. Не вышло — остаётся оригинал, ничего не ломается.
+function downscaleBig(im, st) {
+    try {
+        var dpr = window.devicePixelRatio || 1;
+        var lim = Math.max(1920, Math.round(Math.max(screen.width || 0, window.innerWidth || 0) * dpr * 1.25));
+        var w = im.naturalWidth || 0, h = im.naturalHeight || 0;
+        if (!w || !h || w <= lim * 1.3 || typeof URL === "undefined" || !URL.createObjectURL) return;
+        var k = lim / w, c = document.createElement("canvas");
+        c.width = Math.round(w * k); c.height = Math.round(h * k);
+        c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+        if (!c.toBlob) return;
+        c.toBlob(function (b) {
+            if (!b) return;
+            var u = URL.createObjectURL(b), test = new Image();
+            test.onload = function () { st.small = u; bumpStyle(); ensureStyle(); };
+            test.onerror = function () { try { URL.revokeObjectURL(u); } catch (e) {} };
+            test.src = u;
+        }, "image/jpeg", 0.9);
+    } catch (e) {}
+}
 function probeImage(url) {
     if (Object.prototype.hasOwnProperty.call(_imgState, url)) return _imgState[url];
     // «Картинки нет» — это не «картинка сломана»: у шейдерных и генеративных наборов зоны
@@ -154,6 +177,7 @@ function probeImage(url) {
                 st.thumb = tc.toDataURL("image/jpeg", 0.72);
             } catch (e2) { st.thumb = null; }
             imgCacheSet(url, st); // метрики и мини-превью — в кэш, чтобы следующий старт был мгновенным
+            downscaleBig(im, st);
             st.resolved = true; _fireImg(url, st); bumpStyle(); ensureStyle();
         };
         im.onerror = function () { st.ok = false; st.resolved = true; _fireImg(url, st); bumpStyle(); ensureStyle(); };

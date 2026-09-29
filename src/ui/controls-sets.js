@@ -43,85 +43,88 @@ function probeSet(idx, chip) {
         if (!u) return;                       // у зоны нет картинки по замыслу набора — проверять нечего
         onImage(u, function (st) {
             if (st.ok || st.none) return;
-            chip.style.border = "1px solid #f38ba8";
-            chip.style.boxShadow = "inset 0 0 0 1px rgba(243,139,168,0.55)";
+            chip.style.borderColor = "#f38ba8";
             chip.title = t("Не грузится: ") + setImage(idx, zone);
-            var b = chip.querySelector(".mlbg-bad"); if (!b) { b = el("span", "position:absolute; top:1px; left:3px; color:#f38ba8; font-weight:700;", "!"); b.className = "mlbg-bad"; chip.appendChild(b); }
+            var b = chip.querySelector(".mlbg-bad"); if (!b) { b = el("span", "position:absolute; top:2px; left:4px; z-index:3; color:#f38ba8; font-weight:700; text-shadow:0 1px 3px rgba(0,0,0,0.9);", "!"); b.className = "mlbg-bad"; chip.appendChild(b); }
         });
     });
 }
 
-// чип набора с превью-миниатюрой (мини-триптих зон)
+// Превью набора в узле pv: три полосы зон (редактор 60% / сайдбар / панель). Генеративный
+// набор — градиентом (нет картинок и 404-проверки), шейдерный — запасной палитрой, которой он
+// рисуется без WebGL, процедурный — одной текстурой. Картинки — компактным data-URL из пробы
+// (probeImage.thumb), а не полноразмерным JPEG: превью много, и пересобираются они часто.
+// Нужна карточкам наборов, строке «сейчас работает» и быстрому меню у кнопки BG.
+// Возвращает true, если у набора настоящие картинки (их имеет смысл проверять на 404).
+function paintSetPreview(pv, idx) {
+    var grad = isGradSet(idx), proc = isProcSet(idx);
+    var shader = (typeof isShaderSet === "function") && isShaderSet(idx);
+    var procCss = proc ? (function () { var u = procTexture(idx); return u ? cssUrl(u) + " center / cover no-repeat" : procFallback(idx, "editor"); })() : null;
+    var ZK = ["editor", "sidebar", "panel"], W = [[0, 60], [60, 20], [80, 20]];
+    function paintZone(node, zone) {
+        var url = zoneUrl(idx, zone);
+        node.style.background = "rgba(var(--mlbg-accent-rgb),0.14)";
+        node.style.backgroundPosition = "center"; node.style.backgroundSize = "cover";
+        onImage(url, function (st) { if (st && st.thumb) node.style.backgroundImage = cssUrl(st.thumb); });
+    }
+    if (!pv.style.position) pv.style.position = "relative";
+    pv.style.overflow = "hidden";
+    for (var zi = 0; zi < 3; zi++) {
+        var strip = el("div",
+            "position:absolute; top:0; bottom:0; left:" + W[zi][0] + "%; width:" + W[zi][1] + "%;" +
+            "background-position:center; background-size:cover;" +
+            (zi ? "box-shadow:inset 1px 0 0 rgba(0,0,0,0.35);" : ""));
+        if (proc) strip.style.background = procCss;
+        else if (grad) strip.style.background = gradFor(idx, ZK[zi]);
+        else if (shader) strip.style.background = shaderBg(idx, ZK[zi]);
+        else paintZone(strip, ZK[zi]);
+        pv.appendChild(strip);
+    }
+    return !grad && !proc && !shader;
+}
+function isFavSet(idx) { return !!(cfg.ui.favSets && cfg.ui.favSets[String(idx)]); }
+
+// Карточка набора: превью + номер и имя под ним + звёздочка «любимый» в углу превью.
+// label — номер набора (или подпись для «случайно»); вид — panel-css.js (.mlp-set).
 function makeChip(mode, label) {
     var active = cfg.mode === mode, isSet = mode !== "random";
-    var css = isSet
-        ? "position:relative; width:48px; height:32px; border-radius:7px; overflow:hidden; cursor:pointer;" +
-          "background-position:center; background-size:cover;" +
-          "border:2px solid " + (active ? "var(--mlbg-accent)" : "var(--mlp-border-soft,rgba(205,214,244,0.16))") + ";" +
-          (active ? "box-shadow:0 0 0 2px rgba(var(--mlbg-accent-rgb),0.35);" : "")
-        : "min-width:24px; padding:4px 10px; border-radius:7px; cursor:pointer; user-select:none; text-align:center;" +
-          "font-weight:" + (active ? "600" : "400") + ";" +
-          "border:1px solid " + (active ? "var(--mlbg-accent)" : "var(--mlp-border-soft,rgba(205,214,244,0.16))") + ";" +
-          "background:" + (active ? "rgba(var(--mlbg-accent-rgb),0.28)" : "transparent") + "; color:" + (active ? "#f2e6ff" : "var(--mlp-fg,#cdd6f4)") + ";";
-    var c = el("div", css, isSet ? null : label);
+    var c = el("div", null); c.className = "mlp-set" + (active ? " on" : "") + (isSet ? "" : " mlp-set-rand");
+    var pv = el("div", null); pv.className = "mlp-set-pv"; c.appendChild(pv);
+    var nmRow = el("div", null); nmRow.className = "mlp-set-nm"; c.appendChild(nmRow);
     if (isSet) {
         var idx = parseInt(mode, 10);
-        var s = SETS[idx];
-        // Мини-триптих: три вертикальные полоски с превью зон (редактор / сайдбар / панель),
-        // чтобы собирать наборы на глаз. Полоски — фон chip как запасной вариант (editor).
-        // Генеративный набор — рисуем полоски градиентом (нет картинок и 404-проверки).
-        var grad = isGradSet(idx), proc = isProcSet(idx);
-        // Шейдерный набор: картинок нет, кадр считает GPU. На чипе показываем ту же запасную
-        // палитру, которой набор рисуется без WebGL, — так плитка выглядит как набор, а не
-        // как «сломанная картинка».
-        var shader = (typeof isShaderSet === "function") && isShaderSet(idx);
-        // Процедурный набор: одна текстура на все зоны — красим ей и чип, и полоски (или
-        // запасным градиентом, если текстуру не удалось нарисовать).
-        var procCss = proc ? (function () { var u = procTexture(idx); return u ? cssUrl(u) + " center / cover no-repeat" : procFallback(idx, "editor"); })() : null;
-        var ZK = ["editor", "sidebar", "panel"];
-        // Чип 48×32 не должен держать полноразмерный JPEG фоновым слоем (100–250 КБ × зоны ×
-        // наборы = мегабайты, и всё заново при каждой пересборке панели). Кладём акцентный
-        // плейсхолдер, а как только проба картинки готова — подставляем компактный data-URL
-        // из probeImage.thumb (второй загрузки нет). Сетевая/битая картинка -> остаётся плейсхолдер.
-        function paintZone(node, zone) {
-            var url = zoneUrl(idx, zone);
-            node.style.background = "rgba(var(--mlbg-accent-rgb),0.14)";
-            node.style.backgroundPosition = "center"; node.style.backgroundSize = "cover";
-            onImage(url, function (st) { if (st && st.thumb) node.style.backgroundImage = cssUrl(st.thumb); });
-        }
-        if (proc) c.style.background = procCss;
-        else if (grad) c.style.background = gradFor(idx, "editor");
-        else if (shader) c.style.background = shaderBg(idx, "editor");
-        else paintZone(c, "editor");
-        for (var zi = 0; zi < 3; zi++) {
-            var strip = el("div",
-                "position:absolute; top:0; bottom:0; width:33.34%; left:" + (zi * 33.33) + "%;" +
-                "background-position:center; background-size:cover;" +
-                (zi ? "box-shadow:inset 1px 0 0 rgba(0,0,0,0.35);" : ""));
-            if (proc) strip.style.background = procCss;
-            else if (grad) strip.style.background = gradFor(idx, ZK[zi]);
-            else if (shader) strip.style.background = shaderBg(idx, ZK[zi]);
-            else paintZone(strip, ZK[zi]);
-            c.appendChild(strip);
-        }
-        var num = el("span", "position:absolute; right:3px; bottom:1px; z-index:2; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.95);", label);
-        c.appendChild(num);
-        var nm = setName(idx); if (nm) c.title = idx + " · " + nm + t(" (редактор · сайдбар · панель)");
-        if (!grad && !proc && !shader) probeSet(idx, c);
+        var real = paintSetPreview(pv, idx);
+        var nm = setName(idx);
+        var no = el("span", null, label); no.className = "mlp-set-no"; nmRow.appendChild(no);
+        nmRow.appendChild(el("span", null, nm || t("Набор ") + label));
+        c.title = idx + (nm ? " · " + nm : "") + t(" (редактор · сайдбар · панель)");
+        // Звёздочка: любимые наборы попадают в быстрое меню у кнопки BG и в фильтр «только любимые».
+        var fav = isFavSet(idx);
+        var star = el("span", null, fav ? "\u2605" : "\u2606"); star.className = "mlp-set-star" + (fav ? " on" : "");
+        star.title = fav ? t("Убрать из любимых") : t("В любимые");
+        star.addEventListener("click", function (e) {
+            e.stopPropagation(); e.preventDefault();
+            if (!cfg.ui.favSets) cfg.ui.favSets = {};
+            if (fav) delete cfg.ui.favSets[String(idx)]; else cfg.ui.favSets[String(idx)] = true;
+            saveCfg(); try { refreshPanel(); } catch (er) {}
+        });
+        keyActivate(star, (fav ? t("Убрать из любимых") : t("В любимые")) + ": " + (nm || label));
+        pv.appendChild(star);
+        if (real) probeSet(idx, c);
         if (!active) {
-            // Превью набора и по мыши (mouseenter/leave), и с клавиатуры (focus/blur) —
-            // паритет доступности: пользователь, идущий по чипам с Tab, тоже «примеряет»
-            // набор, а не выбирает вслепую. previewSet дебаунсит, previewEnd мягко возвращает.
-            var hoverOn = function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; previewSet(idx); };
-            var hoverOff = function () { c.style.borderColor = "var(--mlp-border-soft,rgba(205,214,244,0.16))"; previewEnd(); };
+            // Превью набора и по мыши, и с клавиатуры (focus/blur): идущий по карточкам с Tab
+            // тоже «примеряет» набор. previewSet дебаунсит, previewEnd мягко возвращает.
+            var hoverOn = function () { previewSet(idx); };
+            var hoverOff = function () { previewEnd(); };
             c.addEventListener("mouseenter", hoverOn);
             c.addEventListener("mouseleave", hoverOff);
             c.addEventListener("focus", hoverOn);
             c.addEventListener("blur", hoverOff);
         }
-    } else if (!active) {
-        c.addEventListener("mouseenter", function () { c.style.background = "rgba(var(--mlbg-accent-rgb),0.14)"; });
-        c.addEventListener("mouseleave", function () { c.style.background = "transparent"; });
+    } else {
+        var ic = uiIcon("dice", 36); if (ic) pv.appendChild(ic);
+        nmRow.appendChild(el("span", null, t(label)));
+        c.title = t("Новый набор при каждом запуске");
     }
     c.addEventListener("click", function () {
         previewCancel(); // фиксируем выбор: mouseleave после клика не откатит фон обратно
@@ -138,6 +141,106 @@ function makeChip(mode, label) {
     keyActivate(c, isSet ? (t("Набор ") + label + (setName(parseInt(mode, 10)) ? " — " + setName(parseInt(mode, 10)) : "")) : t("Случайный набор"));
     c.setAttribute("aria-pressed", active ? "true" : "false"); // какой набор выбран — для скринридера
     return c;
+}
+
+// Своя картинка -> фон АКТИВНОГО набора во всех трёх зонах (зоны сами показывают разные части:
+// редактор — центр, сайдбар и панель — низ). Акцент набора сбрасывается: пока его не
+// поменяют руками, он берётся из этой картинки (getAccent). Отменяется кнопкой «Отменить».
+function setUserImage(url) {
+    if (!url || !imgAllowed(url)) { toast(t("Эту картинку нельзя загрузить (сетевые картинки выключены)"), false); return; }
+    var idx = activeIndex();
+    if (cfg.mode === "random") cfg.mode = String(idx); // иначе при следующем запуске набор сменится
+    if (!cfg.setImg) cfg.setImg = {};
+    cfg.setImg[idx] = { editor: url, sidebar: url, panel: url };
+    if (cfg.setAccent) delete cfg.setAccent[idx];
+    if (cfg.setPos) delete cfg.setPos[idx];
+    applyFade(); refreshPanel();
+    toast(t("Картинка стала фоном набора ") + idx + t(". Отменить — стрелка в шапке панели."));
+    // Одна картинка на три зоны: сайдбару и панели — самые тёмные участки кадра (по карте
+    // яркости 8x8), там текст списков и терминала читается лучше. Редактор — центр.
+    onImage(imgUrl(url), function (st) {
+        var pos = smartZonePos(st && st.grid);
+        if (!pos || !cfg.setImg[idx] || cfg.setImg[idx].editor !== url) return;
+        if (!cfg.setPos) cfg.setPos = {};
+        cfg.setPos[idx] = { sidebar: pos.sidebar, panel: pos.panel };
+        apply();
+    });
+}
+// Позиции для сайдбара (вертикальная полоса) и панели (горизонтальная полоса) по карте
+// яркости 8x8: берём самую тёмную полосу. null — карты нет.
+function smartZonePos(grid) {
+    if (!grid || grid.length !== 64) return null;
+    var bestC = 0, bestR = 7, minC = 9, minR = 9, c, r;
+    for (c = 0; c < 8; c++) { var sc = 0; for (r = 0; r < 8; r++) sc += grid[r * 8 + c]; if (sc < minC) { minC = sc; bestC = c; } }
+    for (r = 0; r < 8; r++) { var sr = 0; for (c = 0; c < 8; c++) sr += grid[r * 8 + c]; if (sr < minR) { minR = sr; bestR = r; } }
+    var pct = function (i) { return Math.round(i / 7 * 100) + "%"; };
+    return { sidebar: pct(bestC) + " 50%", panel: "50% " + pct(bestR) };
+}
+// Адрес картинки из перетаскивания: проводник VS Code кладёт file:///-адрес в text/uri-list
+// (или в text/plain). Файлы с рабочего стола адреса не несут — тогда null.
+function droppedImageUrl(dt) {
+    if (!dt) return null;
+    var raw = "";
+    try { raw = dt.getData("text/uri-list") || dt.getData("text/plain") || ""; } catch (e) {}
+    var lines = raw.split(/\r?\n/);
+    for (var i = 0; i < lines.length; i++) {
+        var u = lines[i].trim();
+        if (/^(?:file|vscode-file):\/\/.+\.(png|jpe?g|webp|gif|avif|bmp)$/i.test(u)) return u;
+    }
+    return null;
+}
+// Кнопки «Своя картинка…» и «Папка картинок…»: обычный диалог выбора файла показывает
+// компаньон-расширение (скрипт в оболочке к диску доступа не имеет).
+function makeOwnImageRow() {
+    var box = el("div", null);
+    var row = el("div", "display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;");
+    var pick = makeIoBtn("Своя картинка…");
+    pick.addEventListener("click", function () {
+        mlbgRpc("pickImage").then(function (r) { if (r && r.url) setUserImage(r.url); },
+            function (e) { toast(t("Не удалось открыть выбор файла: ") + e.message, false); });
+    });
+    var folder = makeIoBtn("Папка картинок…");
+    folder.addEventListener("click", function () {
+        mlbgRpc("pickFolder").then(function (r) {
+            if (!r || r.cancelled) return;
+            if (!r.images || !r.images.length) { toast(t("В папке нет картинок"), false); return; }
+            useFolder(r.dir, r.images);
+            toast(t("Папка «") + r.name + "»: " + r.images.length + t(" карт. — сменяются в редакторе по таймеру слайдшоу"));
+        }, function (e) { toast(t("Не удалось открыть выбор папки: ") + e.message, false); });
+    });
+    row.appendChild(pick); row.appendChild(folder);
+    box.appendChild(row);
+    var idx = activeIndex();
+    if (hasUserImg(idx, "editor") || cfg.libraryDir) {
+        var row2 = el("div", "display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;");
+        if (hasUserImg(idx, "editor")) {
+            var back = makeIoBtn("Вернуть картинки набора");
+            back.addEventListener("click", function () {
+                if (cfg.setImg) delete cfg.setImg[idx];
+                if (cfg.setPos) delete cfg.setPos[idx];
+                applyFade(); refreshPanel();
+            });
+            row2.appendChild(back);
+        }
+        if (cfg.libraryDir) {
+            var off = makeIoBtn("Убрать папку");
+            off.title = cfg.libraryDir;
+            off.addEventListener("click", function () { cfg.libraryDir = ""; cfg.librarySlideshow = false; apply(); refreshPanel(); });
+            row2.appendChild(off);
+        }
+        box.appendChild(row2);
+    }
+    box.appendChild(el("div", "padding:6px 2px 0; font-size:11px; color:var(--mlp-faint);", t("Картинку можно и перетащить в панель из проводника VS Code.")));
+    return box;
+}
+// Папка как источник фона: её картинки крутятся в редакторе (механизм библиотеки), а при
+// каждом запуске список перечитывается — новые файлы в папке подхватываются сами.
+function useFolder(dir, images) {
+    cfg.libraryDir = String(dir || "").slice(0, 1024);
+    cfg.library = images.slice(0, 64);
+    cfg.librarySlideshow = true;
+    try { libraryReset(); } catch (e) {}
+    apply(); refreshPanel();
 }
 
 // Переименование АКТИВНОГО набора (cfg.setName[idx]). Имя уходит в textContent/title
@@ -265,7 +368,7 @@ function makeLibraryUI() {
     box.appendChild(row);
     var lib = Array.isArray(cfg.library) ? cfg.library : [];
     if (!lib.length) {
-        box.appendChild(el("div", "padding:6px 3px 2px; color:var(--mlp-faint,#6c7086); font-size:11px;", t("Список пуст — добавь пути к своим картинкам.")));
+        box.appendChild(emptyState("Список пуст — выбери «Папку картинок…» в секции «Набор» или добавь пути к картинкам."));
     } else {
         var list = el("div", "display:flex; flex-direction:column; gap:4px; margin-top:6px;");
         lib.forEach(function (u, i) {
@@ -366,21 +469,13 @@ function makeLangAutoUI() {
 }
 // Режим границ дня для авто-набора по времени: по фиксированным часам или по рассвету/закату.
 function makeAutoTimeMode() {
-    var wrap = el("div", ST.row);
-    wrap.appendChild(el("span", mutedLabel(92), t("Границы дня")));
-    var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
-    var cur = (cfg.autoTime && cfg.autoTime.mode === "sun") ? "sun" : "hours";
-    [["hours", "По часам"], ["sun", "Рассвет/закат"]].forEach(function (o) {
-        var op = el("option", null, t(o[1])); op.value = o[0]; if (o[0] === cur) op.selected = true; sel.appendChild(op);
-    });
-    sel.addEventListener("change", function () {
-        if (!cfg.autoTime) cfg.autoTime = clone(DEFAULTS.autoTime);
-        cfg.autoTime.mode = (sel.value === "sun") ? "sun" : "hours";
-        apply(); if (cfg.autoTime.on) { try { timeTick(); } catch (e) {} } refreshPanel();
-    });
-    wrap.appendChild(sel);
-    var d = infoDot(INFO.autotime_mode); if (d) wrap.appendChild(d);
-    return wrap;
+    return makeSeg("Границы дня", [["hours", "По часам"], ["sun", "Рассвет/закат"]],
+        function () { return (cfg.autoTime && cfg.autoTime.mode === "sun") ? "sun" : "hours"; },
+        function (v) {
+            if (!cfg.autoTime) cfg.autoTime = clone(DEFAULTS.autoTime);
+            cfg.autoTime.mode = (v === "sun") ? "sun" : "hours";
+            apply(); if (cfg.autoTime.on) { try { timeTick(); } catch (e) {} } refreshPanel();
+        }, INFO.autotime_mode);
 }
 
 // ===== Свой GLSL для шейдерного набора =====

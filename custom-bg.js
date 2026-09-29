@@ -6,7 +6,43 @@
 (function () {
     "use strict";
 
+    if (window.__MLBG_RUNNING__) {
+        try { console.warn("[MoonLight custom-bg] уже запущен (" + window.__MLBG_RUNNING__ + "), второй экземпляр пропущен"); } catch (e) {}
+        return;
+    }
+    window.__MLBG_RUNNING__ = (document.currentScript && document.currentScript.getAttribute && document.currentScript.getAttribute("data-mooncore-module")) ? "moon-core" : "loader";
+
     // ===================== src/core/util.js =====================
+    // ===== Журнал ошибок =====
+    // Раньше ошибки в самолечении, виджетах и сборке стиля глотались пустым catch: когда что-то
+    // ломалось, узнать об этом было нельзя. Теперь каждая РАЗНАЯ ошибка один раз уходит в консоль
+    // DevTools и (через Moon Core) в журнал «Moon Core» в Output, а последние лежат в errLog для
+    // «Системы → Диагностики». Повторы только считаются: самолечение крутится раз в 3 с, и одна
+    // и та же поломка иначе забила бы журнал.
+    var ERR_MAX = 50;          // разных ошибок за сессию (дальше — только счёт)
+    var ERR_KEEP = 20;         // сколько последних держим для диагностики
+    var errLog = [];           // [{ where, msg, t, n }]
+    var _errByKey = {}, _errTotal = 0;
+    function logErr(where, e) {
+        try {
+            var w = String(where || "").slice(0, 80);
+            var msg = String((e && e.message) || e).slice(0, 300);
+            var key = w + "|" + msg;
+            _errTotal++;
+            if (_errByKey[key]) { _errByKey[key].n++; return; }
+            if (errLog.length + 1 > ERR_KEEP) errLog.shift();
+            if (Object.keys(_errByKey).length >= ERR_MAX) return;
+            var rec = { where: w, msg: msg, t: Date.now(), n: 1 };
+            _errByKey[key] = rec;
+            errLog.push(rec);
+            try { console.warn("[MoonLight custom-bg] " + w + ":", e); } catch (e2) {}
+            var m = (typeof mooncoreModule === "function") ? mooncoreModule() : null;
+            if (m && typeof m.log === "function") m.log(w, e);
+        } catch (e3) {}
+    }
+    // Сколько ошибок всего (с повторами) — для диагностики.
+    function errTotal() { return _errTotal; }
+
     // ===== Общие утилиты и санитизация значений =====
     // Всё внешнее (localStorage, импортированный файл, код «Поделиться», настройка компаньона)
     // проходит через эти проверки, прежде чем попасть в конфиг или в CSS: значение принимается,
@@ -73,6 +109,17 @@
     // одинарную кавычку, обратный слэш или перевод строки (напр. C:\Users\O'Brien\…),
     // он вырвется из url('...') и сломает — или подменит — CSS. Экранируем спецсимволы
     // по правилам CSS-строк (\ и ' — через escape, переводы строк убираем).
+    // VS Code отклоняет в окне любой запрос file:// (в журнале: «Refused to load resource ... from
+    // file: protocol») и отдаёт локальные файлы только как vscode-file://vscode-app/<путь>. Поэтому
+    // картинки из диалога выбора (компаньон отдаёт file:///), библиотека и «Папка плагина» в виде
+    // file:/// в настоящем VS Code не грузились. Меняем только схему; вне оболочки (стенд, тесты
+    // по http) адрес не трогаем.
+    function appFileUrl(u) {
+        if (typeof u !== "string") return u;
+        var m = /^file:\/\/(?:localhost)?\/(.*)$/i.exec(u);
+        if (!m || typeof location === "undefined" || !location || location.protocol !== "vscode-file:") return u;
+        return "vscode-file://vscode-app/" + m[1];
+    }
     function cssUrl(u) {
         var s = String(u).replace(/[\r\n]/g, "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
         return "url('" + s + "')";
@@ -116,13 +163,55 @@
     // Пусто -> при инлайн-внедрении укажи путь ОДИН раз в панели («Папка плагина», cfg.imgBase):
     // он сохранится в localStorage конкретной машины, а не в коде.
     var IMG_FALLBACK = "";
+
+    // ===== Moon Core =====
+    // Плагин может быть встроен ядром Moon Core как модуль "mlbg": тогда тег скрипта помечен
+    // data-mooncore-module, а ядро выдаёт помощника с адресом папки ресурсов (base) и каналом к
+    // расширению-компаньону. currentScript есть только пока скрипт выполняется синхронно —
+    // поэтому признак снимаем сразу при загрузке.
+    var MOONCORE_ID = "mlbg";
+    var _viaMoonCore = (function () {
+        try {
+            var s = /** @type {HTMLScriptElement} */ (document.currentScript);
+            return !!(s && s.getAttribute && s.getAttribute("data-mooncore-module") === MOONCORE_ID);
+        } catch (e) { return false; }
+    })();
+    // Помощник модуля от Moon Core или null (ядра нет / модуль не встроен им).
+    function mooncoreModule() {
+        try {
+            var mc = (typeof window !== "undefined") ? window.__MOONCORE__ : null;
+            var m = (mc && typeof mc.module === "function") ? mc.module(MOONCORE_ID) : null;
+            return (m && typeof m === "object") ? m : null;
+        } catch (e) { return null; }
+    }
+    // Запрос к компаньону через Moon Core: Promise<result>. Нет Moon Core/компаньона — reject с
+    // понятной причиной (UI покажет её тостом).
+    /** @returns {Promise<any>} */
+    function mlbgRpc(method, body) {
+        var m = mooncoreModule();
+        if (!m || typeof m.rpc !== "function") return Promise.reject(new Error("нужен Moon Core и компаньон-расширение"));
+        return m.rpc(method, body || null).then(function (r) {
+            if (r && r.ok) return r.result;
+            throw new Error(String((r && r.error) || "расширение не ответило"));
+        });
+    }
+    // Папка ресурсов от Moon Core: только локальные схемы и со слэшем на конце.
+    function mooncoreBase() {
+        var m = mooncoreModule();
+        var b = (m && typeof m.base === "string") ? m.base : "";
+        if (!/^(?:vscode-file|file):\/\//i.test(b)) return "";
+        return /\/$/.test(b) ? b : b + "/";
+    }
+
     var IMG = (function () {
         try {
             var src = (/** @type {HTMLScriptElement} */ (document.currentScript) || {}).src || "";
             var i = src.lastIndexOf("/");
             if (i >= 0) return src.slice(0, i + 1); // .../vscode-bg/custom-bg.js -> .../vscode-bg/
         } catch (e) {}
-        return IMG_FALLBACK; // адрес скрипта неизвестен (инлайн-внедрение) — берём заданный путь
+        // Инлайн-внедрение: адрес скрипта неизвестен. Moon Core знает папку модуля точно;
+        // иначе — заданный путь (а поверх него «Папка плагина» из панели, см. imgBase).
+        return mooncoreBase() || IMG_FALLBACK;
     })();
 
     // Эффективная база для ОТНОСИТЕЛЬНЫХ путей картинок. Приоритет — путь, заданный
@@ -441,6 +530,8 @@
         setAccent: {},                                      // переопределение акцента конкретного набора: { idx: "#rrggbb" }
         setName: {},                                        // пользовательское имя набора: { idx: "строка" }
         setImg: {},                                         // свои картинки набора по зонам: { idx: { editor?, sidebar?, panel? } }
+        setPos: {},                                         // точка фокуса картинки по зонам: { idx: { editor?: "40% 60%", ... } }
+        libraryDir: "",                                     // папка-источник библиотеки: при старте перечитывается (новые картинки подхватываются)
         genSets: [],                                        // сгенерированные наборы (по seed/палитре): дозагружаются в хвост SETS
         shaderSrc: "",                                      // свой GLSL для шейдерного набора «Свой шейдер»; пусто — встроенный
 
@@ -552,7 +643,7 @@
         // эффекты (ключ — тот же, что у hidden/hiddenFx). Закрепить/открепить — звёздочкой в режиме
         // «Настроить». Зеркально к hidden: hidden прячет пункт, fav — поднимает его в блок «Избранное».
         // ui.width — ширина панели в px (перетаскивается за левый край); null — дефолт 380.
-        ui: { collapsed: {}, hidden: {}, hiddenFx: {}, favSec: {}, favFx: {}, posX: null, posY: null, width: null, tab: 0 } // tab — активная вкладка панели (Набор/Вид/Терминал/Система/Данные)
+        ui: { collapsed: {}, hidden: {}, hiddenFx: {}, favSec: {}, favFx: {}, posX: null, posY: null, width: null, tab: 0, keys: true, pinned: false, tour: false, favSets: {}, favOnly: false, simple: true, news: "", tipsOff: {}, sync: false } // simple — простой режим панели (только главное); keys — горячие клавиши; pinned — панель не закрывается кликом мимо; tour — знакомство пройдено; favSets/favOnly — любимые наборы и фильтр по ним // tab — активная вкладка панели (Набор/Вид/Терминал/Система/Данные)
     };
 
     var TERM_FONTS = [
@@ -763,6 +854,11 @@
         ["tintStrength", "Тон сила", 0, 0.6, 0.02, 2]
     ];
 
+    // Точка фокуса картинки: "x% y%", оба 0..100 целые.
+    function isPosStr(v) {
+        var m = typeof v === "string" && /^(\d{1,3})% (\d{1,3})%$/.exec(v);
+        return !!(m && +m[1] <= 100 && +m[2] <= 100);
+    }
     // Шрифт — строго из белого списка (там нет кавычек/;/{} — CSS-инъекция невозможна).
     function safeFont(f) { return TERM_FONTS.indexOf(f) >= 0 ? f : DEFAULTS.term.font; }
     // диапазоны параметров эффектов (ключ -> [min, max]) из PARAMS
@@ -960,6 +1056,18 @@
                 }
             }
             if (typeof p.librarySlideshow === "boolean") c.librarySlideshow = p.librarySlideshow;
+            if (typeof p.libraryDir === "string" && p.libraryDir.length <= 1024) c.libraryDir = p.libraryDir;
+            // точка фокуса: только «N% N%» (0..100) — строка уходит в CSS background-position
+            if (p.setPos && typeof p.setPos === "object") {
+                c.setPos = {};
+                for (var _pi in p.setPos) {
+                    if (!/^\d{1,2}$/.test(_pi)) continue;
+                    var _po = p.setPos[_pi]; if (!_po || typeof _po !== "object") continue;
+                    var _pz = {};
+                    ["editor", "sidebar", "panel"].forEach(function (z) { if (isPosStr(_po[z])) _pz[z] = _po[z]; });
+                    c.setPos[_pi] = _pz;
+                }
+            }
             // скринсейвер/витрина при простое: флаг + минуты простоя до показа
             if (p.screensaver && typeof p.screensaver === "object") {
                 if (typeof p.screensaver.on === "boolean") c.screensaver.on = p.screensaver.on;
@@ -1025,6 +1133,17 @@
                 // активная вкладка панели: неотрицательное целое (реальный верх зажмёт togglePanel
                 // под число вкладок; здесь просто небольшой безопасный потолок против мусора)
                 if (typeof p.ui.tab === "number" && isFinite(p.ui.tab)) c.ui.tab = Math.min(15, Math.max(0, Math.floor(p.ui.tab)));
+                if (typeof p.ui.keys === "boolean") c.ui.keys = p.ui.keys; // горячие клавиши вкл/выкл
+                if (typeof p.ui.pinned === "boolean") c.ui.pinned = p.ui.pinned;
+                if (typeof p.ui.tour === "boolean") c.ui.tour = p.ui.tour;
+                if (typeof p.ui.favOnly === "boolean") c.ui.favOnly = p.ui.favOnly;
+                if (typeof p.ui.simple === "boolean") c.ui.simple = p.ui.simple;
+                if (typeof p.ui.news === "string" && p.ui.news.length <= 32) c.ui.news = p.ui.news;   // просмотренный выпуск «Что нового»
+                c.ui.tipsOff = _sanBoolMap(p.ui.tipsOff, 32);                                           // отклонённые советы
+                if (typeof p.ui.sync === "boolean") c.ui.sync = p.ui.sync;                              // синхронизация через Settings Sync
+                // любимые наборы: ключ — индекс набора строкой ("0".."99")
+                c.ui.favSets = _sanBoolMap(p.ui.favSets, 64);
+                for (var _fk in c.ui.favSets) if (!/^\d{1,2}$/.test(_fk)) delete c.ui.favSets[_fk];
             }
         }
         return c;
@@ -1039,21 +1158,98 @@
         c.allowRemoteImages = false;
         return c;
     }
+    // Откуда взялся конфиг при старте: "local" | "disk" | "seed" | "defaults" (для диагностики).
+    var cfgLoadedFrom = "defaults";
     function loadCfg() {
         try {
             var raw = localStorage.getItem(CFG_KEY);
             // Нормальный конфиг весит килобайты. Отсекаем заведомо раздутый/подменённый
             // localStorage до JSON.parse (тот же лимит, что и при импорте файла) — чтобы
             // огромная строка не била по старту разбором/памятью. Свыше лимита — дефолты.
-            if (raw && raw.length <= 256 * 1024) return mergeCfg(safeParse(raw));
+            if (raw && raw.length <= 256 * 1024) { cfgLoadedFrom = "local"; return mergeCfg(safeParse(raw)); }
         } catch (e) {}
         // localStorage пуст (новая машина / переустановка / крупный апдейт VS Code почистил
-        // хранилище). Если компаньон-расширение прокинуло базовый конфиг из settings.json
-        // (window.__MLBG_SEED__ — едет через Settings Sync), берём его как отправную
-        // точку: вид «переезжает» на новую машину сам. mergeCfg санитизирует чужой объект.
+        // хранилище). Сначала — резерв на диске от Moon Core: это наш же последний конфиг, поэтому
+        // проходит через mergeCfg напрямую и своё согласие на сетевые картинки сохраняет.
+        var disk = diskCfg();
+        if (disk) { try { var c = mergeCfg(disk); cfgLoadedFrom = "disk"; return c; } catch (e) {} }
+        // Дальше — базовый конфиг из settings.json (window.__MLBG_SEED__ — едет через Settings
+        // Sync): вид «переезжает» на новую машину сам. mergeCfg санитизирует чужой объект.
         var seed = seedConfig();
-        if (seed) { try { return mergeCfg(seed); } catch (e) {} }
+        if (seed) { try { var c2 = mergeCfg(seed); cfgLoadedFrom = "seed"; return c2; } catch (e) {} }
+        cfgLoadedFrom = "defaults";
         return clone(DEFAULTS);
+    }
+
+    // ===== Резерв конфига на диске (Moon Core) =====
+    // localStorage окна VS Code иногда очищается целиком (крупное обновление, переустановка), и
+    // вместе с ним пропадали все наборы и настройки. Через Moon Core у модуля есть свой файл
+    // данных на диске (<globalStorage Moon Core>/modules/mlbg.json): окно читает его синхронно
+    // при старте, а пишет через мост. Сюда с задержкой уходит копия конфига после каждой правки.
+    // Без Moon Core — ничего не делаем (ручной экспорт в файл по-прежнему работает).
+    var DISK_SAVE_MS = 2000;           // ползунок двигают десятки раз в секунду — пишем после паузы
+    var DISK_MAX = 256 * 1024;         // тот же лимит, что у localStorage и импорта
+    var _disk = { timer: null, lastOk: 0, lastErr: "", pending: false };
+    // Конфиг из файла данных модуля: объект или null. Файл на диске может быть подменён — поэтому
+    // только объект разумного размера, дальше его чистит mergeCfg.
+    function diskCfg() {
+        try {
+            if (!_viaMoonCore) return null;
+            var m = mooncoreModule();
+            var d = (m && typeof m.data === "function") ? m.data() : null;
+            var c = d && d.cfg;
+            if (!c || typeof c !== "object" || Array.isArray(c)) return null;
+            if (JSON.stringify(c).length > DISK_MAX) return null;
+            return c;
+        } catch (e) { return null; }
+    }
+    function scheduleDiskSave() {
+        try { if (typeof scheduleSyncPush === "function") scheduleSyncPush(); } catch (e) {} // Settings Sync (looks.js)
+        if (!_viaMoonCore) return;
+        _disk.pending = true;
+        if (_disk.timer) clearTimeout(_disk.timer);
+        _disk.timer = setTimeout(diskSaveNow, DISK_SAVE_MS);
+    }
+    function diskSaveNow() {
+        _disk.timer = null;
+        var m = mooncoreModule();
+        if (!m || typeof m.saveData !== "function") return;
+        var text;
+        try { text = JSON.stringify(cfg); } catch (e) { logErr("резерв конфига", e); return; }
+        if (text.length > DISK_MAX) { _disk.lastErr = "конфиг больше 256 КБ"; return; }
+        m.saveData({ v: 1, app: APP_VERSION, t: Date.now(), cfg: JSON.parse(text), daily: dailyCopies(text) }).then(function (r) {
+            _disk.pending = false;
+            if (r && r.ok) { _disk.lastOk = Date.now(); _disk.lastErr = ""; }
+            else { _disk.lastErr = String((r && r.error) || "нет ответа"); logErr("резерв конфига", _disk.lastErr); }
+        }, function (e) { _disk.lastErr = String(e); logErr("резерв конфига", e); });
+    }
+    // Ежедневные копии: по одной на день, последние 14 (как у cpp-docs-panel). Лежат в том же
+    // файле данных модуля. Новая копия дня заменяет старую того же дня только при отличии.
+    var DAILY_KEEP = 14;
+    function dailyList() {
+        try {
+            var m = mooncoreModule(), d = (m && typeof m.data === "function") ? m.data() : null;
+            var a = d && Array.isArray(d.daily) ? d.daily : [];
+            return a.filter(function (x) { return x && typeof x.day === "string" && x.cfg && typeof x.cfg === "object"; }).slice(0, DAILY_KEEP);
+        } catch (e) { return []; }
+    }
+    function dailyCopies(text) {
+        var now = new Date();
+        var day = now.getFullYear() + "-" + ("0" + (now.getMonth() + 1)).slice(-2) + "-" + ("0" + now.getDate()).slice(-2);
+        var list = dailyList().filter(function (x) { return x.day !== day; });
+        list.unshift({ day: day, cfg: JSON.parse(text) });
+        return list.slice(0, DAILY_KEEP);
+    }
+    // Строка для диагностики.
+    function diskBackupInfo() {
+        if (!_viaMoonCore) return "нет (нужен Moon Core)";
+        var from = cfgLoadedFrom === "disk" ? " · при старте восстановлен из резерва" : "";
+        if (_disk.lastErr) return "ошибка: " + _disk.lastErr + from;
+        if (_disk.lastOk) {
+            var d = new Date(_disk.lastOk);
+            return "сохранён в " + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + from;
+        }
+        return (_disk.pending ? "сохраняется" : "есть") + from;
     }
     // Базовый конфиг из settings.json, проброшенный компаньоном как глобал window.__MLBG_SEED__
     // (см. extension/extension.js). Возвращает объект или null. Мягко — глобала может не быть
@@ -1066,7 +1262,8 @@
         return null;
     }
     function saveCfg() {
-        try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {}
+        try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) { logErr("сохранение конфига", e); }
+        try { scheduleDiskSave(); } catch (e) {}
         // Единая точка сохранения конфига — здесь же отмечаем изменение для истории Undo/Redo
         // (scheduleHistory определён в io.js; поднят по области IIFE). При старте (loadCfg) не
         // зовётся, поэтому лишнего шага истории на загрузке нет.
@@ -1199,6 +1396,22 @@
         if (isNaN(i) || i < 0 || i >= SETS.length) i = 0;
         return i;
     }
+    // Почему сейчас показан именно этот набор: то же дерево приоритетов, что в activeIndex, но
+    // с причиной. Для строки «Сейчас работает» на вкладке «Авто-смена».
+    // -> { idx, why: "workspace"|"remote"|"branch"|"lang"|"random"|"time"|"slide"|"manual", key }
+    function activeRule() {
+        var r = { idx: activeIndex(), why: "manual", key: "" };
+        try {
+            if (workspaceIndex() !== null) { r.why = "workspace"; r.key = workspaceName() || ""; return r; }
+            if (remoteIndex() !== null) { r.why = "remote"; r.key = (typeof liveStr === "function" && liveStr("remote")) || ""; return r; }
+            if (branchIndex() !== null) { r.why = "branch"; r.key = (typeof gitBranch === "function" && gitBranch()) || ""; return r; }
+            if (langIndex() !== null) { r.why = "lang"; r.key = (typeof editorFileExt === "function" && editorFileExt()) || ""; return r; }
+            if (cfg.mode === "random") { r.why = "random"; return r; }
+            if (cfg.autoTime && cfg.autoTime.on) { r.why = "time"; return r; }
+            if (cfg.slideshow && cfg.slideshow.on) { r.why = "slide"; return r; }
+        } catch (e) {}
+        return r;
+    }
     // яркость активного набора (своя или базовая)
     function getOp() {
         var idx = activeIndex(), o = cfg.setOp[idx] || {};
@@ -1223,9 +1436,31 @@
         var idx = activeIndex();
         var o = cfg.setAccent && cfg.setAccent[idx];
         if (isColor(o)) return o;
+        // Своя картинка в редакторе (выбрана пользователем) — акцент из неё, пока его не меняли
+        // руками: «родной» акцент набора к чужой картинке не подходит. Пока проба не готова —
+        // запасной путь ниже; когда готова, probeImage сам пересоберёт стиль.
+        try {
+            if (typeof hasUserImg === "function" && hasUserImg(idx, "editor")) {
+                var st = probeImage(zoneUrl(idx, "editor"));
+                if (st && st.ok && st.accent) return accentForContrast(st.accent, accentContrastRef(), 3);
+            }
+        } catch (e) {}
         var s = SETS[idx] && SETS[idx].accent;
         if (isColor(s)) return s;
         return safeColor(cfg.accent, DEFAULTS.accent);
+    }
+    // Цвет курсора/выделения терминала: пока пользователь его не менял (равен дефолту),
+    // он следует за акцентом набора — терминал в цвет фона без настройки.
+    function effTermColor(key) {
+        var v = cfg.term && cfg.term[key];
+        if (!isColor(v) || v === DEFAULTS.term[key]) return getAccent();
+        return v;
+    }
+    // Точка фокуса картинки зоны набора ("x% y%") или "" — тогда позиция по умолчанию.
+    function setPosFor(idx, zone) {
+        var o = cfg.setPos && cfg.setPos[idx];
+        var v = o && o[zone];
+        return isPosStr(v) ? v : "";
     }
     function setAccentValue(v) {
         var idx = activeIndex();
@@ -1245,8 +1480,8 @@
         // раньше пустой путь склеивался с базой в адрес ПАПКИ плагина: браузер честно пытался
         // загрузить её как картинку, получал ошибку, и чип набора помечался красным «не грузится».
         if (!rel) return "";
-        if (isAbsUrl(rel)) return imgAllowed(rel) ? rel : "";
-        return imgBase() + rel;
+        if (isAbsUrl(rel)) return imgAllowed(rel) ? appFileUrl(rel) : "";
+        return appFileUrl(imgBase() + rel);
     }
     // Путь картинки зоны набора: пользовательское переопределение (cfg.setImg[idx][zone])
     // или «родная» картинка из SETS. zone — ключ SETS: "editor" | "sidebar" | "panel".
@@ -1430,18 +1665,20 @@
     function mlbgEnv() {
         try {
             var e = (typeof window !== "undefined") ? window.__MLBG_ENV__ : null;
+            // Через Moon Core пролога с глобалом нет: компаньон присылает ту же среду событием
+            // "env" по мосту ядра, помощник модуля хранит последнее значение.
+            if ((!e || typeof e !== "object") && _viaMoonCore) {
+                var m = mooncoreModule();
+                e = (m && typeof m.get === "function") ? m.get("env") : null;
+            }
             if (!e || typeof e !== "object") return null;
-            var loader = (e.loader === "custom-ui-style" || e.loader === "custom-css") ? e.loader : null;
+            var loader = (e.loader === "custom-ui-style" || e.loader === "custom-css" || e.loader === "moon-core") ? e.loader : null;
             return {
                 loader: loader,
                 version: (typeof e.version === "string") ? e.version.replace(/[^0-9a-z.\-]/gi, "").slice(0, 24) : "",
                 vscode: (typeof e.vscode === "string") ? e.vscode.replace(/[^0-9a-z.\-]/gi, "").slice(0, 24) : "",
                 transparent: e.transparent === true,   // окно создано прозрачным (опции Electron заданы)
-                script: (typeof e.script === "string") ? e.script.slice(0, 512) : "",
-                // Адрес файла живых данных. Пускаем только локальные схемы: этот URL уходит в
-                // src подключаемого <script>, и сетевой адрес отсюда означал бы, что подменённый
-                // пролог заставил редактор исполнять чужой код.
-                live: (typeof e.live === "string" && /^(?:file|vscode-file|vscode-resource|https?):\/\//i.test(e.live) && !isRemoteUrl(e.live)) ? e.live.slice(0, 1024) : ""
+                script: (typeof e.script === "string") ? e.script.slice(0, 512) : ""
             };
         } catch (e) { return null; }
     }
@@ -1454,9 +1691,15 @@
         } catch (e) { return false; }
     }
     // Что за загрузчик: { id, title, version, sure }. sure=false — определено косвенно.
+    var MOONCORE_TITLE = "Moon Core";
     function loaderKind() {
+        // Встроены ядром Moon Core — это известно точно по тегу скрипта, компаньон не нужен.
+        if (_viaMoonCore) {
+            var core = (typeof window !== "undefined" && window.__MOONCORE__) || {};
+            return { id: "moon-core", sure: true, version: (typeof core.version === "string") ? core.version.replace(/[^0-9a-z.\-]/gi, "").slice(0, 24) : "", title: MOONCORE_TITLE };
+        }
         var e = mlbgEnv();
-        if (e && e.loader) {
+        if (e && e.loader && e.loader !== "moon-core") {
             return {
                 id: e.loader, sure: true, version: e.version,
                 title: e.loader === "custom-ui-style" ? "Custom UI Style" : "Custom CSS and JS (be5invis)"
@@ -1504,19 +1747,29 @@
     // добывалось скрейпингом DOM. Это работает, но держится на чужой вёрстке и ломается на
     // обновлениях редактора; ради этого пришлось завести целую систему здоровья селекторов.
     //
-    // Компаньон-расширение живёт там, где эти данные точные (см. extension/live.js), и кладёт их
-    // в маленький JS-файл, который выставляет window.__MLBG_LIVE__. Рантайм переподключает файл
-    // на своём цикле самолечения — отдельного таймера не нужно, а цена одного цикла измерена и
-    // составляет доли миллисекунды (создание и удаление одного <script>).
+    // Компаньон-расширение живёт там, где эти данные точные (см. extension/live.js), и присылает
+    // их событием "live" по мосту Moon Core — только окну своего хоста, поэтому у каждого окна
+    // VS Code своя ветка и свои ошибки. Раньше это был JS-файл в globalStorage, подключаемый
+    // через <script src>: оболочка VS Code такие внешние скрипты блокирует, и данные молча не
+    // доходили. Глобал window.__MLBG_LIVE__ остался как ручной/тестовый источник.
     //
-    // Данных может не быть вовсе: компаньон не установлен, git выключен, окно без папки. Поэтому
-    // живые данные — это ПРЕДПОЧТЕНИЕ, а не требование: где их нет, работает прежний скрейпинг.
+    // Данных может не быть вовсе: нет Moon Core или компаньона, git выключен, окно без папки.
+    // Поэтому живые данные — это ПРЕДПОЧТЕНИЕ, а не требование: где их нет, работает скрейпинг DOM.
 
-    // Санитизация: файл лежит на диске и в теории может быть подменён, а значения уходят в UI и
-    // в ключи конфига. Пропускаем только известные поля известных типов и ограничиваем длину.
+    // Сырые данные: глобал (тесты, ручная подстановка) или последнее событие "live" от компаньона.
+    function _liveRaw() {
+        var d = (typeof window !== "undefined") ? window.__MLBG_LIVE__ : null;
+        if (d && typeof d === "object") return d;
+        if (!_viaMoonCore) return null;
+        var m = mooncoreModule();
+        return (m && typeof m.get === "function") ? m.get("live") : null;
+    }
+
+    // Санитизация: данные приходят снаружи, а значения уходят в UI и в ключи конфига.
+    // Пропускаем только известные поля известных типов и ограничиваем длину.
     function mlbgLive() {
         try {
-            var d = (typeof window !== "undefined") ? window.__MLBG_LIVE__ : null;
+            var d = _liveRaw();
             if (!d || typeof d !== "object") return null;
             function str(v, max) { return (typeof v === "string") ? v.slice(0, max) : ""; }
             function num(v) { return (typeof v === "number" && isFinite(v) && v >= 0) ? Math.round(v) : 0; }
@@ -1533,29 +1786,14 @@
             };
         } catch (e) { return null; }
     }
-    // Есть ли вообще живой источник (компаньон прописал адрес файла в пролог).
-    function liveUrl() {
-        var e = (typeof mlbgEnv === "function") ? mlbgEnv() : null;
-        return (e && typeof e.live === "string" && e.live) ? e.live : "";
-    }
-
-    // Переподключение файла: адрес один и тот же, поэтому браузер отдал бы его из кэша —
-    // добавляем метку. Старый тег снимаем сразу после загрузки, чтобы в <head> не копились сотни
-    // элементов за сессию. Ошибка загрузки (файла ещё нет) — нормальная ситуация, молчим.
-    var _liveBusy = false;
-    function liveRefresh() {
-        var url = liveUrl();
-        if (!url || _liveBusy) return;
-        try {
-            _liveBusy = true;
-            var s = document.createElement("script");
-            s.src = url + (url.indexOf("?") >= 0 ? "&" : "?") + "r=" + Date.now();
-            s.async = true;
-            var done = function () { _liveBusy = false; try { s.remove(); } catch (e) {} };
-            s.onload = done;
-            s.onerror = done;
-            document.head.appendChild(s);
-        } catch (e) { _liveBusy = false; }
+    // Подписка на свежие данные: fn зовётся, когда компаньон прислал новое событие "live"
+    // (ветка сменилась, появились ошибки) — не ждать цикла самолечения. Без Moon Core — ничего.
+    function liveSubscribe(fn) {
+        if (!_viaMoonCore) return false;
+        var m = mooncoreModule();
+        if (!m || typeof m.on !== "function") return false;
+        m.on("live", function () { try { fn(); } catch (e) { logErr("живые данные", e); } });
+        return true;
     }
 
     // Значение с приоритетом живых данных: если поле есть и непустое — берём его, иначе null,
@@ -1572,8 +1810,9 @@
     }
     // Откуда пришло значение — показываем в диагностике, чтобы было видно, работает ли мостик.
     function liveSource() {
-        if (!liveUrl()) return "DOM (компаньон не подключён)";
-        return mlbgLive() ? "хост расширений" : "DOM (данные ещё не пришли)";
+        if (mlbgLive()) return "хост расширений";
+        if (!_viaMoonCore) return "DOM (без Moon Core)";
+        return "DOM (данные от компаньона ещё не пришли)";
     }
 
     // ===================== src/core/i18n.js =====================
@@ -1626,10 +1865,7 @@
     // в t("…"), без выдумывания идентификаторов. Отсутствие ключа не ошибка — покажется русский.
     var EN = {
         // -- Статусбар / заголовок панели --
-        "⠿  Фон и дизайн": "⠿  Background & design",
         "Закрыть": "Close",
-        "Перетаскивай окно за заголовок. Секции сворачиваются кликом по названию. У настроек «?» — клик показывает пояснение. Положение и свёрнутость запоминаются.":
-            "Drag the window by its header. Sections collapse on a click of their title. Settings with a “?” show a hint on click. Position and collapsed state are remembered.",
 
         // -- Вкладки --
         "Набор": "Sets",
@@ -1652,14 +1888,9 @@
         "Диагностика": "Diagnostics",
         "Горячие клавиши": "Hotkeys",
         "Папка плагина": "Plugin folder",
-        "Пресеты": "Presets",
-        "Профили": "Profiles",
-        "Поделиться": "Share",
         "Экспорт темы": "Theme export",
 
         // -- Описания секций (info) --
-        "Выбор набора фоновых картинок (редактор / сайдбар / панель). «случайно» — новый набор при каждом запуске.":
-            "Choose a set of background images (editor / sidebar / panel). “random” picks a new set on each start.",
         "Создать согласованный набор из seed-строки или базового цвета (#rrggbb): тёмная подложка + акцент + гармоничный спутник. Один seed всегда даёт один и тот же набор — им можно делиться. Наборы сохраняются и добавляются в конец списка.":
             "Create a coherent set from a seed string or a base color (#rrggbb): dark backdrop + accent + a harmonious companion. The same seed always yields the same set — shareable. Sets are saved and appended to the list.",
         "Автоматическая смена набора по кругу через заданный интервал.":
@@ -1668,26 +1899,14 @@
             "Day set by day, night set by night. Takes priority over the slideshow; does not run in “random” mode.",
         "Набор под открытый проект и полоска-индикатор git-ветки. Держатся на чтении заголовка и статусбара VS Code.":
             "A set per open project and a git-branch indicator strip. Both rely on reading the VS Code title and status bar.",
-        "Насколько ярко проступают фоновые картинки в каждой зоне.":
-            "How brightly the background images show through in each zone.",
         "Акцентный цвет интерфейса и фильтры фоновой картинки по зонам.":
             "Interface accent color and per-zone background image filters.",
-        "Включение/выключение визуальных эффектов и их сила. Наведи на пункт — пояснение «?» и живой предпросмотр. Эффекты сгруппированы по смыслу; «только включённые» прячет выключенные. Конкретный эффект ищи полем поиска над вкладками.":
-            "Turn visual effects on/off and set their strength. Hover an item for a “?” hint and a live preview. Effects are grouped by purpose; “only enabled” hides the disabled ones. Find a specific effect with the search field above the tabs.",
-        "Оформление интегрированного терминала: шрифт, лигатуры, свечение, курсор, выделение.":
-            "Styling for the integrated terminal: font, ligatures, glow, cursor, selection.",
-        "Проверка установки: что плагин видит о себе (версия, тема, набор, папка и загрузка картинок, активен ли custom-css). Отчёт копируется в буфер для issue. Загляни сюда, если фон не появился.":
-            "Installation check: what the plugin sees about itself (version, theme, set, image folder and loading, whether custom-css is active). The report is copied to the clipboard for an issue. Look here if the background didn’t appear.",
         "Быстрые действия без открытия панели. Работают на любой раскладке (RU/EN).":
             "Quick actions without opening the panel. Work on any keyboard layout (RU/EN).",
         "Откуда брать картинки наборов. Меняй, если перенёс плагин и фон пропал. Пусто — путь определяется автоматически.":
             "Where to read set images from. Change it if you moved the plugin and the background vanished. Empty — the path is detected automatically.",
-        "Сохранённые образы: весь вид под именем, переключение одним кликом.":
-            "Saved looks: the whole appearance under a name, switch with one click.",
-        "Короткий код всего образа для обмена: скопируй свой или примени чужой. Картинки и пути не входят.":
-            "A short code of the whole look for sharing: copy yours or apply someone’s. Images and paths are not included.",
-        "Собрать настоящую VS Code-тему (color-theme.json) из палитры активного набора: цвета интерфейса + подсветка синтаксиса. Работает там, где custom-фон недоступен. Как применить — в подсказке «?» рядом с кнопкой.":
-            "Build a real VS Code theme (color-theme.json) from the active set’s palette: workbench colors + syntax highlighting. Works where the custom background isn’t available. See the “?” hint next to the button for how to apply it.",
+        "Собрать настоящую VS Code-тему (color-theme.json) из палитры активного набора: цвета интерфейса + подсветка синтаксиса. Работает там, где custom-фон недоступен. Как применить — в пояснении: задержи курсор на кнопке.":
+            "Build a real VS Code theme (color-theme.json) from the active set’s palette: workbench colors + syntax highlighting. Works where the custom background isn’t available. How to apply it — hover the button for the explanation.",
 
         // -- Названия эффектов (FX_LIST) --
         "Ken Burns": "Ken Burns",
@@ -1769,20 +1988,17 @@
         "Импорт": "Import",
         "Сбросить к дефолту": "Reset to defaults",
         "Восстановить прежние настройки": "Restore previous settings",
-        "Восстановить прежние настройки из резерва": "Restore previous settings from backup",
         "Проверить установку": "Check installation",
         "Скопировать код образа": "Copy look code",
         "↶ Отменить": "↶ Undo",
         "↷ Повторить": "↷ Redo",
         "только включённые": "only enabled",
         "Показывать только включённые эффекты": "Show only enabled effects",
-        "Сила": "Strength",
         "Ничего не найдено": "Nothing found",
         "Ничего не найдено.": "Nothing found.",
         "Пресетов пока нет — сохрани текущий вид под именем.": "No presets yet — save the current look under a name.",
         "Поиск настроек…": "Search settings…",
         "Настроить": "Customize",
-        "Настроить меню": "Customize menu",
         "Настроить меню: показать кнопки «скрыть» у секций и эффектов": "Customize the menu: show “hide” buttons on sections and effects",
         "скрыть": "hide",
         "показать": "show",
@@ -1869,7 +2085,6 @@
         "да": "yes",
         "разрешены": "allowed",
         "выключены": "off",
-        "найден (custom-css активен)": "found (custom-css active)",
         "НЕ найден": "NOT found",
         "найдена": "found",
         "нет (статусбар ещё не готов?)": "no (status bar not ready yet?)",
@@ -1965,20 +2180,15 @@
         "Рассвет/закат": "Sunrise/sunset",
         "Широта": "Latitude",
         "Долгота": "Longitude",
-        "Свои картинки списком: когда «Крутить библиотеку» включено, они по очереди показываются в редакторе и сменяются по таймеру слайдшоу (интервал — выше). Пути локальные: file:/// или vscode-file://.":
-            "Your own images as a list: with “Cycle the library” on, they show one by one in the editor, switching on the slideshow timer (interval above). Local paths only: file:/// or vscode-file://.",
         "Крутить библиотеку в редакторе": "Cycle the library in the editor",
         "Добавить": "Add",
         "Удалить": "Delete",
         "Слишком много картинок (макс. 64)": "Too many images (max 64)",
-        "Список пуст — добавь пути к своим картинкам.": "The list is empty — add paths to your images.",
         "Витрина": "Showcase",
         "После нескольких минут простоя показывает крупные часы, дату и имя набора поверх экрана; любое действие возвращает редактор. Удобно для стрима и «настроения» рабочего стола.":
             "After a few idle minutes it shows a large clock, date and the set name over the screen; any action brings the editor back. Nice for streaming and desk ambiance.",
         "Простой, мин": "Idle, min",
         "Любое действие — вернуться": "Any action returns",
-        "Сводка текущей сессии: время, тронутые файлы, нажатия, суммарное время в потоке и лучший стрик непрерывной печати. Копится, пока включён тумблер «Статистика» (вкладка «Вид» → «Эффекты»). Данные живут только в этой сессии.":
-            "A summary of the current session: time, files touched, keystrokes, total time in flow and the best continuous-typing streak. Collected while the “Stats” toggle is on (View → Effects). The data lives only in this session.",
         "Статистика сессии": "Session stats",
         "В сессии": "Session",
         "Нажатий": "Keystrokes",
@@ -2013,10 +2223,8 @@
         "Всё включено: живой фон, частицы, свечения — витрина возможностей.":
             "Everything on: living background, particles, glows — a showcase.",
         "Профиль применён: ": "Profile applied: ",
-        "Готовые профили вида: спокойный, фокус, презентация, минимал, максимум. Один клик настраивает фон и эффекты целиком — дальше можно править вручную.":
-            "Ready-made look profiles: calm, focus, presentation, minimal, maximum. One click sets the background and effects entirely — then tweak by hand.",
-        "MoonLight BG: открой панель кнопкой BG в статусбаре (Ctrl+Alt+B). Быстрый старт — «Данные → Профили»; правый клик по кнопке BG — быстрые действия.":
-            "MoonLight BG: open the panel from the BG button in the status bar (Ctrl+Alt+B). Quick start — “Data → Profiles”; right-click the BG button for quick actions.",
+        "MoonLight BG: открой панель кнопкой BG в статусбаре. Быстрый старт — «Данные → Профили»; колесо над кнопкой листает наборы, правый клик — быстрые действия.":
+            "MoonLight BG: open the panel from the BG button in the status bar. Quick start — “Data → Profiles”; scroll over the button to flip sets, right-click for quick actions.",
 
         // -- Производительность --
         "Авто-бюджет FPS": "Auto FPS budget",
@@ -2024,15 +2232,9 @@
 
         // -- Язык --
         "Язык панели": "Panel language",
-        "Пояснение": "Info",
 
         // -- Синхронизация через settings.json --
-        "Синхронизация": "Sync",
-        "Через settings.json (едет с Settings Sync). Скопируй строку и вставь её в settings.json — вид перенесётся на другие машины. «Загрузить базу» подтянет синхронизированный образ сюда.":
-            "Via settings.json (rides Settings Sync). Copy the line and paste it into settings.json — your look travels to other machines. “Load baseline” pulls the synced look here.",
-        "Скопировать для settings.json": "Copy for settings.json",
         "Загрузить базу из settings.json": "Load baseline from settings.json",
-        "Скопировано для settings.json": "Copied for settings.json",
         "Не удалось скопировать": "Could not copy",
         "Загружено из settings.json": "Loaded from settings.json",
         "Базовый конфиг из settings.json не найден (нужно расширение-компаньон)":
@@ -2172,15 +2374,23 @@
         "Тело фрагментного шейдера: функция vec3 render(vec2 p). Доступны u_time, u_res, u_accent, u_base, u_mouse. Выбери набор «Свой шейдер», чтобы увидеть результат.": "Fragment shader body: a vec3 render(vec2 p) function. u_time, u_res, u_accent, u_base and u_mouse are available. Pick the “Custom shader” set to see the result.",
         "Быстрый переключатель (наборы, эффекты, команды)": "Quick switcher (sets, effects, commands)",
         "Нужен эффект: ": "Requires effect: ",
-        "Ползунки силы появятся, когда включишь эффекты, к которым они относятся.": "Strength sliders appear once you enable the effects they belong to.",
         "Шейдер рисуется только в наборе «Свой шейдер» — сейчас выбран другой.": "The shader is drawn only in the “Custom shader” set — another set is active right now.",
         "Выбрать": "Switch",
         "Выбрать набор «Свой шейдер»": "Switch to the “Custom shader” set",
         "Читаемость: фон выключен": "Readability: background is off",
         "Данные редактора": "Editor data",
         "хост расширений": "extension host",
-        "DOM (компаньон не подключён)": "DOM (companion not connected)",
-        "DOM (данные ещё не пришли)": "DOM (no data yet)",
+        "DOM (без Moon Core)": "DOM (no Moon Core)",
+        "DOM (данные от компаньона ещё не пришли)": "DOM (no data from the companion yet)",
+        "Ошибки рантайма": "Runtime errors",
+        "разных": "distinct",
+        "нет": "none",
+        "всего": "total",
+        "Резерв конфига на диске": "Config backup on disk",
+        "нет (нужен Moon Core)": "none (needs Moon Core)",
+        "есть": "present",
+        "сохраняется": "saving",
+        "Фон из профиля": "Background from profile",
         "Живые данные": "Live data",
         "ветка": "branch",
         "репозиторий": "repository",
@@ -2189,7 +2399,140 @@
         "Фон по репозиторию": "Background per repository",
         "Репозиторий: ": "Repository: ",
         "Репозиторий не определён — нужен компаньон и git-remote": "Repository unknown — needs the companion and a git remote",
-        "Набор для репо": "Set for repo"
+        "Набор для репо": "Set for repo",
+        "Авто-смена": "Auto switch",
+        "Какой фон показывать и откуда он берётся": "Which background to show and where it comes from",
+        "Когда и по какому поводу фон меняется сам": "When and why the background changes by itself",
+        "Яркость, акцент и фильтры картинки": "Brightness, accent and image filters",
+        "Анимации, стекло, частицы и виджеты": "Animations, glass, particles and widgets",
+        "Шрифт, курсор и свечение терминала": "Terminal font, cursor and glow",
+        "Профили, пресеты, обмен и резервные копии": "Profiles, presets, sharing and backups",
+        "Язык, загрузчик, диагностика и состав меню": "Language, loader, diagnostics and menu layout",
+        "Фон и дизайн": "Background & design",
+        "Всё меняется сразу — сохранять не нужно": "Everything applies instantly — no need to save",
+        "Быстрый переключатель: наборы, эффекты, команды": "Quick switcher: sets, effects, commands",
+        "Быстрый переключатель…": "Quick switcher…",
+        "Закрыть панель": "Close panel",
+        "Новый набор при каждом запуске": "A new set on every launch",
+        "найден (скрипт активен)": "found (script active)",
+        "Фон и дизайн — настройки (фон выключен)": "Background & design — settings (background off)",
+        "Точно сбросить? Нажми ещё раз": "Really reset? Click again",
+        "\nКлик — панель, колесо — листать наборы, правый клик — быстрые действия": "\nClick — panel, scroll — flip sets, right-click — quick actions",
+        "Шейдер": "Shader",
+        "По репозиторию": "By repository",
+        "Свой GLSL-фон для набора «Свой шейдер»: тело функции render(vec2 p). Ошибка компиляции не ломает редактор — фон откатится на встроенный.": "Your own GLSL background for the “Custom shader” set: the body of render(vec2 p). A compile error never breaks the editor — the background falls back to the built-in one.",
+        "Набор под удалённый репозиторий (владелец/имя): один и тот же проект, склонированный в разные папки, получает один фон. Адрес репозитория берётся из git через компаньон-расширение — из вёрстки редактора его не достать.": "A set per remote repository (owner/name): the same project cloned into different folders gets one background. The repository address comes from git via the companion extension — the editor layout doesn't expose it.",
+        "Свои картинки списком: когда «Крутить библиотеку» включено, они по очереди показываются в редакторе и сменяются по таймеру слайдшоу (интервал — на вкладке «Авто-смена»). Пути локальные: file:/// или vscode-file://.": "Your own pictures as a list: with “Rotate library” on, they show in the editor one by one and change on the slideshow timer (interval — on the “Auto switch” tab). Paths are local: file:/// or vscode-file://.",
+        "Включение/выключение визуальных эффектов и их сила. Наведи на пункт — пояснение и живой предпросмотр. Эффекты сгруппированы по смыслу; «только включённые» прячет выключенные. Конкретный эффект ищи полем поиска вверху панели.": "Turn visual effects on/off and set their strength. Hover an item for its explanation and a live preview. Effects are grouped by meaning; “only enabled” hides the disabled ones. Find a specific effect with the search box at the top of the panel.",
+        "Проверка установки: что плагин видит о себе (версия, тема, набор, папка и загрузка картинок, найден ли стиль). Отчёт копируется в буфер для issue. Загляни сюда, если фон не появился.": "Installation check: what the plugin sees about itself (version, theme, set, folder and image loading, whether the style was found). The report is copied to the clipboard for an issue. Look here if the background didn't appear.",
+        "Каким путём внедрён плагин (Moon Core, Custom UI Style или Custom CSS and JS) и готово ли окно к настоящей прозрачности. Кнопки кладут в буфер нужные строки для settings.json.": "How the plugin is injected (Moon Core, Custom UI Style or Custom CSS and JS) and whether the window is ready for true transparency. The buttons copy the needed settings.json lines to the clipboard.",
+        "Сводка текущей сессии: время, тронутые файлы, нажатия, суммарное время в потоке и лучший стрик непрерывной печати. Копится, пока включён тумблер «Статистика» (вкладка «Эффекты»). Данные живут только в этой сессии.": "Summary of the current session: time, files touched, keystrokes, total time in flow and the best streak of continuous typing. Accumulates while the “Statistics” switch is on (“Effects” tab). Data lives only in this session.",
+        "Убрать из любимых": "Remove from favorites",
+        "В любимые": "Add to favorites",
+        "Палитры": "Palettes",
+        "Любимые": "Favorites",
+        "Все": "All",
+        "Безопасные": "Colorblind-safe",
+        "Любимые наборы": "Favorite sets",
+        "Наборы": "Sets",
+        "Отметь наборы звёздочкой на карточке — они появятся здесь": "Star sets on their cards — they will show up here",
+        "Сейчас: набор ": "Now: set ",
+        "по проекту": "by project",
+        "по репозиторию": "by repository",
+        "по ветке": "by branch",
+        "по языку файла": "by file language",
+        "случайный при каждом запуске": "random on every launch",
+        "по времени суток": "by time of day",
+        "слайдшоу": "slideshow",
+        "выбран вручную — авто-смена выключена": "picked manually — auto switch is off",
+        "; в редакторе крутится библиотека": "; the editor rotates your library",
+        "Правило: ": "Rule: ",
+        "Открепить панель": "Unpin panel",
+        "Закрепить панель: не закрывать кликом мимо": "Pin panel: don't close on outside click",
+        "Показать знакомство с панелью": "Show the panel tour",
+        "Пропустить": "Skip",
+        "Дальше": "Next",
+        "из": "of",
+        "Понятно": "Got it",
+        "1. Вкладки": "1. Tabs",
+        "2. Кнопки в шапке": "2. Header buttons",
+        "3. Кнопка BG": "3. The BG button",
+        "Эту картинку нельзя загрузить (сетевые картинки выключены)": "This image can't be loaded (network images are off)",
+        "Картинка стала фоном набора ": "The image is now the background of set ",
+        ". Отменить — стрелка в шапке панели.": ". Undo — the arrow in the panel header.",
+        "Не удалось открыть выбор файла: ": "Couldn't open the file picker: ",
+        "В папке нет картинок": "No images in this folder",
+        "Папка «": "Folder “",
+        " карт. — сменяются в редакторе по таймеру слайдшоу": " images — they rotate in the editor on the slideshow timer",
+        "Не удалось открыть выбор папки: ": "Couldn't open the folder picker: ",
+        "Картинку можно и перетащить в панель из проводника VS Code.": "You can also drag an image into the panel from the VS Code explorer.",
+        "по зонам": "per zone",
+        "Яркость по зонам": "Brightness per zone",
+        "Яркость фона": "Background brightness",
+        "Точка фокуса": "Focus point",
+        "Кликни по картинке — эта точка останется в кадре.": "Click the picture — that point stays in view.",
+        "по центру": "center",
+        "Сбросить точку фокуса": "Reset focus point",
+        "Набор больше не привязан к проекту «": "The set is no longer pinned to project “",
+        "Проект «": "Project “",
+        "» теперь всегда открывается с этим набором": "” will now always open with this set",
+        "Закрепить набор за проектом": "Pin this set to the project",
+        "Открепить набор от проекта": "Unpin the set from the project",
+        "Правила ниже — по старшинству: срабатывает верхнее включённое.": "Rules below are in priority order: the topmost enabled one wins.",
+        "Похоже, картинки набора не грузятся — проверь «Папку плагина» и диагностику ниже.": "Looks like the set's images don't load — check “Plugin folder” and diagnostics below.",
+        "Вернуть настройки на ": "Restore settings from ",
+        "Настройки возвращены на ": "Settings restored from ",
+        " — отменить: «Восстановить прежние настройки»": " — to undo: “Restore previous settings”",
+        "Перетащи картинку из проводника VS Code или нажми «Своя картинка…»": "Drag an image from the VS Code explorer or click “Your image…”",
+        "Все настройки": "All settings",
+        "Проще": "Simpler",
+        "Показать все вкладки и настройки": "Show all tabs and settings",
+        "Оставить только главное": "Keep only the essentials",
+        "Своя картинка…": "Your image…",
+        "Папка картинок…": "Image folder…",
+        "Вернуть картинки набора": "Restore set images",
+        "Убрать папку": "Remove folder",
+        "Тонкая настройка эффектов": "Fine-tune effects",
+        "Проблемы с фоном? Проверить установку": "Background issues? Check the installation",
+        "Поделиться кодом": "Share as code",
+        "Копии настроек по дням": "Daily settings copies",
+        "Стили": "Styles",
+        "Образы": "Looks",
+        "Здесь только главное. Число на вкладке — сколько там включено. Кнопка «Все настройки» в шапке открывает остальное, а поиск вверху находит любой пункт.": "Only the essentials are here. The number on a tab shows how much is enabled. “All settings” in the header opens the rest, and the search at the top finds any item.",
+        "Быстрый переключатель наборов и эффектов, отмена и повтор, «Все настройки» и булавка: закреплённая панель не закрывается кликом мимо. Свою картинку можно просто перетащить в панель.": "Quick switcher for sets and effects, undo and redo, “All settings” and the pin: a pinned panel doesn't close on an outside click. You can simply drag your own image into the panel.",
+        "Клик — эта панель. Колесо мыши над кнопкой листает наборы. Правый клик — любимые наборы, закрепление набора за проектом и частые действия.": "Click — this panel. Scroll over the button to flip sets. Right-click — favorite sets, pinning the set to the project and common actions.",
+        "Выбор набора фоновых картинок (редактор / сайдбар / панель). «случайно» — новый набор при каждом запуске. Свою картинку можно выбрать кнопкой или перетащить в панель.": "Pick the background set (editor / sidebar / panel). “random” — a new set on every launch. Choose your own image with the button or drag it into the panel.",
+        "Насколько ярко проступает фон. Один ползунок двигает все зоны сразу; «по зонам» — тонкая настройка редактора, сайдбара и панели.": "How strongly the background shows. One slider moves all zones at once; “per zone” fine-tunes the editor, sidebar and panel.",
+        "Готовые стили вида: спокойный, фокус, презентация, минимал, максимум. Один клик настраивает фон и эффекты целиком. Наведи — примерка без применения.": "Ready-made styles: calm, focus, presentation, minimal, maximum. One click sets up the background and effects. Hover to try without applying.",
+        "Оформление интегрированного терминала: шрифт, лигатуры, свечение, курсор, выделение. Цвета курсора и выделения, пока их не меняли, следуют за акцентом набора.": "Integrated terminal look: font, ligatures, glow, cursor, selection. Cursor and selection colors follow the set's accent until you change them.",
+        "Сохранённые образы вида: весь вид под именем, переключение одним кликом (наведи — примерка). Ниже — обмен коротким кодом и перенос на другие машины.": "Saved looks: the whole appearance under a name, switched in one click (hover to try). Below — sharing via a short code and moving to other machines.",
+        "На других машинах ещё нет синхронизированного вида": "No synced look from other machines yet",
+        "Здесь уже самый свежий вид": "This machine already has the latest look",
+        "Вид подтянут с другой машины": "Look pulled from another machine",
+        "Вид будет переезжать на другие машины через Settings Sync": "Your look will move to other machines via Settings Sync",
+        "Не удалось: ": "Failed: ",
+        "Прежний вид возвращён": "Previous look restored",
+        "Режим презентации: фон тише, акценты крупнее": "Presentation mode: quieter background, bolder accents",
+        "Что нового": "What's new",
+        "Фон приглушён ровно настолько, чтобы код читался": "Background dimmed just enough for code to read well",
+        "Не показывать этот совет": "Don't show this tip",
+        "Список пуст — выбери «Папку картинок…» в секции «Набор» или добавь пути к картинкам.": "The list is empty — pick an “Image folder…” in the “Set” section or add image paths.",
+        "Простой режим: на виду только главное, остальное — «Все настройки».": "Simple mode: only the essentials are visible, the rest is under “All settings”.",
+        "Своя картинка или целая папка — кнопками ниже или перетаскиванием в панель.": "Your own image or a whole folder — with the buttons below or by dragging into the panel.",
+        "Стили эффектов в один клик и копии настроек по дням.": "One-click effect styles and daily settings copies.",
+        "Код местами читается хуже: картинка слишком яркая под текстом.": "Code is harder to read in places: the image is too bright under the text.",
+        "Приглушить фон": "Dim the background",
+        "Картинка светлая — включить авто-яркость, чтобы код не терялся?": "The image is light — turn on auto-brightness so code doesn't get lost?",
+        "Как есть": "As is",
+        "Мягко": "Soft",
+        "Чётко": "Crisp",
+        "Приглушённо": "Muted",
+        "Режим презентации": "Presentation mode",
+        "Выключить режим презентации": "Turn off presentation mode",
+        "Синхронизировать между машинами": "Sync between machines",
+        "Подтянуть вид с другой машины": "Pull the look from another machine",
+        "Между машинами": "Between machines",
+        "цвет": "color"
     };
 
     // ===================== src/fx/color.js =====================
@@ -2501,6 +2844,29 @@
         _imgListeners[url] = null;
         for (var i = 0; i < ls.length; i++) { try { ls[i](st); } catch (e) {} }
     }
+    // Картинка намного больше экрана (4K-обои на FullHD) держит в памяти весь декодированный
+    // кадр и дольше перерисовывается при эффектах. Делаем копию под экран (с запасом 1.25x на
+    // Ken Burns) как blob: URL и проверяем, что оболочка её грузит (CSP) — только тогда
+    // st.small подменяет оригинал в CSS. Не вышло — остаётся оригинал, ничего не ломается.
+    function downscaleBig(im, st) {
+        try {
+            var dpr = window.devicePixelRatio || 1;
+            var lim = Math.max(1920, Math.round(Math.max(screen.width || 0, window.innerWidth || 0) * dpr * 1.25));
+            var w = im.naturalWidth || 0, h = im.naturalHeight || 0;
+            if (!w || !h || w <= lim * 1.3 || typeof URL === "undefined" || !URL.createObjectURL) return;
+            var k = lim / w, c = document.createElement("canvas");
+            c.width = Math.round(w * k); c.height = Math.round(h * k);
+            c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+            if (!c.toBlob) return;
+            c.toBlob(function (b) {
+                if (!b) return;
+                var u = URL.createObjectURL(b), test = new Image();
+                test.onload = function () { st.small = u; bumpStyle(); ensureStyle(); };
+                test.onerror = function () { try { URL.revokeObjectURL(u); } catch (e) {} };
+                test.src = u;
+            }, "image/jpeg", 0.9);
+        } catch (e) {}
+    }
     function probeImage(url) {
         if (Object.prototype.hasOwnProperty.call(_imgState, url)) return _imgState[url];
         // «Картинки нет» — это не «картинка сломана»: у шейдерных и генеративных наборов зоны
@@ -2550,6 +2916,7 @@
                     st.thumb = tc.toDataURL("image/jpeg", 0.72);
                 } catch (e2) { st.thumb = null; }
                 imgCacheSet(url, st); // метрики и мини-превью — в кэш, чтобы следующий старт был мгновенным
+                downscaleBig(im, st);
                 st.resolved = true; _fireImg(url, st); bumpStyle(); ensureStyle();
             };
             im.onerror = function () { st.ok = false; st.resolved = true; _fireImg(url, st); bumpStyle(); ensureStyle(); };
@@ -3343,6 +3710,7 @@
         var ac = safeColor(getAccent(), DEFAULTS.accent);
         var acRGB = accentRGB();
         var rootVar = ":root { --mlbg-accent: " + ac + "; --mlbg-accent-rgb: " + acRGB + "; }";
+        try { announceAccent(ac); } catch (e) {} // соседям (окно «Документация C++») — сразу
         // Мастер-выключатель: фон и эффекты выключены — отдаём только переменную акцента и
         // стили кнопки/фокуса. Никаких фоновых картинок, стекла, фильтров — «ванильный» VS Code,
         // но кнопка BG и панель остаются рабочими, чтобы включить обратно.
@@ -3370,7 +3738,9 @@
             // прошлой сессии — показываем его, чтобы первый кадр был не пустым. Как только
             // придёт настоящая картинка, probeImage дёрнет пересборку и превью сменится.
             if (!st.resolved && st.thumb) return cssUrl(st.thumb) + " " + position + " / " + fit + " no-repeat";
-            return cssUrl(url) + " " + position + " / " + fit + " no-repeat";
+            // Огромная картинка (4K+ на экране поменьше) — уменьшенная копия: меньше памяти и
+            // быстрее перерисовка. Копию делает проба (st.small), пока её нет — оригинал.
+            return cssUrl(st.small || url) + " " + position + " / " + fit + " no-repeat";
         }
         // Вырез из мастер-картинки. crop = [x, y, w, h] в процентах исходника.
         // Формула стандартная для background: масштаб 100/w, позиция x/(100-w) — так в окно
@@ -3393,6 +3763,7 @@
             if (isProc(idx, zone)) return procBg(idx, zone);
             if (isGrad(idx, zone)) return gradFor(idx, zone);
             var cr = cropFor(idx, zone), u = zoneUrl(idx, zone);
+            position = setPosFor(idx, zone) || position; // точка фокуса, выбранная кликом по превью
             // Адаптивный скрим идёт ПЕРВЫМИ слоями фона — поверх картинки.
             return adaptiveLayers(u, cr, light) + (cr ? cropBg(u, cr) : zoneBg(u, fitZone, position));
         }
@@ -3522,8 +3893,8 @@
         // (защита от подмены cfg в обход панели): шрифт из белого списка, цвета строго #rrggbb.
         var t = cfg.term;
         var tf = safeFont(t.font);
-        var tcur = safeColor(t.cursorColor, DEFAULTS.term.cursorColor);
-        var tsel = safeColor(t.selColor, DEFAULTS.term.selColor);
+        var tcur = safeColor(effTermColor("cursorColor"), DEFAULTS.term.cursorColor); // дефолт -> акцент набора
+        var tsel = safeColor(effTermColor("selColor"), DEFAULTS.term.selColor);
         var tw = clampNum(t.weight, 400, 800, 400);
         var tglow = clampNum(t.glow, 0, 6, 2);
         var tcw = clampNum(t.cursorSize, 0, 2.5, 1);   // ширина курсора (scaleX)
@@ -3655,6 +4026,14 @@
     // набора, тема), по-прежнему пересобирает лист — иначе новые правила просто не появятся.
     // Пересборка идёт по ревизии: bumpStyle() отмечает изменение, ensureStyle собирает CSS,
     // только когда ревизия сдвинулась или наш <style> пропал (VS Code перестроил DOM).
+    // Сменился акцент — событие окну: соседние скрипты (окно «Документация C++») перекрашиваются
+    // сразу, не дожидаясь своего таймера. Только при реальной смене цвета.
+    var _lastAnnounced = "";
+    function announceAccent(ac) {
+        if (ac === _lastAnnounced) return;
+        _lastAnnounced = ac;
+        setTimeout(function () { try { window.dispatchEvent(new CustomEvent("mlbg-accent", { detail: { accent: ac } })); } catch (e) {} }, 0);
+    }
     function editorOpFactor() {
         // Множители прозрачности редактора, зависящие не от ползунка: авто-дим под светлую
         // картинку и режим чтения. Повторяет логику buildCSS, чтобы переменная совпадала с ней.
@@ -3701,7 +4080,7 @@
                 st.setProperty(k, v[k]);
                 _varsApplied[k] = v[k];
             }
-        } catch (e) {}
+        } catch (e) { logErr("CSS-переменные", e); }
     }
 
     var STYLE_ID = "moonlight-custom-bg";
@@ -3733,12 +4112,13 @@
                     _buildErrLogged = true;
                     try { console.error("[MoonLight custom-bg] Сборка CSS упала — включён безопасный режим (видна только кнопка BG). Проверьте правки в src/ или откройте панель → Система → «Сбросить к дефолту».", buildErr); } catch (e2) {}
                 }
+                logErr("сборка CSS (безопасный режим)", buildErr);
                 css = safeFallbackCSS();
             }
             if (!el) { el = document.createElement("style"); el.id = STYLE_ID; document.head.appendChild(el); }
             if (el.textContent !== css) el.textContent = css;
             _appliedRev = _styleRev;
-        } catch (e) {}
+        } catch (e) { logErr("вставка стиля", e); }
     }
     function apply() { saveCfg(); bumpStyle(); ensureStyle(); updateLabel(); syncWidgets(); }
     // «Живое» применение БЕЗ записи в localStorage — для непрерывных изменений во время
@@ -4001,11 +4381,298 @@
         return node;
     }
 
+    // Пустое состояние: наклейка + одна строка «что сюда добавится». sticker — ключ UI_ICONS.
+    function emptyState(text, sticker) {
+        var box = el("div", null); box.className = "mlp-empty";
+        var ic = uiIcon(sticker || "empty", 48); if (ic) box.appendChild(ic);
+        box.appendChild(el("span", null, t(text)));
+        return box;
+    }
+
+    // Сетка образцов цвета: группы [подпись, [#hex, ...]]; текущий цвет — с кольцом. Клик -> pick(hex).
+    // Живёт под полем цвета (акцент, курсор, выделение терминала): hex вручную остаётся рядом.
+    var SWATCH_CATPPUCCIN = ["#cba6f7", "#f5c2e7", "#f38ba8", "#fab387", "#f9e2af", "#a6e3a1", "#94e2d5", "#89dceb", "#89b4fa", "#b4befe"];
+    function makeSwatches(groups, cur, pick) {
+        var box = el("div", null); box.className = "mlp-sw-box";
+        var curL = String(cur || "").toLowerCase();
+        groups.forEach(function (g) {
+            var cols = (g[1] || []).filter(function (c, i, a) { return isColor(c) && a.indexOf(c) === i; });
+            if (!cols.length) return;
+            var row = el("div", null); row.className = "mlp-sw-row";
+            row.appendChild(el("span", null, t(g[0])));
+            cols.forEach(function (hex) {
+                var sw = el("div", null); sw.className = "mlp-sw" + (hex.toLowerCase() === curL ? " on" : "");
+                sw.style.background = hex; sw.title = hex;
+                sw.addEventListener("click", function (e) { e.stopPropagation(); pick(hex); });
+                keyActivate(sw, t(g[0]) + " " + hex);
+                row.appendChild(sw);
+            });
+            box.appendChild(row);
+        });
+        return box;
+    }
+
+    // Сегмент-переключатель «А | Б | В» вместо короткого селекта (как в настройках cpp-docs-panel):
+    // все варианты видны сразу, выбор — один клик. options — [[значение, подпись], ...];
+    // get() -> текущее значение; set(v) -> применить. label (необязательна) — метка слева.
+    function makeSeg(label, options, get, set, info) {
+        var wrap = el("div", ST.row + " flex-wrap:wrap;");
+        if (label) wrap.appendChild(el("span", mutedLabel(92, true), t(label)));
+        var seg = el("div", null); seg.className = "mlp-seg"; seg.setAttribute("role", "radiogroup");
+        if (label) seg.setAttribute("aria-label", t(label));
+        var btns = [];
+        function sync() {
+            var cur = get();
+            btns.forEach(function (b) {
+                var on = b._v === cur;
+                b.className = on ? "on" : "";
+                b.setAttribute("aria-checked", on ? "true" : "false");
+                b.tabIndex = on ? 0 : -1;
+            });
+        }
+        options.forEach(function (o) {
+            var b = el("button", null, t(o[1])); b.type = "button"; b._v = o[0];
+            b.setAttribute("role", "radio");
+            b.addEventListener("click", function (e) { e.stopPropagation(); if (get() === o[0]) return; set(o[0]); sync(); });
+            btns.push(b); seg.appendChild(b);
+        });
+        seg.addEventListener("keydown", function (e) {
+            if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+            var i = -1; for (var k = 0; k < btns.length; k++) if (btns[k] === document.activeElement) i = k;
+            if (i < 0) return;
+            e.preventDefault(); e.stopPropagation();
+            var n = btns[(i + (e.key === "ArrowRight" ? 1 : btns.length - 1)) % btns.length];
+            n.click(); try { n.focus(); } catch (er) {}
+        });
+        sync();
+        wrap.appendChild(seg);
+        var d = info ? infoDot(info) : null; if (d) wrap.appendChild(d);
+        wrap._sync = sync;
+        return wrap;
+    }
+
+    // ===================== src/ui/icons.js =====================
+    // ===== Значки панели =====
+    // СГЕНЕРИРОВАНО scripts/embed-icons.js из assets/ui — вручную не править.
+    // uiIcon(name, size) -> <img> или null, если значка нет (тогда вызывающий обходится текстом).
+    var UI_ICONS = {
+        "dice": "data:image/webp;base64,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",
+        "empty": "data:image/webp;base64,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",
+        "logo": "data:image/webp;base64,UklGRngEAABXRUJQVlA4IGwEAABQEwCdASpAAEAAPlEejESjoaEWDAbMOAUEtC/7Iwsg78XxnmY2r/ObgoWWGlt1fMBjtXogdLhPu2yBYA+icuLCRoXkk1Cx22zOafPNAfVVyJcRRrLrWd7cLKCK2/IBByvaJlmCTQ9+ULBZOxiJOJP/BZ+kPtvXBAXRNeM4QTgicyFc5oVLHLY/5gJaFMdr1fvPeC/mVaUNjZQTkldLnzbKI3AAAP7/VvsqW63++6Rd+e1Hd92Pkk4pYnVb9rLlmIb0iN004exGQuGmSZGKgMxGLoqK/93/Zz8VwlWj/Lnvk7+e/FWt/I0Z+feN990zRkioCBFbiRPt1zYnhMqMHZ6HcrifrVINHBob4tRVAGNz2MOykNBotLcEZibi3Bk2FU1lxr8av+Qg9xsZkFPkwu8dBfqYL5abbTOd8cH4Ozj2pxdrvwDxS/9ozxd+RX7WwXt7oTScq2LHAtM+Rzn06TmuE5ulq4XNJPXKgnIy7Aisl/KIBFDE+qxZ5Dd2JGXWp89Hum3wx98Ljb4jabz9+JDB9fDnMnjlwY5oD+xTIjwCK5bA+ct/+M3IGLaFT4h9b3P2pAzYTXOsp7mG9GOX6439fmGdkjzzaumfx9q5REnO0jUAu1kywu1RUNniLIj89QuO33vNKl/q1UIa4I/pBx7limS317xIC9uNy/mfuf64FCoH/MQfzcbAri2OkhBkTqCpnLS2KSpLpNf6ve12t7rKD/mFqr3Pt/fGiB0xG4mF0tMdwlkIN+E5Vd5wriNqdqTy9+mGMLgnGhZlHPtTOGDxzxSfpVz3uajIseMzcmwuiW8J0pUJWR+WuqVr5f1sUUnMAMTN0qYV0zsu+h9WuHoT4ucboFd62fceFz261MsMintWmA/5scfXH4F5Jz+dDnhUtm4szGGeqeF9LrsqVkJtb8UnVG24x/f31ply4OoeI8vqFGCiHfpkc0QpYyhyf+1tuM+VtUZ/1VV9ud7Le6f3AMvKDdXEO1W/KR678iwqbJzd9u6icx7FsSYsRF33Q0N3t0IBTFLrRdvLiFjPBSoY6TK59SAF+jf1ZZTJsOijWFQDSr+rHem2wsuqLMpffjLmpjdYcfopD2NpIbByqiIpe5ApLaqHk6/0vxg4IGYjFYX3uGJVtYEOD3E6A99/eT4Y4ovF1+OTO3u+VYPXVajUFvx82C6qr424XwKpcizkKXAKOFkd+paV4pQa4Pds+ZKk1seXRHCWYXRkmiIHqWIN0p2dghtsEHFK9CR+FY+WPn5DFTOzca+ah7V4MtjmLf21AtjodMH/elZzbfl/6Lkz1hvGwp/ARbHFyMbVCaseo8Bu/x3Uzrf9bYKrO2d9RPgWJhkVws4AYEXV1NdyPx6R8or7XaTv2dph+sYwvzmeEXgC9pTb5TGDXE8eS6ySmyJ1CQoWE6SOkJYPUJKdbUle4lXCaxpexXQLJ/HR9S0GCRlfJGxXCa++b67mFsQ9HDkjhFo2nA9ZRew+6B06ddb0BX8xnPHZOPn4oAAA",
+        "noresult": "data:image/webp;base64,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",
+        "pin": "data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%3E%3Cpath%20d%3D'M9%203h6l-1%206%203%203v2h-4v7l-1%201-1-1v-7H7v-2l3-3z'%20fill%3D'%23f38ba8'%20stroke%3D'%23fff'%20stroke-width%3D'1.6'%20stroke-linejoin%3D'round'%2F%3E%3C%2Fsvg%3E",
+        "star": "data:image/webp;base64,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",
+        "tab-auto": "data:image/webp;base64,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",
+        "tab-data": "data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2064%2064'%3E%3Cpath%20d%3D'M8%2012a6%206%200%200%201%206-6h30l12%2012v32a6%206%200%200%201-6%206H14a6%206%200%200%201-6-6z'%20fill%3D'%23fff'%2F%3E%3Cpath%20d%3D'M12%2014a4%204%200%200%201%204-4h26l10%2010v28a4%204%200%200%201-4%204H16a4%204%200%200%201-4-4z'%20fill%3D'%2389b4fa'%2F%3E%3Crect%20x%3D'20'%20y%3D'10'%20width%3D'20'%20height%3D'13'%20rx%3D'2'%20fill%3D'%23cdd6f4'%2F%3E%3Crect%20x%3D'32'%20y%3D'12'%20width%3D'5'%20height%3D'8'%20rx%3D'1'%20fill%3D'%2345475a'%2F%3E%3Crect%20x%3D'19'%20y%3D'32'%20width%3D'26'%20height%3D'18'%20rx%3D'3'%20fill%3D'%23f5e0dc'%2F%3E%3Cpath%20d%3D'M24%2038h16M24%2044h11'%20stroke%3D'%23fab387'%20stroke-width%3D'3'%20stroke-linecap%3D'round'%2F%3E%3C%2Fsvg%3E",
+        "tab-fx": "data:image/webp;base64,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",
+        "tab-set": "data:image/webp;base64,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",
+        "tab-sys": "data:image/webp;base64,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",
+        "tab-term": "data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2064%2064'%3E%3Crect%20x%3D'6'%20y%3D'10'%20width%3D'52'%20height%3D'44'%20rx%3D'9'%20fill%3D'%23fff'%2F%3E%3Crect%20x%3D'10'%20y%3D'14'%20width%3D'44'%20height%3D'36'%20rx%3D'6'%20fill%3D'%2345475a'%2F%3E%3Crect%20x%3D'10'%20y%3D'14'%20width%3D'44'%20height%3D'8'%20rx%3D'4'%20fill%3D'%23cba6f7'%2F%3E%3Cpath%20d%3D'M18%2030l7%205-7%205'%20fill%3D'none'%20stroke%3D'%23a6e3a1'%20stroke-width%3D'4'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%2F%3E%3Cpath%20d%3D'M30%2041h12'%20stroke%3D'%23fab387'%20stroke-width%3D'4'%20stroke-linecap%3D'round'%2F%3E%3C%2Fsvg%3E",
+        "tab-view": "data:image/webp;base64,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"
+    };
+    function uiIcon(name, size) {
+        var src = UI_ICONS[name]; if (!src) return null;
+        var im = document.createElement("img");
+        im.src = src; im.alt = ""; im.draggable = false; im.className = "mlp-ico";
+        if (size) { im.width = size; im.height = size; }
+        im.setAttribute("aria-hidden", "true");
+        return im;
+    }
+
+    // ===================== src/ui/panel-css.js =====================
+    // ===== Таблица стилей панели =====
+    // Внешний вид панели в духе окна настроек cpp-docs-panel: карточка с мягким акцентным
+    // отблеском, вкладки колонкой слева со значками, заголовок страницы с подписью, секции-карточки,
+    // свитчи вместо чекбоксов, сегменты вместо коротких селектов, ползунки с заливкой.
+    // Раньше каждый контрол нёс весь стиль инлайном; общие элементы (поля, чекбоксы, ползунки)
+    // теперь оформляет этот лист по тегу/классу внутри панели, так что старые фабрики тоже
+    // выглядят по-новому без переписывания. Цвета — из --mlp-* (их задаёт togglePanel под тему)
+    // и --mlbg-accent / --mlbg-accent-rgb (акцент активного набора).
+    var PANEL_CSS_ID = "moonlight-bg-panel-css";
+    function panelCss() {
+        var P = "#moonlight-bg-panel", Q = "#moonlight-bg-qmenu";
+        var A = "rgba(var(--mlbg-accent-rgb,203,166,247),";   // + "0.2)" — акцент с прозрачностью
+        var T = "rgba(var(--mlp-tint,205,214,244),";          // + "0.06)" — нейтральный оттенок темы
+        return [
+            "@keyframes mlp-pop{from{opacity:0;transform:translateY(6px) scale(.985)}to{opacity:1;transform:none}}",
+            "@keyframes mlp-page{from{opacity:0;transform:translateX(4px)}to{opacity:1;transform:none}}",
+            P + "{display:flex;flex-direction:column;overflow:hidden;padding:0;border-radius:16px;animation:mlp-pop .18s cubic-bezier(.2,.9,.3,1.2);" +
+                "box-shadow:0 24px 70px rgba(0,0,0,.45),0 0 0 1px " + A + "0.10);}",
+            P + "::before{content:'';position:absolute;inset:0 0 auto 0;height:130px;pointer-events:none;" +
+                "background:radial-gradient(120% 100% at 0% 0%," + A + "0.22),transparent 70%);}",
+            // шапка
+            P + " .mlp-head{position:relative;display:flex;align-items:center;gap:10px;padding:12px 12px 10px 14px;cursor:move;user-select:none;}",
+            P + " .mlp-hic{flex:0 0 auto;width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;" +
+                "background:" + A + "0.16);border:1px solid " + A + "0.35);}",
+            P + " .mlp-hic img{width:26px;height:26px;border-radius:6px;}",
+            P + " .mlp-ht{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px;}",
+            P + " .mlp-ht b{font-size:14px;font-weight:700;letter-spacing:.2px;color:var(--mlp-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+            P + ".mlp-narrow .mlp-ht span{display:none;}",
+            P + " .mlp-ht span{font-size:11px;color:var(--mlp-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+            P + " .mlp-hbtn{flex:0 0 auto;min-width:28px;height:28px;padding:0 8px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:5px;" +
+                "border-radius:9px;cursor:pointer;font-size:12px;color:var(--mlp-muted);background:" + T + "0.05);border:1px solid var(--mlp-border-faint);transition:background .12s,border-color .12s,color .12s;}",
+            P + " .mlp-hbtn:hover{color:var(--mlp-fg);background:" + A + "0.18);border-color:" + A + "0.45);}",
+            P + " .mlp-hbtn.on{color:var(--mlbg-accent);background:" + A + "0.18);border-color:" + A + "0.5);}",
+            P + " .mlp-hbtn.off{opacity:.4;cursor:default;}",
+            // верхняя полоса: мастер-выключатель + поиск
+            P + " .mlp-top{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:0 14px 10px;}",
+            P + " .mlp-master{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:6px 11px;border-radius:11px;cursor:pointer;" +
+                "background:" + A + "0.12);border:1px solid " + A + "0.3);font-weight:600;}",
+            P + " .mlp-master.off{background:" + T + "0.05);border-color:var(--mlp-border-faint);color:var(--mlp-muted);}",
+            P + " .mlp-search{position:relative;flex:1 1 180px;min-width:0;}",
+            P + " .mlp-fav{padding:0 14px 8px;}",
+            // тело: вкладки слева + страница
+            P + " .mlp-body{position:relative;flex:1 1 auto;min-height:0;display:flex;border-top:1px solid var(--mlp-border-faint);}",
+            P + " .mlp-nav{flex:0 0 164px;box-sizing:border-box;padding:10px 8px;display:flex;flex-direction:column;gap:3px;overflow-y:auto;" +
+                "border-right:1px solid var(--mlp-border-faint);background:" + T + "0.025);}",
+            P + " .mlp-tab{position:relative;display:flex;align-items:center;gap:8px;padding:6px 7px;border-radius:11px;cursor:pointer;" +
+                "font-size:12px;font-weight:600;color:var(--mlp-muted);border:1px solid transparent;transition:background .12s,color .12s;}",
+            P + " .mlp-tab:hover{color:var(--mlp-fg);background:" + T + "0.06);}",
+            P + " .mlp-tab.on{color:var(--mlp-fg);background:linear-gradient(90deg," + A + "0.24)," + A + "0.08));border-color:" + A + "0.45);box-shadow:inset 3px 0 0 var(--mlbg-accent);}",
+            P + " .mlp-tic{flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:" + T + "0.06);}",
+            P + " .mlp-tab.on .mlp-tic{background:" + A + "0.2);}",
+            P + " .mlp-tic img{width:21px;height:21px;}",
+            P + " .mlp-tl{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+            P + " .mlp-badge{flex:0 0 auto;min-width:16px;height:16px;line-height:14px;padding:0 4px;box-sizing:border-box;border-radius:8px;font-size:9.5px;font-weight:700;text-align:center;" +
+                "color:var(--mlbg-accent);background:" + A + "0.18);border:1px solid " + A + "0.45);}",
+            P + " .mlp-pages{flex:1 1 auto;min-width:0;overflow-y:auto;overflow-x:hidden;padding:12px 14px 16px;}",
+            P + " .mlp-page{animation:mlp-page .16s ease-out;}",
+            P + " .mlp-ph{display:flex;flex-direction:column;gap:2px;margin:0 2px 4px;}",
+            P + " .mlp-ph b{font-size:15px;font-weight:700;color:var(--mlp-fg);}",
+            P + " .mlp-ph span{font-size:11px;color:var(--mlp-faint);}",
+            // узкая панель: вкладки только значками
+            P + ".mlp-narrow .mlp-nav{flex-basis:50px;padding:10px 6px;}",
+            P + ".mlp-narrow .mlp-tl{display:none;}",
+            P + ".mlp-narrow .mlp-tab{justify-content:center;padding:6px 4px;}",
+            P + ".mlp-narrow .mlp-badge{position:absolute;top:-3px;right:-3px;}",
+            // секции-карточки
+            P + " .mlp-sec{margin-top:10px;border-radius:13px;background:" + T + "0.035);border:1px solid var(--mlp-border-faint);overflow:hidden;}",
+            P + " .mlp-sec.hid{opacity:.55;}",
+            P + " .mlp-sec-h{display:flex;align-items:center;gap:8px;padding:9px 11px;cursor:pointer;border-radius:13px;transition:background .12s;}",
+            P + " .mlp-sec-h:hover{background:" + A + "0.08);}",
+            P + " .mlp-sec-t{flex:1 1 auto;min-width:0;font-size:12.5px;font-weight:700;color:var(--mlp-head);}",
+            P + " .mlp-chev{flex:0 0 auto;width:14px;text-align:center;color:var(--mlp-faint);font-size:10px;transition:transform .15s;}",
+            P + " .mlp-sec.open .mlp-chev{transform:rotate(90deg);color:var(--mlbg-accent);}",
+            P + " .mlp-sec-b{padding:0 10px 10px;}",
+            // кнопки
+            P + " .mlp-btn{flex:1 1 0;padding:7px 10px;text-align:center;border-radius:10px;cursor:pointer;font-weight:600;font-size:12px;" +
+                "color:var(--mlp-fg);background:" + T + "0.06);border:1px solid var(--mlp-border-soft);transition:background .12s,border-color .12s;}",
+            P + " .mlp-btn:hover{background:" + A + "0.18);border-color:" + A + "0.45);}",
+            P + " .mlp-btn.off{opacity:.45;cursor:default;}",
+            P + " .mlp-danger{margin-top:14px;padding:10px;border-radius:13px;border:1px solid rgba(243,139,168,.3);background:rgba(243,139,168,.06);}",
+            P + " .mlp-danger .mlp-btn{color:#f38ba8;border-color:rgba(243,139,168,.35);background:rgba(243,139,168,.10);}",
+            P + " .mlp-danger .mlp-btn:hover{background:rgba(243,139,168,.2);}",
+            // сегменты
+            P + " .mlp-seg{display:inline-flex;flex:0 1 auto;flex-wrap:wrap;gap:2px;padding:2px;border-radius:10px;background:var(--mlp-field);border:1px solid var(--mlp-border-soft);}",
+            P + " .mlp-seg button{all:unset;box-sizing:border-box;padding:4px 11px;border-radius:8px;cursor:pointer;font-size:11.5px;color:var(--mlp-muted);white-space:nowrap;}",
+            P + " .mlp-seg button:hover{color:var(--mlp-fg);background:" + T + "0.08);}",
+            P + " .mlp-seg button.on{color:var(--mlp-on-accent,#1e1e2e);background:var(--mlbg-accent);font-weight:600;}",
+            P + " .mlp-seg button:focus-visible{outline:2px solid var(--mlbg-accent);outline-offset:1px;}",
+            // поля
+            P + " input[type=text]," + P + " input:not([type])," + P + " textarea," + P + " select{border-radius:8px !important;padding:5px 8px !important;outline:none;}",
+            P + " input[type=text]:focus," + P + " textarea:focus," + P + " select:focus{border-color:" + A + "0.6) !important;box-shadow:0 0 0 2px " + A + "0.18);}",
+            // свитч вместо чекбокса
+            P + " input[type=checkbox]{-webkit-appearance:none;appearance:none;flex:0 0 auto;position:relative;width:30px;height:17px;margin:0 2px 0 0;border-radius:9px;cursor:pointer;" +
+                "background:" + T + "0.2);border:1px solid var(--mlp-border-soft);transition:background .15s,border-color .15s;}",
+            P + " input[type=checkbox]::after{content:'';position:absolute;top:1px;left:1px;width:13px;height:13px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .15s;}",
+            P + " input[type=checkbox]:checked{background:var(--mlbg-accent);border-color:var(--mlbg-accent);}",
+            P + " input[type=checkbox]:checked::after{transform:translateX(13px);}",
+            P + " input[type=checkbox]:focus-visible{outline:2px solid var(--mlbg-accent);outline-offset:2px;}",
+            // ползунок с заливкой до значения (--p ставит makeSlider)
+            P + " input[type=range]{-webkit-appearance:none;appearance:none;height:5px;border-radius:3px;cursor:pointer;margin:0 2px;" +
+                "background:linear-gradient(90deg,var(--mlbg-accent) var(--p,50%)," + T + "0.18) var(--p,50%));}",
+            P + " input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid var(--mlbg-accent);box-sizing:border-box;box-shadow:0 1px 4px rgba(0,0,0,.4);}",
+            P + " input[type=range]:focus-visible{outline:2px solid " + A + "0.6);outline-offset:3px;}",
+            // карточки наборов
+            P + " .mlp-sets{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px;}",
+            P + " .mlp-set{position:relative;display:flex;flex-direction:column;border-radius:11px;overflow:hidden;cursor:pointer;background:" + T + "0.04);" +
+                "border:1px solid var(--mlp-border-soft);transition:border-color .12s,transform .12s;}",
+            P + " .mlp-set:hover{border-color:" + A + "0.6);transform:translateY(-1px);}",
+            P + " .mlp-set.on{border-color:var(--mlbg-accent);box-shadow:0 0 0 2px " + A + "0.35);}",
+            P + " .mlp-set-pv{position:relative;height:52px;overflow:hidden;}",
+            P + " .mlp-set-nm{display:flex;align-items:center;gap:4px;padding:5px 7px 6px;font-size:11px;color:var(--mlp-fg);white-space:nowrap;overflow:hidden;}",
+            P + " .mlp-set-nm span{overflow:hidden;text-overflow:ellipsis;}",
+            P + " .mlp-set.on .mlp-set-nm{font-weight:700;}",
+            P + " .mlp-set-no{flex:0 0 auto;font-size:10px;font-weight:700;color:var(--mlp-faint);}",
+            P + " .mlp-set.on .mlp-set-no{color:var(--mlbg-accent);}",
+            P + " .mlp-set-rand{align-items:center;justify-content:center;}",
+            P + " .mlp-set-rand .mlp-set-pv{display:flex;align-items:center;justify-content:center;background:" + A + "0.10);}",
+            P + " .mlp-set-rand img{width:36px;height:36px;}",
+            P + " .mlp-set-star{position:absolute;top:3px;right:4px;z-index:3;width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;font-size:12px;cursor:pointer;" +
+                "color:#fff;background:rgba(0,0,0,.45);opacity:0;transition:opacity .12s;}",
+            P + " .mlp-set:hover .mlp-set-star," + P + " .mlp-set-star.on," + P + " .mlp-set-star:focus-visible{opacity:1;}",
+            P + " .mlp-set-star.on{color:#f9e2af;}",
+            P + " .mlp-hbtn img{width:16px;height:16px;}",
+            // «Сейчас работает» на вкладке «Авто-смена»
+            P + " .mlp-now{display:flex;align-items:center;gap:11px;margin:8px 0 2px;padding:9px 11px;border-radius:13px;" +
+                "background:" + A + "0.10);border:1px solid " + A + "0.35);}",
+            P + " .mlp-now-pv{flex:0 0 auto;width:64px;height:38px;border-radius:8px;}",
+            P + " .mlp-now-t{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px;}",
+            P + " .mlp-now-t b{font-size:12.5px;color:var(--mlp-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+            P + " .mlp-now-t span{font-size:11px;color:var(--mlp-muted);}",
+            // образец терминала
+            P + " .mlp-term{margin:2px 0 8px;padding:10px 12px;border-radius:10px;background:#11111b;color:#cdd6f4;font-size:12.5px;line-height:1.6;" +
+                "border:1px solid var(--mlp-border-soft);white-space:pre;overflow:hidden;}",
+            P + " .mlp-term-cur{display:inline-block;vertical-align:text-bottom;animation:mlp-blink 1.1s steps(1) infinite;}",
+            "@keyframes mlp-blink{50%{opacity:0}}",
+            // образцы цвета
+            P + " .mlp-sw-box{display:flex;flex-direction:column;gap:4px;padding:3px 2px 6px;}",
+            P + " .mlp-sw-row{display:flex;flex-wrap:wrap;align-items:center;gap:5px;}",
+            P + " .mlp-sw-row>span{flex:0 0 86px;font-size:10.5px;color:var(--mlp-faint);}",
+            P + " .mlp-sw-row>span:empty{display:none;}",
+            P + " .mlp-sw{width:18px;height:18px;border-radius:50%;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(255,255,255,.25);transition:transform .1s;}",
+            P + " .mlp-sw:hover{transform:scale(1.15);}",
+            P + " .mlp-sw.on{box-shadow:0 0 0 2px var(--mlp-bg),0 0 0 4px var(--mlp-fg);}",
+            // группы эффектов — карточки
+            P + " .mlp-fxg{margin-top:6px;border-radius:10px;border:1px solid var(--mlp-border-faint);background:" + T + "0.025);}",
+            P + " .mlp-fxg-h{display:flex;align-items:center;gap:7px;padding:6px 9px;cursor:pointer;border-radius:10px;font-size:11px;font-weight:700;color:var(--mlp-head);}",
+            P + " .mlp-fxg-h:hover{background:" + A + "0.08);}",
+            P + " .mlp-fxg.open .mlp-chev{transform:rotate(90deg);color:var(--mlbg-accent);}",
+            P + " .mlp-fxg-n{flex:0 0 auto;font-size:10px;font-weight:600;padding:1px 7px;border-radius:8px;color:var(--mlp-faint);background:" + T + "0.06);}",
+            P + " .mlp-fxg-n.on{color:var(--mlbg-accent);background:" + A + "0.16);}",
+            P + " .mlp-fxg-b{padding:0 6px 6px;}",
+            P + " .mlp-empty{display:flex;align-items:center;gap:10px;padding:8px 6px;font-size:11.5px;color:var(--mlp-muted);}",
+            P + " .mlp-empty img{flex:0 0 auto;width:44px;height:44px;opacity:.9;}",
+            P + " .mlp-news{display:flex;align-items:flex-start;gap:10px;margin:8px 0 2px;padding:10px 11px;border-radius:13px;font-size:11.5px;line-height:1.5;color:var(--mlp-muted);" +
+                "background:linear-gradient(135deg," + A + "0.16)," + A + "0.05));border:1px solid " + A + "0.4);}",
+            P + " .mlp-news b{display:block;margin-bottom:2px;font-size:12.5px;color:var(--mlp-fg);}",
+            P + " .mlp-news img{flex:0 0 auto;width:28px;height:28px;}",
+            P + " .mlp-tip{display:flex;align-items:center;gap:8px;padding:7px 8px 7px 11px;border-radius:11px;font-size:11.5px;color:var(--mlp-fg);" +
+                "background:rgba(249,226,175,.10);border:1px solid rgba(249,226,175,.35);}",
+            P + ".mlp-drop{box-shadow:0 0 0 3px var(--mlbg-accent),0 24px 70px rgba(0,0,0,.45);}",
+            P + " .mlp-rule-n{flex:0 0 auto;width:18px;height:18px;line-height:18px;border-radius:50%;text-align:center;font-size:10px;font-weight:700;color:var(--mlp-faint);background:" + T + "0.08);}",
+            P + " .mlp-rule-n.on{color:var(--mlp-on-accent,#1e1e2e);background:var(--mlbg-accent);}",
+            P + " .mlp-rule-s{flex:0 0 auto;font-size:10px;font-weight:600;padding:1px 7px;border-radius:8px;color:var(--mlp-faint);background:" + T + "0.06);}",
+            P + " .mlp-rule-s.on{color:var(--mlbg-accent);background:" + A + "0.16);}",
+            P + " .mlp-inl{grid-column:1/-1;margin:0 0 4px 26px;padding:2px 6px 4px;border-left:2px solid " + A + "0.35);}",
+            P + " .mlp-focus{position:relative;width:100%;aspect-ratio:16/9;max-height:150px;margin:0 auto;border-radius:9px;cursor:crosshair;background-size:100% 100%;background-color:" + T + "0.06);border:1px solid var(--mlp-border-soft);}",
+            P + " .mlp-focus-dot{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;border:2px solid #fff;background:var(--mlbg-accent);box-shadow:0 0 0 2px rgba(0,0,0,.4);pointer-events:none;}",
+            P + " .mlp-chip{padding:3px 9px;border-radius:8px;cursor:pointer;font-size:11px;color:var(--mlp-fg);background:" + T + "0.06);border:1px solid var(--mlp-border-soft);}",
+            P + " .mlp-chip:hover{border-color:" + A + "0.55);background:" + A + "0.14);}",
+            // быстрое меню у кнопки BG
+            Q + "{animation:mlp-pop .14s ease-out;}",
+            Q + " .mlp-qsets{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:3px 6px 6px;}",
+            Q + " .mlp-qset{position:relative;height:34px;border-radius:7px;cursor:pointer;border:1px solid rgba(255,255,255,.14);transition:transform .1s;}",
+            Q + " .mlp-qset:hover{transform:translateY(-1px);border-color:rgba(var(--mlbg-accent-rgb),.7);}",
+            Q + " .mlp-qset.on{border:2px solid var(--mlbg-accent);}",
+            "@media (prefers-reduced-motion: reduce){" + P + "," + P + " .mlp-page," + P + " .mlp-term-cur," + Q + "{animation:none !important;}" + P + " *{transition:none !important;}}"
+        ].join("\n");
+    }
+    function ensurePanelCss() {
+        try {
+            var s = document.getElementById(PANEL_CSS_ID);
+            if (s) return;
+            s = document.createElement("style"); s.id = PANEL_CSS_ID;
+            s.textContent = panelCss();
+            (document.head || document.documentElement).appendChild(s);
+        } catch (e) {}
+    }
+
     // ===================== src/ui/info.js =====================
-    // ===== Подсказки «?»: тексты + всплывающий попап =====
+    // ===== Пояснения к настройкам: тексты + всплывающий попап =====
     // INFO — русские тексты пояснений по ключам (op_*, fx_*, fxp_*, term_*, img_* и отдельные).
     // INFO_EN — их английские версии с ТЕМИ ЖЕ ключами (синхронность гарантирована ключом, а не
-    // ручным повтором строки). infoDot(text) строит кружок «?», а перевод делает в одной точке
+    // ручным повтором строки). infoDot(text) ставит невидимую метку пояснения, а перевод делает в одной точке
     // (infoText): в английском режиме подменяет русский текст на английский. Так переводятся и
     // подсказки контролов (из INFO), и подписи секций (литералы из panel.js — через общий словарь).
 
@@ -4041,6 +4708,9 @@
         screensaver: "Витрина при простое: если не трогать мышь и клавиатуру заданное число минут, поверх редактора плавно появляются крупные часы, дата и имя активного набора на тёмном акцентном фоне. Любое действие (движение мыши, клик, клавиша) сразу возвращает редактор; первая клавиша при этом гасится, чтобы не попасть в текст. Не показывается, когда окно свёрнуто.",
         screensaver_min: "Сколько минут без ввода до появления витрины.",
         autotime_on: "Переключать набор по времени суток: днём — дневной набор, ночью — ночной (границы дня задаются ниже). Не работает в режиме «случайно»; при включении отменяет слайдшоу.",
+        sync: "Вид (набор, эффекты, акценты) сам переезжает на другие твои машины через встроенный Settings Sync VS Code — ничего копировать не нужно. Пути, папки и своя библиотека остаются свои на каждой машине. Нужны Moon Core и компаньон-расширение, а в VS Code — включённый Settings Sync.",
+        img_look: "Готовый вид картинки для всех зон: «Мягко» — чуть размыта и спокойнее, «Чётко» — ярче и насыщеннее, «Приглушённо» — темнее и почти без цвета, код читается лучше всего. Тонкая настройка по зонам — в полном режиме.",
+        hotkeys: "Горячие клавиши Ctrl+Alt+… (наборы, панель, режим чтения, отмена). Выключи, если ими не пользуешься: сочетания перестанут перехватываться (важно для раскладок с AltGr), а их подписи и справка исчезнут из панели. Всё то же доступно мышью: кнопки в шапке панели, колесо и правый клик по кнопке BG.",
         enabled: "Главный выключатель: убирает весь фон и эффекты (получается обычный VS Code), но все настройки сохраняются и вернутся при повторном включении. Горячая клавиша — Ctrl+Alt+0.",
         op_editor: "Насколько ярко фоновая картинка проступает за кодом редактора. Ниже — код читается легче, выше — фон заметнее.",
         op_side: "Насколько ярко проступает фон сайдбара (проводник, поиск и пр.).",
@@ -4153,6 +4823,9 @@
         screensaver: "Idle showcase: if you don’t touch the mouse or keyboard for the set number of minutes, a large clock, date and the active set name fade in over the editor on a dark accent background. Any action (mouse move, click, key) brings the editor back at once; the first key is swallowed so it won’t land in your text. Not shown while the window is minimized.",
         screensaver_min: "How many minutes without input before the showcase appears.",
         autotime_on: "Switch the set by time of day: the day set by day, the night set by night (day bounds set below). Doesn’t run in “random” mode; turning it on cancels the slideshow.",
+        sync: "Your look (set, effects, accents) moves to your other machines by itself via the built-in VS Code Settings Sync — nothing to copy. Paths, folders and your own library stay per machine. Needs Moon Core and the companion extension, and Settings Sync turned on in VS Code.",
+        img_look: "A ready-made picture look for all zones: “Soft” — slightly blurred and calmer, “Crisp” — brighter and more saturated, “Muted” — darker and nearly colorless, the best for reading code. Per-zone fine-tuning is in the full mode.",
+        hotkeys: "Ctrl+Alt+… hotkeys (sets, panel, reading mode, undo). Turn off if you don't use them: the combos stop being intercepted (matters for AltGr layouts), and their hints and reference disappear from the panel. Everything stays reachable by mouse: panel header buttons, scroll and right-click on the BG button.",
         enabled: "Master switch: removes all background and effects (plain VS Code), but every setting is kept and returns when you switch it back on. Hotkey — Ctrl+Alt+0.",
         op_editor: "How brightly the background image shows through behind editor code. Lower — code reads easier, higher — the background is more visible.",
         op_side: "How brightly the sidebar background shows through (explorer, search, etc.).",
@@ -4307,18 +4980,46 @@
         _infoPop = pop; _infoAnchor = anchor;
         setTimeout(function () { document.addEventListener("mousedown", _infoOutside, true); }, 0);
     }
-    // Кружок «?» рядом с настройкой. null, если текста нет (тогда просто ничего не добавляем).
-    // Текст переводится в одной точке (infoText) — и подсказки контролов, и подписи секций.
+    // Пояснение к настройке. Раньше это был кружок «?» у каждой строки — десятки значков в панели.
+    // Теперь — невидимая метка: пояснение всплывает при наведении на саму строку (с короткой
+    // задержкой) или при фокусе с клавиатуры. Подключает wireInfoHovers, когда панель собрана.
+    // null, если текста нет (тогда вызывающий ничего не добавляет).
     function infoDot(text) {
         if (!text) return null;
-        text = infoText(text);
-        var d = el("span",
-            "flex:0 0 auto; width:15px; height:15px; line-height:15px; text-align:center; border-radius:50%;" +
-            "font-size:10px; font-weight:700; cursor:help; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.16);" +
-            "border:1px solid rgba(var(--mlbg-accent-rgb),0.4); user-select:none;", "?");
-        d.addEventListener("click", function (e) { e.stopPropagation(); e.preventDefault(); showInfo(d, text); });
-        keyActivate(d, t("Пояснение"));
+        var d = el("span", "display:none;");
+        d.className = "mlp-i";
+        d._info = infoText(text); // перевод подписи — в одной точке (infoText)
         return d;
+    }
+    // Доступность: у поля без подписи (цвет, имя набора, seed, код образа) скринридер слышал
+    // только «поле ввода». Даём имя из подписи строки (первый span) или из placeholder.
+    function labelInputs(root) {
+        var list = root.querySelectorAll ? root.querySelectorAll("input, select, textarea") : [];
+        for (var i = 0; i < list.length; i++) {
+            var n = list[i];
+            if (n.getAttribute("aria-label") || (n.closest && n.closest("label"))) continue;
+            var row = n.parentNode, lab = row && row.querySelector ? row.querySelector("span") : null;
+            var name = (lab && lab.textContent || "").trim() || n.getAttribute("placeholder") || "";
+            if (n.type === "color" && name) name += " — " + t("цвет");
+            if (name) n.setAttribute("aria-label", name);
+        }
+    }
+    // Навесить всплывающие пояснения на строки с меткой .mlp-i внутри root.
+    function wireInfoHovers(root) {
+        var marks = root.querySelectorAll ? root.querySelectorAll(".mlp-i") : [];
+        for (var i = 0; i < marks.length; i++) (function (m) {
+            var host = m.parentNode; if (!host || host._infoWired) return;
+            host._infoWired = true;
+            host.classList.add("mlp-has-i");
+            var timer = 0;
+            function show() { if (timer) clearTimeout(timer); timer = setTimeout(function () { timer = 0; if (_infoAnchor !== host) showInfo(host, m._info); }, 650); }
+            function hide() { if (timer) { clearTimeout(timer); timer = 0; } if (_infoAnchor === host) hideInfo(); }
+            host.addEventListener("mouseenter", show);
+            host.addEventListener("mouseleave", hide);
+            host.addEventListener("focusin", show);
+            host.addEventListener("focusout", hide);
+            try { host.setAttribute("aria-description", m._info); } catch (e) {}
+        })(marks[i]);
     }
 
     // ===================== src/ui/controls.js =====================
@@ -4333,7 +5034,7 @@
     // Тумблеры и слайдеры панели различались только источником cfg и колбэком, а разметка/
     // стиль/hover/«?» повторялись в каждом. Свели к двум фабрикам: makeToggle и makeSlider.
 
-    // Строка-тумблер: hover-подсветка + чекбокс + подпись + «?».
+    // Строка-тумблер: hover-подсветка + чекбокс + подпись + пояснение (всплывает при наведении).
     // get() -> текущее булево; onChange(checked) -> применить изменение.
     function makeToggle(get, onChange, label, info) {
         var row = el("label", ST.toggleRow);
@@ -4347,7 +5048,7 @@
         return row;
     }
 
-    // Слайдер: метка + ползунок + значение + «?». opts:
+    // Слайдер: метка + ползунок + значение + пояснение. opts:
     //   label, min, max, step, dec (знаков после запятой), get()->число, onInput(v)->записать,
     //   info, labelW (ширина метки, 92), valW (ширина значения, 34), ellipsis (обрезать метку, true),
     //   def (значение по умолчанию для сброса двойным кликом; число ИЛИ функция ()->число для
@@ -4376,7 +5077,12 @@
         }
         // Отражает состояние «изменено»: цвет значения + видимость кнопки сброса. Сравнение
         // с допуском (float), чтобы 0.32 против 0.32 не считалось изменением из-за представления.
+        // Заливка трека до значения (CSS читает --p, см. panel-css.js).
+        function fill() {
+            try { var mn = Number(opts.min), mx = Number(opts.max), v = Number(sl.value); sl.style.setProperty("--p", (mx > mn ? (v - mn) / (mx - mn) * 100 : 0) + "%"); } catch (e) {}
+        }
         function syncChanged() {
+            fill();
             if (!reset) return;
             var changed = Math.abs(Number(opts.get()) - Number(defVal())) > 1e-9;
             reset.hidden = !changed;
@@ -4441,20 +5147,22 @@
     // не аппендим — отдаём открепленный body, чтобы .appendChild вызывающих был безвреден. В режиме
     // «Настроить» скрытая секция показывается ПРИГЛУШЁННОЙ с кнопкой «показать» — чтобы скрытие было
     // обратимым прямо на месте (а не только через менеджер). Сам менеджер «Настройка меню» скрыть нельзя.
-    function collapsible(parent, title, info) {
+    // rule (необязателен) — {num, on}: номер правила по старшинству и включено ли оно (вкладка
+    // «Авто-смена»); показываются в заголовке секции.
+    function collapsible(parent, title, info, rule) {
         try { if (typeof panelAllSections !== "undefined" && panelAllSections && panelAllSections.push) panelAllSections.push({ title: title, label: t(title), parent: parent }); } catch (e) {}
         var canHide = title !== "Настройка меню";
         var editing = (typeof panelEditMenu !== "undefined" && panelEditMenu);
         var isHidden = !!(canHide && cfg.ui && cfg.ui.hidden && cfg.ui.hidden[title]);
         if (isHidden && !editing) return el("div", null); // скрыта и не настраиваем — не строим
         var collapsed = !!(cfg.ui.collapsed && cfg.ui.collapsed[title]);
-        var wrap = el("div", "margin-top:8px;");
-        if (isHidden) wrap.style.opacity = "0.55"; // «скрыто, но показано для настройки»
-        var head = el("div", "display:flex; align-items:center; gap:7px; padding:5px 7px; cursor:pointer; border-radius:7px; background:rgba(var(--mlbg-accent-rgb),0.08);");
-        var chev = el("span", "flex:0 0 auto; width:10px; text-align:center; color:var(--mlbg-accent); font-size:9px; transition:transform 0.15s;", "▶");
-        chev.style.transform = collapsed ? "rotate(0deg)" : "rotate(90deg)";
+        var wrap = el("div", null); wrap.className = "mlp-sec" + (collapsed ? "" : " open") + (isHidden ? " hid" : ""); // hid — «скрыто, но показано для настройки»
+        var head = el("div", null); head.className = "mlp-sec-h";
+        var chev = el("span", null, "▶"); chev.className = "mlp-chev";
         head.appendChild(chev);
-        head.appendChild(el("div", "flex:1 1 auto; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--mlp-head,#bac2de);", t(title)));
+        if (rule && rule.num) { var rn = el("span", null, String(rule.num)); rn.className = "mlp-rule-n" + (rule.on ? " on" : ""); head.appendChild(rn); }
+        var ttl = el("div", null, t(title)); ttl.className = "mlp-sec-t"; head.appendChild(ttl);
+        if (rule) { var rs = el("span", null, rule.on ? t("вкл") : t("выкл")); rs.className = "mlp-rule-s" + (rule.on ? " on" : ""); head.appendChild(rs); }
         var idot = infoDot(info); if (idot) head.appendChild(idot); // перевод подписи секции — внутри infoDot (infoText)
         // Режим «Настроить»: звезда «в избранное» + обратимая кнопка «скрыть/показать» в шапке.
         if (canHide && editing) {
@@ -4483,18 +5191,16 @@
             keyActivate(hideB, (isHidden ? t("Показать секцию") : t("Скрыть секцию")) + ": " + t(title));
             head.appendChild(hideB);
         }
-        var body = el("div", "padding:6px 3px 2px;");
+        var body = el("div", null); body.className = "mlp-sec-b";
         body.style.display = collapsed ? "none" : "block";
         // Единая смена состояния секции (используется и кликом, и разворотом из поиска по панели).
         function setOpen(show) {
             body.style.display = show ? "block" : "none";
-            chev.style.transform = show ? "rotate(90deg)" : "rotate(0deg)";
+            wrap.classList.toggle("open", !!show);
             head.setAttribute("aria-expanded", show ? "true" : "false");
             if (!cfg.ui.collapsed) cfg.ui.collapsed = {};
             cfg.ui.collapsed[title] = !show; saveCfg();
         }
-        head.addEventListener("mouseenter", function () { head.style.background = "rgba(var(--mlbg-accent-rgb),0.16)"; });
-        head.addEventListener("mouseleave", function () { head.style.background = "rgba(var(--mlbg-accent-rgb),0.08)"; });
         head.addEventListener("click", function () { setOpen(body.style.display === "none"); });
         keyActivate(head, t(title));
         head.setAttribute("aria-expanded", collapsed ? "false" : "true");
@@ -4560,85 +5266,88 @@
             if (!u) return;                       // у зоны нет картинки по замыслу набора — проверять нечего
             onImage(u, function (st) {
                 if (st.ok || st.none) return;
-                chip.style.border = "1px solid #f38ba8";
-                chip.style.boxShadow = "inset 0 0 0 1px rgba(243,139,168,0.55)";
+                chip.style.borderColor = "#f38ba8";
                 chip.title = t("Не грузится: ") + setImage(idx, zone);
-                var b = chip.querySelector(".mlbg-bad"); if (!b) { b = el("span", "position:absolute; top:1px; left:3px; color:#f38ba8; font-weight:700;", "!"); b.className = "mlbg-bad"; chip.appendChild(b); }
+                var b = chip.querySelector(".mlbg-bad"); if (!b) { b = el("span", "position:absolute; top:2px; left:4px; z-index:3; color:#f38ba8; font-weight:700; text-shadow:0 1px 3px rgba(0,0,0,0.9);", "!"); b.className = "mlbg-bad"; chip.appendChild(b); }
             });
         });
     }
 
-    // чип набора с превью-миниатюрой (мини-триптих зон)
+    // Превью набора в узле pv: три полосы зон (редактор 60% / сайдбар / панель). Генеративный
+    // набор — градиентом (нет картинок и 404-проверки), шейдерный — запасной палитрой, которой он
+    // рисуется без WebGL, процедурный — одной текстурой. Картинки — компактным data-URL из пробы
+    // (probeImage.thumb), а не полноразмерным JPEG: превью много, и пересобираются они часто.
+    // Нужна карточкам наборов, строке «сейчас работает» и быстрому меню у кнопки BG.
+    // Возвращает true, если у набора настоящие картинки (их имеет смысл проверять на 404).
+    function paintSetPreview(pv, idx) {
+        var grad = isGradSet(idx), proc = isProcSet(idx);
+        var shader = (typeof isShaderSet === "function") && isShaderSet(idx);
+        var procCss = proc ? (function () { var u = procTexture(idx); return u ? cssUrl(u) + " center / cover no-repeat" : procFallback(idx, "editor"); })() : null;
+        var ZK = ["editor", "sidebar", "panel"], W = [[0, 60], [60, 20], [80, 20]];
+        function paintZone(node, zone) {
+            var url = zoneUrl(idx, zone);
+            node.style.background = "rgba(var(--mlbg-accent-rgb),0.14)";
+            node.style.backgroundPosition = "center"; node.style.backgroundSize = "cover";
+            onImage(url, function (st) { if (st && st.thumb) node.style.backgroundImage = cssUrl(st.thumb); });
+        }
+        if (!pv.style.position) pv.style.position = "relative";
+        pv.style.overflow = "hidden";
+        for (var zi = 0; zi < 3; zi++) {
+            var strip = el("div",
+                "position:absolute; top:0; bottom:0; left:" + W[zi][0] + "%; width:" + W[zi][1] + "%;" +
+                "background-position:center; background-size:cover;" +
+                (zi ? "box-shadow:inset 1px 0 0 rgba(0,0,0,0.35);" : ""));
+            if (proc) strip.style.background = procCss;
+            else if (grad) strip.style.background = gradFor(idx, ZK[zi]);
+            else if (shader) strip.style.background = shaderBg(idx, ZK[zi]);
+            else paintZone(strip, ZK[zi]);
+            pv.appendChild(strip);
+        }
+        return !grad && !proc && !shader;
+    }
+    function isFavSet(idx) { return !!(cfg.ui.favSets && cfg.ui.favSets[String(idx)]); }
+
+    // Карточка набора: превью + номер и имя под ним + звёздочка «любимый» в углу превью.
+    // label — номер набора (или подпись для «случайно»); вид — panel-css.js (.mlp-set).
     function makeChip(mode, label) {
         var active = cfg.mode === mode, isSet = mode !== "random";
-        var css = isSet
-            ? "position:relative; width:48px; height:32px; border-radius:7px; overflow:hidden; cursor:pointer;" +
-              "background-position:center; background-size:cover;" +
-              "border:2px solid " + (active ? "var(--mlbg-accent)" : "var(--mlp-border-soft,rgba(205,214,244,0.16))") + ";" +
-              (active ? "box-shadow:0 0 0 2px rgba(var(--mlbg-accent-rgb),0.35);" : "")
-            : "min-width:24px; padding:4px 10px; border-radius:7px; cursor:pointer; user-select:none; text-align:center;" +
-              "font-weight:" + (active ? "600" : "400") + ";" +
-              "border:1px solid " + (active ? "var(--mlbg-accent)" : "var(--mlp-border-soft,rgba(205,214,244,0.16))") + ";" +
-              "background:" + (active ? "rgba(var(--mlbg-accent-rgb),0.28)" : "transparent") + "; color:" + (active ? "#f2e6ff" : "var(--mlp-fg,#cdd6f4)") + ";";
-        var c = el("div", css, isSet ? null : label);
+        var c = el("div", null); c.className = "mlp-set" + (active ? " on" : "") + (isSet ? "" : " mlp-set-rand");
+        var pv = el("div", null); pv.className = "mlp-set-pv"; c.appendChild(pv);
+        var nmRow = el("div", null); nmRow.className = "mlp-set-nm"; c.appendChild(nmRow);
         if (isSet) {
             var idx = parseInt(mode, 10);
-            var s = SETS[idx];
-            // Мини-триптих: три вертикальные полоски с превью зон (редактор / сайдбар / панель),
-            // чтобы собирать наборы на глаз. Полоски — фон chip как запасной вариант (editor).
-            // Генеративный набор — рисуем полоски градиентом (нет картинок и 404-проверки).
-            var grad = isGradSet(idx), proc = isProcSet(idx);
-            // Шейдерный набор: картинок нет, кадр считает GPU. На чипе показываем ту же запасную
-            // палитру, которой набор рисуется без WebGL, — так плитка выглядит как набор, а не
-            // как «сломанная картинка».
-            var shader = (typeof isShaderSet === "function") && isShaderSet(idx);
-            // Процедурный набор: одна текстура на все зоны — красим ей и чип, и полоски (или
-            // запасным градиентом, если текстуру не удалось нарисовать).
-            var procCss = proc ? (function () { var u = procTexture(idx); return u ? cssUrl(u) + " center / cover no-repeat" : procFallback(idx, "editor"); })() : null;
-            var ZK = ["editor", "sidebar", "panel"];
-            // Чип 48×32 не должен держать полноразмерный JPEG фоновым слоем (100–250 КБ × зоны ×
-            // наборы = мегабайты, и всё заново при каждой пересборке панели). Кладём акцентный
-            // плейсхолдер, а как только проба картинки готова — подставляем компактный data-URL
-            // из probeImage.thumb (второй загрузки нет). Сетевая/битая картинка -> остаётся плейсхолдер.
-            function paintZone(node, zone) {
-                var url = zoneUrl(idx, zone);
-                node.style.background = "rgba(var(--mlbg-accent-rgb),0.14)";
-                node.style.backgroundPosition = "center"; node.style.backgroundSize = "cover";
-                onImage(url, function (st) { if (st && st.thumb) node.style.backgroundImage = cssUrl(st.thumb); });
-            }
-            if (proc) c.style.background = procCss;
-            else if (grad) c.style.background = gradFor(idx, "editor");
-            else if (shader) c.style.background = shaderBg(idx, "editor");
-            else paintZone(c, "editor");
-            for (var zi = 0; zi < 3; zi++) {
-                var strip = el("div",
-                    "position:absolute; top:0; bottom:0; width:33.34%; left:" + (zi * 33.33) + "%;" +
-                    "background-position:center; background-size:cover;" +
-                    (zi ? "box-shadow:inset 1px 0 0 rgba(0,0,0,0.35);" : ""));
-                if (proc) strip.style.background = procCss;
-                else if (grad) strip.style.background = gradFor(idx, ZK[zi]);
-                else if (shader) strip.style.background = shaderBg(idx, ZK[zi]);
-                else paintZone(strip, ZK[zi]);
-                c.appendChild(strip);
-            }
-            var num = el("span", "position:absolute; right:3px; bottom:1px; z-index:2; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.95);", label);
-            c.appendChild(num);
-            var nm = setName(idx); if (nm) c.title = idx + " · " + nm + t(" (редактор · сайдбар · панель)");
-            if (!grad && !proc && !shader) probeSet(idx, c);
+            var real = paintSetPreview(pv, idx);
+            var nm = setName(idx);
+            var no = el("span", null, label); no.className = "mlp-set-no"; nmRow.appendChild(no);
+            nmRow.appendChild(el("span", null, nm || t("Набор ") + label));
+            c.title = idx + (nm ? " · " + nm : "") + t(" (редактор · сайдбар · панель)");
+            // Звёздочка: любимые наборы попадают в быстрое меню у кнопки BG и в фильтр «только любимые».
+            var fav = isFavSet(idx);
+            var star = el("span", null, fav ? "\u2605" : "\u2606"); star.className = "mlp-set-star" + (fav ? " on" : "");
+            star.title = fav ? t("Убрать из любимых") : t("В любимые");
+            star.addEventListener("click", function (e) {
+                e.stopPropagation(); e.preventDefault();
+                if (!cfg.ui.favSets) cfg.ui.favSets = {};
+                if (fav) delete cfg.ui.favSets[String(idx)]; else cfg.ui.favSets[String(idx)] = true;
+                saveCfg(); try { refreshPanel(); } catch (er) {}
+            });
+            keyActivate(star, (fav ? t("Убрать из любимых") : t("В любимые")) + ": " + (nm || label));
+            pv.appendChild(star);
+            if (real) probeSet(idx, c);
             if (!active) {
-                // Превью набора и по мыши (mouseenter/leave), и с клавиатуры (focus/blur) —
-                // паритет доступности: пользователь, идущий по чипам с Tab, тоже «примеряет»
-                // набор, а не выбирает вслепую. previewSet дебаунсит, previewEnd мягко возвращает.
-                var hoverOn = function () { c.style.borderColor = "rgba(var(--mlbg-accent-rgb),0.6)"; previewSet(idx); };
-                var hoverOff = function () { c.style.borderColor = "var(--mlp-border-soft,rgba(205,214,244,0.16))"; previewEnd(); };
+                // Превью набора и по мыши, и с клавиатуры (focus/blur): идущий по карточкам с Tab
+                // тоже «примеряет» набор. previewSet дебаунсит, previewEnd мягко возвращает.
+                var hoverOn = function () { previewSet(idx); };
+                var hoverOff = function () { previewEnd(); };
                 c.addEventListener("mouseenter", hoverOn);
                 c.addEventListener("mouseleave", hoverOff);
                 c.addEventListener("focus", hoverOn);
                 c.addEventListener("blur", hoverOff);
             }
-        } else if (!active) {
-            c.addEventListener("mouseenter", function () { c.style.background = "rgba(var(--mlbg-accent-rgb),0.14)"; });
-            c.addEventListener("mouseleave", function () { c.style.background = "transparent"; });
+        } else {
+            var ic = uiIcon("dice", 36); if (ic) pv.appendChild(ic);
+            nmRow.appendChild(el("span", null, t(label)));
+            c.title = t("Новый набор при каждом запуске");
         }
         c.addEventListener("click", function () {
             previewCancel(); // фиксируем выбор: mouseleave после клика не откатит фон обратно
@@ -4655,6 +5364,106 @@
         keyActivate(c, isSet ? (t("Набор ") + label + (setName(parseInt(mode, 10)) ? " — " + setName(parseInt(mode, 10)) : "")) : t("Случайный набор"));
         c.setAttribute("aria-pressed", active ? "true" : "false"); // какой набор выбран — для скринридера
         return c;
+    }
+
+    // Своя картинка -> фон АКТИВНОГО набора во всех трёх зонах (зоны сами показывают разные части:
+    // редактор — центр, сайдбар и панель — низ). Акцент набора сбрасывается: пока его не
+    // поменяют руками, он берётся из этой картинки (getAccent). Отменяется кнопкой «Отменить».
+    function setUserImage(url) {
+        if (!url || !imgAllowed(url)) { toast(t("Эту картинку нельзя загрузить (сетевые картинки выключены)"), false); return; }
+        var idx = activeIndex();
+        if (cfg.mode === "random") cfg.mode = String(idx); // иначе при следующем запуске набор сменится
+        if (!cfg.setImg) cfg.setImg = {};
+        cfg.setImg[idx] = { editor: url, sidebar: url, panel: url };
+        if (cfg.setAccent) delete cfg.setAccent[idx];
+        if (cfg.setPos) delete cfg.setPos[idx];
+        applyFade(); refreshPanel();
+        toast(t("Картинка стала фоном набора ") + idx + t(". Отменить — стрелка в шапке панели."));
+        // Одна картинка на три зоны: сайдбару и панели — самые тёмные участки кадра (по карте
+        // яркости 8x8), там текст списков и терминала читается лучше. Редактор — центр.
+        onImage(imgUrl(url), function (st) {
+            var pos = smartZonePos(st && st.grid);
+            if (!pos || !cfg.setImg[idx] || cfg.setImg[idx].editor !== url) return;
+            if (!cfg.setPos) cfg.setPos = {};
+            cfg.setPos[idx] = { sidebar: pos.sidebar, panel: pos.panel };
+            apply();
+        });
+    }
+    // Позиции для сайдбара (вертикальная полоса) и панели (горизонтальная полоса) по карте
+    // яркости 8x8: берём самую тёмную полосу. null — карты нет.
+    function smartZonePos(grid) {
+        if (!grid || grid.length !== 64) return null;
+        var bestC = 0, bestR = 7, minC = 9, minR = 9, c, r;
+        for (c = 0; c < 8; c++) { var sc = 0; for (r = 0; r < 8; r++) sc += grid[r * 8 + c]; if (sc < minC) { minC = sc; bestC = c; } }
+        for (r = 0; r < 8; r++) { var sr = 0; for (c = 0; c < 8; c++) sr += grid[r * 8 + c]; if (sr < minR) { minR = sr; bestR = r; } }
+        var pct = function (i) { return Math.round(i / 7 * 100) + "%"; };
+        return { sidebar: pct(bestC) + " 50%", panel: "50% " + pct(bestR) };
+    }
+    // Адрес картинки из перетаскивания: проводник VS Code кладёт file:///-адрес в text/uri-list
+    // (или в text/plain). Файлы с рабочего стола адреса не несут — тогда null.
+    function droppedImageUrl(dt) {
+        if (!dt) return null;
+        var raw = "";
+        try { raw = dt.getData("text/uri-list") || dt.getData("text/plain") || ""; } catch (e) {}
+        var lines = raw.split(/\r?\n/);
+        for (var i = 0; i < lines.length; i++) {
+            var u = lines[i].trim();
+            if (/^(?:file|vscode-file):\/\/.+\.(png|jpe?g|webp|gif|avif|bmp)$/i.test(u)) return u;
+        }
+        return null;
+    }
+    // Кнопки «Своя картинка…» и «Папка картинок…»: обычный диалог выбора файла показывает
+    // компаньон-расширение (скрипт в оболочке к диску доступа не имеет).
+    function makeOwnImageRow() {
+        var box = el("div", null);
+        var row = el("div", "display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;");
+        var pick = makeIoBtn("Своя картинка…");
+        pick.addEventListener("click", function () {
+            mlbgRpc("pickImage").then(function (r) { if (r && r.url) setUserImage(r.url); },
+                function (e) { toast(t("Не удалось открыть выбор файла: ") + e.message, false); });
+        });
+        var folder = makeIoBtn("Папка картинок…");
+        folder.addEventListener("click", function () {
+            mlbgRpc("pickFolder").then(function (r) {
+                if (!r || r.cancelled) return;
+                if (!r.images || !r.images.length) { toast(t("В папке нет картинок"), false); return; }
+                useFolder(r.dir, r.images);
+                toast(t("Папка «") + r.name + "»: " + r.images.length + t(" карт. — сменяются в редакторе по таймеру слайдшоу"));
+            }, function (e) { toast(t("Не удалось открыть выбор папки: ") + e.message, false); });
+        });
+        row.appendChild(pick); row.appendChild(folder);
+        box.appendChild(row);
+        var idx = activeIndex();
+        if (hasUserImg(idx, "editor") || cfg.libraryDir) {
+            var row2 = el("div", "display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;");
+            if (hasUserImg(idx, "editor")) {
+                var back = makeIoBtn("Вернуть картинки набора");
+                back.addEventListener("click", function () {
+                    if (cfg.setImg) delete cfg.setImg[idx];
+                    if (cfg.setPos) delete cfg.setPos[idx];
+                    applyFade(); refreshPanel();
+                });
+                row2.appendChild(back);
+            }
+            if (cfg.libraryDir) {
+                var off = makeIoBtn("Убрать папку");
+                off.title = cfg.libraryDir;
+                off.addEventListener("click", function () { cfg.libraryDir = ""; cfg.librarySlideshow = false; apply(); refreshPanel(); });
+                row2.appendChild(off);
+            }
+            box.appendChild(row2);
+        }
+        box.appendChild(el("div", "padding:6px 2px 0; font-size:11px; color:var(--mlp-faint);", t("Картинку можно и перетащить в панель из проводника VS Code.")));
+        return box;
+    }
+    // Папка как источник фона: её картинки крутятся в редакторе (механизм библиотеки), а при
+    // каждом запуске список перечитывается — новые файлы в папке подхватываются сами.
+    function useFolder(dir, images) {
+        cfg.libraryDir = String(dir || "").slice(0, 1024);
+        cfg.library = images.slice(0, 64);
+        cfg.librarySlideshow = true;
+        try { libraryReset(); } catch (e) {}
+        apply(); refreshPanel();
     }
 
     // Переименование АКТИВНОГО набора (cfg.setName[idx]). Имя уходит в textContent/title
@@ -4782,7 +5591,7 @@
         box.appendChild(row);
         var lib = Array.isArray(cfg.library) ? cfg.library : [];
         if (!lib.length) {
-            box.appendChild(el("div", "padding:6px 3px 2px; color:var(--mlp-faint,#6c7086); font-size:11px;", t("Список пуст — добавь пути к своим картинкам.")));
+            box.appendChild(emptyState("Список пуст — выбери «Папку картинок…» в секции «Набор» или добавь пути к картинкам."));
         } else {
             var list = el("div", "display:flex; flex-direction:column; gap:4px; margin-top:6px;");
             lib.forEach(function (u, i) {
@@ -4883,21 +5692,13 @@
     }
     // Режим границ дня для авто-набора по времени: по фиксированным часам или по рассвету/закату.
     function makeAutoTimeMode() {
-        var wrap = el("div", ST.row);
-        wrap.appendChild(el("span", mutedLabel(92), t("Границы дня")));
-        var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
-        var cur = (cfg.autoTime && cfg.autoTime.mode === "sun") ? "sun" : "hours";
-        [["hours", "По часам"], ["sun", "Рассвет/закат"]].forEach(function (o) {
-            var op = el("option", null, t(o[1])); op.value = o[0]; if (o[0] === cur) op.selected = true; sel.appendChild(op);
-        });
-        sel.addEventListener("change", function () {
-            if (!cfg.autoTime) cfg.autoTime = clone(DEFAULTS.autoTime);
-            cfg.autoTime.mode = (sel.value === "sun") ? "sun" : "hours";
-            apply(); if (cfg.autoTime.on) { try { timeTick(); } catch (e) {} } refreshPanel();
-        });
-        wrap.appendChild(sel);
-        var d = infoDot(INFO.autotime_mode); if (d) wrap.appendChild(d);
-        return wrap;
+        return makeSeg("Границы дня", [["hours", "По часам"], ["sun", "Рассвет/закат"]],
+            function () { return (cfg.autoTime && cfg.autoTime.mode === "sun") ? "sun" : "hours"; },
+            function (v) {
+                if (!cfg.autoTime) cfg.autoTime = clone(DEFAULTS.autoTime);
+                cfg.autoTime.mode = (v === "sun") ? "sun" : "hours";
+                apply(); if (cfg.autoTime.on) { try { timeTick(); } catch (e) {} } refreshPanel();
+            }, INFO.autotime_mode);
     }
 
     // ===== Свой GLSL для шейдерного набора =====
@@ -5049,6 +5850,126 @@
             def: DEFAULTS.baseOp[key]
         });
     }
+    // Пресеты фильтров картинки — одним выбором для всех зон: «Как есть / Мягко / Чётко /
+    // Приглушённо». Ползунки по зонам (полный режим) остаются для тонкой правки.
+    var IMG_LOOKS = {
+        none:  { brightness: 1.0,  saturate: 1.0,  blur: 0 },
+        soft:  { brightness: 0.95, saturate: 0.85, blur: 2 },
+        crisp: { brightness: 1.05, saturate: 1.15, blur: 0 },
+        muted: { brightness: 0.8,  saturate: 0.6,  blur: 1 }
+    };
+    function currentImgLook() {
+        var e = cfg.imgfx && cfg.imgfx.editor; if (!e) return "";
+        for (var k in IMG_LOOKS) {
+            var L = IMG_LOOKS[k], same = true;
+            ["editor", "side", "panel"].forEach(function (z) {
+                var f = cfg.imgfx[z]; if (!f || Math.abs(f.brightness - L.brightness) > 1e-6 || Math.abs(f.saturate - L.saturate) > 1e-6 || Math.abs(f.blur - L.blur) > 1e-6) same = false;
+            });
+            if (same) return k;
+        }
+        return "";
+    }
+    function makeImgLook() {
+        return makeSeg("Картинка", [["none", "Как есть"], ["soft", "Мягко"], ["crisp", "Чётко"], ["muted", "Приглушённо"]],
+            currentImgLook, function (v) {
+                var L = IMG_LOOKS[v]; if (!L) return;
+                if (!cfg.imgfx) cfg.imgfx = clone(DEFAULTS.imgfx);
+                ["editor", "side", "panel"].forEach(function (z) { cfg.imgfx[z] = { brightness: L.brightness, saturate: L.saturate, blur: L.blur }; });
+                apply(); if (!panelSimple()) refreshPanel(); // ползунки по зонам — пересинхронизировать
+            }, INFO.img_look);
+    }
+
+    // Одна «Яркость фона»: ползунок двигает все три зоны на одну и ту же величину (разница между
+    // зонами сохраняется). «По зонам» раскрывает прежние три ползунка — для тонкой настройки.
+    var _opZonesOpen = false;
+    function makeOpMaster() {
+        var box = el("div", null);
+        var zones = el("div", null); zones.hidden = !_opZonesOpen;
+        var zoneSliders = [];
+        var master = makeSlider({
+            label: "Яркость фона", min: 0, max: 0.6, step: 0.01, dec: 2, labelW: 132,
+            get: function () { return getOp().editor; },
+            onInput: function (v) {
+                var o = getOp(), d = v - o.editor;
+                setOpValue("editor", v);
+                setOpValue("side", Math.max(0, Math.min(0.6, Math.round((o.side + d) * 100) / 100)));
+                setOpValue("panel", Math.max(0, Math.min(0.6, Math.round((o.panel + d) * 100) / 100)));
+                zoneSliders.forEach(function (s) { try { s._refresh(); } catch (e) {} });
+            },
+            info: INFO.op_editor, def: DEFAULTS.baseOp.editor
+        });
+        box.appendChild(master);
+        [["editor", "Редактор"], ["side", "Сайдбар"], ["panel", "Панель"]].forEach(function (o) {
+            var s = makeOpSlider(o[0], o[1]); zoneSliders.push(s); zones.appendChild(s);
+        });
+        var tg = el("div", "display:inline-block; margin:2px 2px 4px; font-size:11px; cursor:pointer; color:var(--mlbg-accent);", (_opZonesOpen ? "\u25BE " : "\u25B8 ") + t("по зонам"));
+        tg.addEventListener("click", function () {
+            _opZonesOpen = !_opZonesOpen; zones.hidden = !_opZonesOpen;
+            tg.textContent = (_opZonesOpen ? "\u25BE " : "\u25B8 ") + t("по зонам");
+            try { master._refresh(); } catch (e) {}
+        });
+        keyActivate(tg, t("Яркость по зонам"));
+        box.appendChild(tg); box.appendChild(zones);
+        // Правка отдельной зоны — пересинхронизировать общий ползунок (он показывает редактор).
+        zones.addEventListener("input", function () { try { master._refresh(); } catch (e) {} });
+        return box;
+    }
+
+    // Точка фокуса: клик по превью картинки — какая её часть видна в зоне (background-position).
+    // Понятнее ползунков «X/Y». Своя для каждой зоны набора; «по центру» — сброс.
+    var _focusZone = "editor";
+    function makeFocusPoint() {
+        var box = el("div", null);
+        var idx = activeIndex();
+        if (isGrad(idx, "editor") && isGrad(idx, "sidebar")) return box; // градиент — точки нет
+        box.appendChild(el("div", "margin:10px 2px 4px; font-size:11px; font-weight:700; color:var(--mlp-head);", t("Точка фокуса")));
+        var zsel = makeSeg("", [["editor", "Редактор"], ["sidebar", "Сайдбар"], ["panel", "Панель"]],
+            function () { return _focusZone; }, function (v) { _focusZone = v; paint(); });
+        box.appendChild(zsel);
+        var pv = el("div", null); pv.className = "mlp-focus";
+        var dot = el("span", null); dot.className = "mlp-focus-dot"; pv.appendChild(dot);
+        var hint = el("div", "padding:4px 2px 0; font-size:11px; color:var(--mlp-faint);", t("Кликни по картинке — эта точка останется в кадре."));
+        function cur() { return setPosFor(idx, _focusZone) || (_focusZone === "editor" ? "50% 50%" : (_focusZone === "sidebar" ? "50% 100%" : "100% 100%")); }
+        function paint() {
+            // Сама картинка (или её уменьшенная копия), а не мини-превью 96x64 карточек — иначе
+            // растянутое превью было пиксельным. Рамка повторяет пропорции кадра (высота до 150px),
+            // поэтому клик по точке превью = та же точка картинки.
+            var u = zoneUrl(idx, _focusZone);
+            onImage(u, function (st) {
+                if (!st || !st.ok) { pv.style.backgroundImage = "none"; return; }
+                var src = st.small || u;
+                if (st.thumb) pv.style.backgroundImage = cssUrl(st.thumb); // пока грузится полная — хоть что-то
+                var im = new Image();
+                im.onload = function () {
+                    var k = im.naturalWidth && im.naturalHeight ? im.naturalWidth / im.naturalHeight : 1.6;
+                    pv.style.aspectRatio = String(k);
+                    pv.style.width = "min(100%, " + Math.round(150 * k) + "px)";
+                    pv.style.backgroundImage = cssUrl(src);
+                };
+                im.src = src;
+            });
+            var p = cur().split(" ");
+            // Точка у края (100%) не вылезает за рамку превью.
+            dot.style.left = "clamp(7px, " + p[0] + ", calc(100% - 7px))";
+            dot.style.top = "clamp(7px, " + p[1] + ", calc(100% - 7px))";
+        }
+        pv.addEventListener("click", function (e) {
+            var r = pv.getBoundingClientRect();
+            var x = Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * 100);
+            var y = Math.round(Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) * 100);
+            if (!cfg.setPos) cfg.setPos = {};
+            if (!cfg.setPos[idx]) cfg.setPos[idx] = {};
+            cfg.setPos[idx][_focusZone] = x + "% " + y + "%";
+            paint(); apply();
+        });
+        var reset = el("span", "margin-left:8px; cursor:pointer; color:var(--mlbg-accent);", t("по центру"));
+        reset.addEventListener("click", function () { if (cfg.setPos && cfg.setPos[idx]) delete cfg.setPos[idx][_focusZone]; paint(); apply(); });
+        keyActivate(reset, t("Сбросить точку фокуса"));
+        hint.appendChild(reset);
+        box.appendChild(pv); box.appendChild(hint);
+        paint();
+        return box;
+    }
     function makeAccentColor() {
         var wrap = el("div", ST.row);
         wrap.appendChild(el("span", mutedLabel(92), t("Акцент")));
@@ -5102,18 +6023,24 @@
     function makeAccentSafeUI() {
         var box = el("div", null);
         var head = el("div", ST.row);
-        head.appendChild(el("span", mutedLabel(92, true), t("Безопасные акценты")));
+        head.appendChild(el("span", mutedLabel(92, true), t("Палитры")));
         var d = infoDot(INFO.accent_safe); if (d) head.appendChild(d);
         box.appendChild(head);
-        var row = el("div", "display:flex; flex-wrap:wrap; gap:5px; padding:2px 3px 4px;");
-        CB_SAFE.forEach(function (hex) {
-            var sw = el("div", "width:20px; height:20px; border-radius:5px; cursor:pointer; background:" + hex + "; border:1px solid rgba(205,214,244,0.25);");
-            sw.title = hex;
-            sw.addEventListener("click", function () { setAccentValue(hex); apply(); refreshPanel(); });
-            keyActivate(sw, t("Акцент") + " " + hex);
-            row.appendChild(sw);
-        });
-        box.appendChild(row);
+        // Палитры акцента: из картинки набора (когда проба готова), Catppuccin и безопасные Окабэ-Ито.
+        var pick = function (hex) { setAccentValue(hex); apply(); refreshPanel(); };
+        var sw = makeSwatches([["Набор", []], ["Catppuccin", SWATCH_CATPPUCCIN], ["Безопасные", CB_SAFE]], getAccent(), pick);
+        box.appendChild(sw);
+        try {
+            if (!isGrad(activeIndex(), "editor")) {
+                onImage(zoneUrl(activeIndex(), "editor"), function (st) {
+                    if (!st || !st.ok) return;
+                    var cols = [].concat(st.accent ? [st.accent] : [], st.palette || []).map(function (c) { return accentForContrast(c, accentContrastRef(), 3); });
+                    if (!cols.length) return;
+                    var fresh = makeSwatches([["Набор", cols]], getAccent(), pick);
+                    if (fresh.firstChild && sw.parentNode) sw.insertBefore(fresh.firstChild, sw.firstChild);
+                });
+            }
+        } catch (e) {}
         // строка контраста: акцент против тёмной подложки набора
         var cr = 1; try { cr = contrastRatio(getAccent(), accentContrastRef()); } catch (e) {}
         var lvl = cr >= 7 ? "AAA" : cr >= 4.5 ? "AA" : cr >= 3 ? t("AA (крупный)") : t("низкий");
@@ -5330,9 +6257,9 @@
         var wrap = el("div", ST.row);
         wrap.appendChild(el("span", mutedLabel(56), t(label)));
         var ip = el("input", "flex:0 0 auto; width:34px; height:22px; padding:0; border:1px solid var(--mlp-border,rgba(205,214,244,0.2)); border-radius:6px; background:transparent; cursor:pointer;");
-        ip.type = "color"; ip.value = cfg.term[key];
+        ip.type = "color"; ip.value = effTermColor(key); // пока не меняли — акцент набора
         var hex = el("input", "flex:1 1 auto; min-width:0; background:transparent; border:none; padding:0; color:var(--mlp-faint,#6c7086); font-size:11px; font-family:inherit;");
-        hex.type = "text"; hex.value = cfg.term[key]; hex.maxLength = 7; hex.setAttribute("aria-label", t(label) + " HEX");
+        hex.type = "text"; hex.value = effTermColor(key); hex.maxLength = 7; hex.setAttribute("aria-label", t(label) + " HEX");
         ip.addEventListener("input", function () { cfg.term[key] = ip.value; hex.value = ip.value; applyThrottledLive(); });
         ip.addEventListener("change", function () { try { saveCfg(); } catch (e) {} });
         function commitTermHex() {
@@ -5344,7 +6271,15 @@
         hex.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commitTermHex(); hex.blur(); } });
         wrap.appendChild(ip); wrap.appendChild(hex);
         var d = infoDot(INFO["term_" + key]); if (d) wrap.appendChild(d);
-        return wrap;
+        // Образцы: акцент набора + Catppuccin. Выделению нужна полупрозрачность, но hex её не
+        // хранит — поэтому для него те же цвета, а читаемость даёт сам терминал.
+        var box = el("div", null);
+        box.appendChild(wrap);
+        box.appendChild(makeSwatches([["", [getAccent()].concat(SWATCH_CATPPUCCIN)]], cfg.term[key], function (v) {
+            cfg.term[key] = v; ip.value = v; hex.value = v; apply();
+            try { var rows = box.querySelectorAll(".mlp-sw"); for (var i = 0; i < rows.length; i++) rows[i].classList.toggle("on", rows[i].title.toLowerCase() === v.toLowerCase()); } catch (e) {}
+        }));
+        return box;
     }
 
     // Поле «Папка плагина» (cfg.imgBase): база для относительных путей картинок набора.
@@ -5386,16 +6321,9 @@
     // Селект «Авто / Русский / English». Смена перестраивает панель (refreshPanel), чтобы все
     // подписи сразу перерисовались на новом языке. «Авто» — по языку интерфейса VS Code (uiLang).
     function makeLangSelect() {
-        var wrap = el("div", ST.row);
-        wrap.appendChild(el("span", mutedLabel(92), t("Язык панели")));
-        var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
-        var cur = safeLang(cfg.lang);
-        LANGS.forEach(function (o) {
-            var op = el("option", null, o[1]); op.value = o[0]; if (o[0] === cur) op.selected = true; sel.appendChild(op);
-        });
-        sel.addEventListener("change", function () { cfg.lang = safeLang(sel.value); saveCfg(); try { updateLabel(); } catch (e) {} refreshPanel(); });
-        wrap.appendChild(sel);
-        return wrap;
+        return makeSeg("Язык панели", LANGS,
+            function () { return safeLang(cfg.lang); },
+            function (v) { cfg.lang = safeLang(v); saveCfg(); try { updateLabel(); } catch (e) {} refreshPanel(); });
     }
 
 
@@ -5405,7 +6333,7 @@
     // которые кладут в буфер ровно тот кусок настроек, который нужно вставить.
     function makeLoaderUI() {
         var box = el("div", "padding:2px 4px;");
-        var ld = { id: "custom-css", title: "Custom CSS and JS (be5invis)", sure: false, version: "" };
+        var ld = { id: "custom-css", title: "Custom CSS and JS", sure: false, version: "" };
         try { ld = loaderKind(); } catch (e) {}
         var ready = false;
         try { ready = trueGlassReady(); } catch (e) {}
@@ -5429,7 +6357,9 @@
             try { ok = copyText(trueGlassSnippet()); } catch (e) {}
             toast(ok ? t("Скопировано в буфер — вставь в settings.json и перезапусти редактор") : t("Не удалось скопировать"));
         });
-        btns.appendChild(b1); btns.appendChild(b2);
+        // Через Moon Core импорт в settings.json не нужен: модуль встраивает ядро.
+        if (ld.id !== "moon-core") btns.appendChild(b1);
+        btns.appendChild(b2);
         box.appendChild(info); box.appendChild(glass); box.appendChild(btns);
         return box;
     }
@@ -5437,15 +6367,14 @@
     // ==== Мастер-выключатель фона и эффектов (cfg.enabled) ====
     // Заметный тумблер вверху панели: выкл — «ванильный» VS Code, настройки сохранены.
     function makeMasterToggle() {
-        var row = el("label",
-            "display:flex; align-items:center; gap:8px; padding:8px 10px; margin:2px 2px 4px; border-radius:8px; cursor:pointer;" +
-            "background:rgba(var(--mlbg-accent-rgb),0.12); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);");
-        var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer; transform:scale(1.15);");
-        cb.type = "checkbox"; cb.checked = cfg.enabled !== false;
-        var txt = el("span", "flex:1 1 auto; font-weight:700; letter-spacing:0.2px;", cfg.enabled !== false ? t("Фон и эффекты включены") : t("Фон и эффекты выключены"));
+        var on = cfg.enabled !== false;
+        var row = el("label", null); row.className = "mlp-master" + (on ? "" : " off");
+        var cb = el("input", null); cb.type = "checkbox"; cb.checked = on;
+        var txt = el("span", null, on ? t("Фон и эффекты включены") : t("Фон и эффекты выключены"));
         cb.addEventListener("change", function () {
             cfg.enabled = cb.checked;
             txt.textContent = cb.checked ? t("Фон и эффекты включены") : t("Фон и эффекты выключены");
+            row.className = "mlp-master" + (cb.checked ? "" : " off");
             apply();
         });
         row.appendChild(cb); row.appendChild(txt);
@@ -5641,8 +6570,8 @@
         var uN = _histUndo.length, rN = _histRedo.length;
         var uB = makeIoBtn("↶ Отменить" + (uN ? " (" + uN + ")" : ""));
         var rB = makeIoBtn("↷ Повторить" + (rN ? " (" + rN + ")" : ""));
-        if (!canUndo()) { uB.style.opacity = "0.45"; uB.style.cursor = "default"; }
-        if (!canRedo()) { rB.style.opacity = "0.45"; rB.style.cursor = "default"; }
+        if (!canUndo()) uB.classList.add("off");
+        if (!canRedo()) rB.classList.add("off");
         uB.addEventListener("click", function () { undo(); });
         rB.addEventListener("click", function () { redo(); });
         row.appendChild(uB); row.appendChild(rB);
@@ -5651,9 +6580,7 @@
 
     // Кнопка экспорта/импорта (одинаковый вид, разный обработчик навешивается снаружи).
     function makeIoBtn(text) {
-        var b = el("div", "flex:1 1 0; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", t(text));
-        b.addEventListener("mouseenter", function () { b.style.background = "rgba(137,180,250,0.26)"; });
-        b.addEventListener("mouseleave", function () { b.style.background = "rgba(137,180,250,0.14)"; });
+        var b = el("div", null, t(text)); b.className = "mlp-btn"; // вид — panel-css.js (.mlp-btn)
         keyActivate(b, t(text));
         return b;
     }
@@ -5715,7 +6642,7 @@
         // список сохранённых пресетов: клик по строке — применить, «×» — удалить
         var presets = loadPresets(), names = Object.keys(presets);
         if (!names.length) {
-            box.appendChild(el("div", "padding:6px 3px 2px; color:var(--mlp-faint,#6c7086); font-size:11px;", t("Пресетов пока нет — сохрани текущий вид под именем.")));
+            box.appendChild(emptyState("Пресетов пока нет — сохрани текущий вид под именем."));
         } else {
             var list = el("div", "display:flex; flex-direction:column; gap:4px; margin-top:6px;");
             names.forEach(function (name) {
@@ -5902,27 +6829,54 @@
     // UTF-8-безопасный base64 (в именах наборов бывает кириллица — «сырой» btoa на ней падает).
     function b64enc(s) { try { return btoa(unescape(encodeURIComponent(s))); } catch (e) { return ""; } }
     function b64dec(s) { try { return decodeURIComponent(escape(atob(s))); } catch (e) { return ""; } }
-    function shareEncode() {
+    // Снимок образа (SHARE_KEYS) — общий для кода «Поделиться» и профилей вида Moon Core.
+    function lookSnapshot() {
         var o = {};
-        for (var i = 0; i < SHARE_KEYS.length; i++) { var k = SHARE_KEYS[i]; if (k in cfg) o[k] = cfg[k]; }
-        return b64enc(JSON.stringify(o));
+        for (var i = 0; i < SHARE_KEYS.length; i++) { var k = SHARE_KEYS[i]; if (k in cfg) o[k] = JSON.parse(JSON.stringify(cfg[k])); }
+        return o;
     }
+    function shareEncode() { return b64enc(JSON.stringify(lookSnapshot())); }
     function shareDecode(code) {
         var json = b64dec(String(code).trim()); if (!json) return null;
         try { var o = safeParse(json); return (o && typeof o === "object") ? o : null; } catch (e) { return null; }
     }
-    function applyShareCode(code) {
-        var o = shareDecode(code);
-        if (!o) { toast(t("Код не распознан"), false); return false; }
+    // Применить образ из объекта (SHARE_KEYS): всё через mergeCfg, машинно-зависимое (SHARE_KEEP)
+    // остаётся своим. Текущий конфиг уходит в резерв — применение можно откатить.
+    function applyLook(o) {
+        if (!o || typeof o !== "object") return false;
         backupCfg(); // текущее -> резерв (применение чужого кода можно откатить)
         var keep = {}; for (var i = 0; i < SHARE_KEEP.length; i++) keep[SHARE_KEEP[i]] = cfg[SHARE_KEEP[i]];
-        cfg = mergeCfg(o); // санитизация всего содержимого кода
+        cfg = mergeCfg(o); // санитизация всего содержимого
         for (var j = 0; j < SHARE_KEEP.length; j++) cfg[SHARE_KEEP[j]] = keep[SHARE_KEEP[j]]; // вернуть машинно-зависимое (в т.ч. genSets)
         syncGenSets(); // хвост SETS под сохранённые ген-наборы (genSets вернулись из keep); заодно зажмёт mode на чужой ген-индекс
         sessionRandomIndex = null;
-        apply(); refreshPanel();
+        apply();
+        try { if (document.getElementById(PANEL_ID)) refreshPanel(); } catch (e) { logErr("панель после образа", e); }
+        return true;
+    }
+    function applyShareCode(code) {
+        var o = shareDecode(code);
+        if (!o) { toast(t("Код не распознан"), false); return false; }
+        applyLook(o);
         toast(t("Образ применён из кода"));
         return true;
+    }
+
+    // ===== Профили вида Moon Core =====
+    // Профиль Moon Core (раскладка интерфейса, скрытые элементы, настройки VS Code) может нести
+    // и образ фона: при сохранении профиля ядро берёт lookSnapshot(), при применении — отдаёт его
+    // обратно. Так «Только код» для markdown может заодно включать спокойный фон, а профиль по
+    // ветке — свой набор. Без Moon Core ничего не делает.
+    function registerMoonCoreProfile() {
+        if (!_viaMoonCore) return false;
+        var m = mooncoreModule();
+        if (!m || typeof m.profile !== "function") return false;
+        return m.profile({
+            save: function () { return lookSnapshot(); },
+            apply: function (o, name) {
+                if (applyLook(o)) { try { toast(t("Фон из профиля") + (name ? " «" + name + "»" : "")); } catch (e) {} }
+            }
+        });
     }
 
     // Секция «Поделиться»: копировать код текущего образа + поле для чужого кода и «Применить».
@@ -5954,15 +6908,43 @@
     // через Settings Sync. Мост: компаньон-расширение читает объект-настройку moonlightBg.config
     // из settings.json (а он синхронизируется) и прокидывает его сюда как window.__MLBG_SEED__.
     // На новой машине с пустым localStorage этот seed становится отправным конфигом (см. loadCfg).
-    // Здесь — две ручные операции: скопировать текущий вид как строку для settings.json и
-    // подтянуть синхронизированный образ на эту машину поверх текущего.
-    function copyConfigForSettings() {
-        // Готовая строка для settings.json: ключ + компактный объект конфига. allowRemoteImages и
-        // машинно-зависимые пути тоже попадут — это осознанный «полный образ» для своих машин.
-        var snippet = '"moonlightBg.config": ' + JSON.stringify(cfg);
-        var okc = copyText(snippet);
-        toast(okc ? t("Скопировано для settings.json") : t("Не удалось скопировать"), okc);
+    // Синхронизация между машинами без копирования строк: компаньон хранит образ в своём
+    // globalState с setKeysForSync — его переносит встроенный Settings Sync VS Code. После
+    // каждой правки (с паузой) образ уходит в компаньон; при старте более новый образ с другой
+    // машины применяется. Машинно-зависимое (SHARE_KEEP: пути, папки, библиотека) не едет.
+    var SYNC_T_KEY = "moonlight-bg-sync-t", _syncTimer = 0;
+    function syncSnapshot() {
+        var o = JSON.parse(JSON.stringify(cfg));
+        SHARE_KEEP.forEach(function (k) { delete o[k]; });
+        return o;
     }
+    function scheduleSyncPush() {
+        if (!cfg.ui || !cfg.ui.sync || !_viaMoonCore) return;
+        if (_syncTimer) clearTimeout(_syncTimer);
+        _syncTimer = setTimeout(function () {
+            _syncTimer = 0;
+            var tNow = Date.now();
+            mlbgRpc("syncSet", { t: tNow, cfg: syncSnapshot() }).then(function () {
+                try { localStorage.setItem(SYNC_T_KEY, String(tNow)); } catch (e) {}
+            }, function (e) { logErr("синхронизация", e); });
+        }, 3000);
+    }
+    function syncPull(quiet) {
+        return mlbgRpc("syncGet").then(function (r) {
+            if (!r || !r.cfg || typeof r.t !== "number") { if (!quiet) toast(t("На других машинах ещё нет синхронизированного вида")); return; }
+            var mine = 0; try { mine = Number(localStorage.getItem(SYNC_T_KEY)) || 0; } catch (e) {}
+            if (r.t <= mine) { if (!quiet) toast(t("Здесь уже самый свежий вид")); return; }
+            var keep = {}; SHARE_KEEP.forEach(function (k) { keep[k] = cfg[k]; });
+            cfg = mergeCfg(r.cfg);
+            SHARE_KEEP.forEach(function (k) { cfg[k] = keep[k]; });
+            try { localStorage.setItem(SYNC_T_KEY, String(r.t)); } catch (e) {}
+            syncGenSets(); sessionRandomIndex = null;
+            _histSuppress++; try { apply(); } finally { _histSuppress--; }
+            if (document.getElementById(PANEL_ID)) refreshPanel();
+            toast(t("Вид подтянут с другой машины"));
+        });
+    }
+    // Прежний способ — база в settings.json («moonlightBg.config»): если она есть, её можно загрузить.
     function applySeed() {
         var o = seedConfig();
         if (!o) { toast(t("Базовый конфиг из settings.json не найден (нужно расширение-компаньон)"), false); return; }
@@ -5976,13 +6958,21 @@
     }
     function makeSyncUI() {
         var box = el("div", null);
-        var copyB = makeIoBtn("Скопировать для settings.json");
-        copyB.style.marginBottom = "6px";
-        copyB.addEventListener("click", copyConfigForSettings);
-        box.appendChild(copyB);
-        var loadB = makeIoBtn("Загрузить базу из settings.json");
-        loadB.addEventListener("click", applySeed);
-        box.appendChild(loadB);
+        box.appendChild(makeToggle(function () { return !!cfg.ui.sync; }, function (v) {
+            cfg.ui.sync = v; saveCfg();
+            if (v) { scheduleSyncPush(); toast(t("Вид будет переезжать на другие машины через Settings Sync")); }
+        }, "Синхронизировать между машинами", INFO.sync));
+        if (cfg.ui.sync) {
+            var pull = makeIoBtn("Подтянуть вид с другой машины");
+            pull.addEventListener("click", function () { syncPull(false).then(null, function (e) { toast(t("Не удалось: ") + e.message, false); }); });
+            box.appendChild(pull);
+        }
+        if (seedConfig()) {
+            var loadB = makeIoBtn("Загрузить базу из settings.json");
+            loadB.style.marginTop = "6px";
+            loadB.addEventListener("click", applySeed);
+            box.appendChild(loadB);
+        }
         return box;
     }
 
@@ -6297,7 +7287,7 @@
         add("Папка картинок", (base || "(путь не определён)") + (cfg.imgBase ? "  [задана вручную]" : "  [авто]"));
         add("Сетевые картинки", cfg.allowRemoteImages ? t("разрешены") : t("выключены"));
         var styleFound = !!document.getElementById(STYLE_ID);
-        add("Стиль в DOM", styleFound ? t("найден (custom-css активен)") : t("НЕ найден"));
+        add("Стиль в DOM", styleFound ? t("найден (скрипт активен)") : t("НЕ найден"));
         if (!styleFound) bad++;
         add("Кнопка BG", document.getElementById(SB_ID) ? t("найдена") : t("нет (статусбар ещё не готов?)"));
         ["editor", "sidebar", "panel"].forEach(function (z, i) {
@@ -6355,6 +7345,15 @@
             if (rd && !rd.off) add("Читаемость кода", rd.ratio.toFixed(1) + ":1  " + t("худший участок") + " " + rd.worstRatio.toFixed(1) + ":1" + (rd.ok ? "" : "  " + t("(ниже 4.5 — фон мешает читать)")));
         }
         // Подсказка, если картинки набора не грузятся — почти всегда виноват путь.
+        // Ошибки рантайма (logErr в util.js): раньше они глотались молча.
+        if (typeof errTotal === "function") {
+            add("Ошибки рантайма", errTotal() ? errLog.length + " " + t("разных") + ", " + t("всего") + " " + errTotal() : t("нет"));
+            errLog.slice(-5).forEach(function (r) {
+                lines.push("  " + r.where + ": " + r.msg + (r.n > 1 ? "  (x" + r.n + ")" : ""));
+            });
+        }
+        // Резерв конфига на диске (Moon Core): переживает очистку localStorage.
+        if (typeof diskBackupInfo === "function") add("Резерв конфига на диске", t(diskBackupInfo()));
         if (bad && styleFound) lines.push("", "Похоже, картинки набора не находятся. Проверь «Папка плагина» ниже: путь должен вести к папке с assets/. После правки фон появляется сразу.");
         return { lines: lines, ok: bad === 0, text: t("MoonLight custom-bg — диагностика") + "\n" + lines.join("\n") };
     }
@@ -6564,12 +7563,13 @@
     var SB_ID = "moonlight-bg-switcher", PANEL_ID = "moonlight-bg-panel";
 
     // ===== Быстрое меню по правому клику на кнопке BG =====
-    // Частые действия без открытия всей панели: листать наборы, вкл/выкл фон, режим чтения, открыть
-    // панель. Всё это есть хоткеями, но контекст-меню — видимый и мышиный путь. Закрывается кликом
+    // Частые действия без открытия всей панели: листать наборы, вкл/выкл фон, режим чтения,
+    // быстрый переключатель, отмена, открыть панель. Видимый мышиный путь к тому, что есть хоткеями. Закрывается кликом
     // мимо, Esc и после выбора. cycleSet/togglePanel/apply/toast/refreshPanel — из общей области IIFE.
     var QMENU_ID = "moonlight-bg-qmenu";
+    var _presentPrev = ""; // снимок вида до «Режима презентации» (в пределах сессии)
     function closeQuickMenu() {
-        var m = document.getElementById(QMENU_ID); if (m && m.remove) m.remove();
+        var m = document.getElementById(QMENU_ID); if (m && m.remove) { m.remove(); try { previewEnd(); } catch (e) {} }
         document.removeEventListener("mousedown", _qmOutside, true);
         document.removeEventListener("keydown", _qmKey, true);
     }
@@ -6581,16 +7581,17 @@
         var bg = light ? "rgba(245,245,250,0.98)" : "rgba(24,24,37,0.98)";
         var fg = light ? "#1e1e2e" : "#cdd6f4";
         var m = el("div",
-            "position:fixed; z-index:100005; min-width:214px; padding:5px; border-radius:10px;" +
+            "position:fixed; z-index:100005; min-width:236px; max-width:300px; padding:5px; border-radius:10px;" +
             "background:" + bg + "; color:" + fg + "; font-family:var(--vscode-font-family,sans-serif); font-size:12px;" +
             "border:1px solid rgba(var(--mlbg-accent-rgb),0.4); box-shadow:0 12px 34px rgba(0,0,0,0.5);" +
             "backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);");
         m.id = QMENU_ID; m.setAttribute("role", "menu");
+        try { ensurePanelCss(); } catch (e) {}
         m.addEventListener("click", function (e) { e.stopPropagation(); });
         function item(label, act, sub) {
             var r = el("div", "display:flex; align-items:center; gap:8px; padding:6px 9px; border-radius:7px; cursor:pointer;");
             r.appendChild(el("span", "flex:1 1 auto;", t(label)));
-            if (sub) r.appendChild(el("span", "flex:0 0 auto; font-size:10px; color:var(--mlbg-accent); font-family:var(--vscode-editor-font-family,monospace);", sub));
+            if (sub && hotkeysOn()) r.appendChild(el("span", "flex:0 0 auto; font-size:10px; color:var(--mlbg-accent); font-family:var(--vscode-editor-font-family,monospace);", sub));
             r.addEventListener("mouseenter", function () { r.style.background = "rgba(var(--mlbg-accent-rgb),0.16)"; });
             r.addEventListener("mouseleave", function () { r.style.background = "transparent"; });
             r.addEventListener("click", function () { closeQuickMenu(); try { act(); } catch (e) {} });
@@ -6598,6 +7599,31 @@
             keyActivate(r, t(label));
             m.appendChild(r);
         }
+        // Ряд миниатюр: любимые наборы (звёздочка на карточке), а если их нет — соседи текущего.
+        // Наведение примеряет набор, клик выбирает. Так набор меняется, не открывая панель.
+        (function () {
+            var cur = activeIndex(), list = [];
+            for (var i = 0; i < SETS.length && list.length < 6; i++) if (isFavSet(i)) list.push(i);
+            if (!list.length) for (var d = -2; d <= 3 && SETS.length; d++) { var k = ((cur + d) % SETS.length + SETS.length) % SETS.length; if (list.indexOf(k) < 0) list.push(k); }
+            if (!list.length) return;
+            m.appendChild(el("div", "padding:4px 9px 2px; font-size:10px; font-weight:700; letter-spacing:0.5px; opacity:0.7;", t(isFavSet(list[0]) ? "Любимые наборы" : "Наборы")));
+            var row = el("div", null); row.className = "mlp-qsets";
+            list.forEach(function (idx) {
+                var th = el("div", null); th.className = "mlp-qset" + (idx === cur ? " on" : "");
+                try { paintSetPreview(th, idx); } catch (e) {}
+                th.title = idx + (setName(idx) ? " · " + setName(idx) : "");
+                th.addEventListener("mouseenter", function () { previewSet(idx); });
+                th.addEventListener("mouseleave", function () { previewEnd(); });
+                th.addEventListener("click", function () {
+                    previewCancel(); closeQuickMenu();
+                    cfg.mode = String(idx); applyFade();
+                    if (document.getElementById(PANEL_ID)) { try { refreshPanel(); } catch (e) {} }
+                });
+                keyActivate(th, t("Набор ") + idx + (setName(idx) ? " — " + setName(idx) : ""));
+                row.appendChild(th);
+            });
+            m.appendChild(row);
+        })();
         function sep() { m.appendChild(el("div", "margin:4px 6px; border-top:1px solid var(--mlp-border-faint,rgba(205,214,244,0.14));")); }
         item("Следующий набор", function () { cycleSet(1); }, "Ctrl+Alt+.");
         item("Предыдущий набор", function () { cycleSet(-1); }, "Ctrl+Alt+,");
@@ -6613,7 +7639,30 @@
             if (document.getElementById(PANEL_ID)) { try { refreshPanel(); } catch (e) {} }
         }, "Ctrl+Alt+R");
         sep();
-        item("Открыть панель…", function () { togglePanel({ stopPropagation: function () {} }); }, "Ctrl+Alt+B");
+        // Закрепить текущий набор за открытым проектом — самый частый контекст в один клик.
+        var wn = ""; try { wn = workspaceName() || ""; } catch (e) {}
+        if (wn && DANGEROUS_KEYS.indexOf(wn) < 0) {
+            var pinned = cfg.autoWorkspace && cfg.workspaceSets && cfg.workspaceSets[wn] === String(activeIndex());
+            item(pinned ? "Открепить набор от проекта" : "Закрепить набор за проектом", function () {
+                if (!cfg.workspaceSets) cfg.workspaceSets = {};
+                if (pinned) { delete cfg.workspaceSets[wn]; toast(t("Набор больше не привязан к проекту «") + wn + "»"); }
+                else {
+                    cfg.autoWorkspace = true; cfg.workspaceSets[wn] = String(activeIndex());
+                    toast(t("Проект «") + wn + t("» теперь всегда открывается с этим набором"));
+                }
+                apply();
+                if (document.getElementById(PANEL_ID)) { try { refreshPanel(); } catch (e) {} }
+            }, "");
+        }
+        // Режим презентации одной кнопкой: стиль «Презентация», повторный клик возвращает прежний вид.
+        item(_presentPrev ? "Выключить режим презентации" : "Режим презентации", function () {
+            if (_presentPrev) { cfg = mergeCfg(safeParse(_presentPrev)); _presentPrev = ""; syncGenSets(); apply(); toast(t("Прежний вид возвращён")); }
+            else { _presentPrev = JSON.stringify(cfg); applyProfile("present"); toast(t("Режим презентации: фон тише, акценты крупнее")); }
+            if (document.getElementById(PANEL_ID)) { try { refreshPanel(); } catch (e) {} }
+        }, "");
+        item("Быстрый переключатель…", function () { if (document.getElementById(PANEL_ID)) closePanel(); openQuick(); }, "Ctrl+Alt+P");
+        item("Отменить изменение вида", function () { undo(); }, "Ctrl+Alt+Z");
+        item(document.getElementById(PANEL_ID) ? "Закрыть панель" : "Открыть панель…", function () { togglePanel({ stopPropagation: function () {} }); }, "Ctrl+Alt+B");
         document.body.appendChild(m);
         // Позиционируем над кнопкой BG (правый нижний угол окна); не влезло сверху — под ней.
         try {
@@ -6634,12 +7683,19 @@
         // Мастер-выключатель: когда фон выключен — короткая подпись «BG выкл», без индикаторов.
         if (!cfg.enabled) {
             a.textContent = t("BG выкл");
+            var oth = item.querySelector(".mlbg-sb-thumb"); if (oth) oth.remove();
             var od = item.querySelector(".mlbg-mode-dot"); if (od) od.remove();
-            var t0 = t("Фон и дизайн — настройки (фон выключен, Ctrl+Alt+0 — включить)");
+            var t0 = hotkeysOn() ? t("Фон и дизайн — настройки (фон выключен, Ctrl+Alt+0 — включить)") : t("Фон и дизайн — настройки (фон выключен)");
             item.title = t0; item.setAttribute("aria-label", t0);
             return;
         }
-        a.textContent = "BG " + idx + (nm ? " · " + nm : "") + (cfg.mode === "random" ? " ~" : "");
+        // Миниатюра набора + имя вместо «BG N · имя»: набор узнаётся по картинке.
+        a.textContent = "";
+        var th = el("span", null); th.className = "mlbg-sb-thumb";
+        th.style.cssText = "display:inline-block; position:relative; width:22px; height:13px; margin-right:6px; vertical-align:-2px; border-radius:3px; overflow:hidden; box-shadow:0 0 0 1px rgba(var(--mlbg-accent-rgb),0.6);";
+        try { paintSetPreview(th, idx); } catch (e) {}
+        a.appendChild(th);
+        a.appendChild(document.createTextNode((nm || ("BG " + idx)) + (cfg.mode === "random" ? " ~" : "")));
 
         // Индикатор активного авто-режима: маленькая точка перед подписью.
         // авто-по-времени — кольцо (акцентная рамка), слайдшоу — залитая точка.
@@ -6659,7 +7715,8 @@
         } else if (dot) { dot.remove(); }
 
         var modeTxt = auto ? t(" · авто-набор по времени суток") : (slide ? t(" · слайдшоу вкл") : "");
-        var title = t("Фон и дизайн — настройки") + (nm ? t(" (набор: ") + nm + ")" : "") + modeTxt;
+        var title = t("Фон и дизайн — настройки") + (nm ? t(" (набор: ") + nm + ")" : "") + modeTxt +
+            t("\nКлик — панель, колесо — листать наборы, правый клик — быстрые действия");
         item.title = title; item.setAttribute("aria-label", title);
     }
     function ensureStatusBar() {
@@ -6676,6 +7733,14 @@
                 var a = document.createElement("a"); a.className = "statusbar-item-label"; a.style.padding = "0 6px";
                 item.appendChild(a);
                 item.addEventListener("click", togglePanel);
+                // Колесо над кнопкой — листать наборы (вниз — следующий). Троттлинг: один шаг на
+                // «щелчок» колеса, а не десяток событий тачпада.
+                var _wheelAt = 0;
+                item.addEventListener("wheel", function (e) {
+                    e.preventDefault();
+                    var now = Date.now(); if (now - _wheelAt < 280) return; _wheelAt = now;
+                    try { cycleSet(e.deltaY > 0 ? 1 : -1); } catch (er) {}
+                }, { passive: false });
                 // Правый клик — быстрое меню действий, не открывая всю панель.
                 item.addEventListener("contextmenu", function (e) { e.preventDefault(); e.stopPropagation(); try { showQuickMenu(item); } catch (er) {} });
                 item.addEventListener("keydown", function (e) {
@@ -6708,6 +7773,10 @@
     // слайдеры «силы», стиль частиц), и держать её отдельно чище. Зависит только от secFx +
     // модульного/глобального окружения (FX_LIST, PARAMS, cfg, makeCheck/makeParamSlider,
     // makePartStyleSelect, fxOnlyOn), поэтому не тянет за собой локали togglePanel.
+    // Параметры силы, принадлежащие ровно одному эффекту key.
+    function inlineParams(key) {
+        return PARAMS.filter(function (d) { var r = PARAM_REQUIRES[d[0]]; return r && r.length === 1 && r[0] === key; });
+    }
     function buildEffectsSection(secFx) {
         // Шапка секции: счётчик включённых эффектов + быстрый фильтр «только включённые».
         // Помогает ориентироваться в полусотне тумблеров и одним кликом свернуть список
@@ -6791,12 +7860,21 @@
             if (cb) {
                 // Переключение фиксирует выбор (превью не откатывает) и пересчитывает счётчик. Если
                 // эффект в избранном — пересобираем панель, чтобы его копия-тумблер вверху синхронизировалась.
-                cb.addEventListener("change", function () { previewFxCancel(); updateFxView(); if (cfg.ui.favFx && cfg.ui.favFx[key]) { try { refreshPanel(); } catch (er) {} } });
+                cb.addEventListener("change", function () { previewFxCancel(); updateFxView(); if (cfg.ui.favFx && cfg.ui.favFx[key] && !fxAffectsPanel(key)) { try { refreshPanel(); } catch (er) {} } });
                 cb.addEventListener("focus", pOn);
                 cb.addEventListener("blur", pOff);
             }
             panelFxNodes[key] = node; // для прокрутки к эффекту из единого поиска
-            fxRows.push({ node: node, key: key, label: t(o[1]).toLowerCase(), group: FX_GROUPS[key] || "other" });
+            // Сила эффекта — прямо под его строкой (на всю ширину сетки), пока он включён. Раньше
+            // все ползунки жили общим блоком «Сила» внизу, далеко от своих тумблеров.
+            var extra = null, own = inlineParams(key);
+            if (cfg.fx[key] && (own.length || (key === "particles"))) {
+                extra = el("div", null); extra.className = "mlp-inl";
+                own.forEach(function (d) { extra.appendChild(makeParamSlider(d)); });
+                if (key === "particles") extra.appendChild(makePartStyleSelect());
+                node._extra = extra;
+            }
+            fxRows.push({ node: node, extra: extra, key: key, label: t(o[1]).toLowerCase(), group: FX_GROUPS[key] || "other" });
             return node;
         }
 
@@ -6808,11 +7886,32 @@
             var built = [];
             FX_LIST.forEach(function (o) { if ((FX_GROUPS[o[0]] || "other") === gkey) { var n = buildFxRow(o); if (n) built.push(n); } });
             if (!built.length) return;
-            var header = el("div", "margin-top:7px; padding:3px 3px 1px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--mlp-head,#bac2de);", t(glabel));
-            var grid = el("div", "display:grid; grid-template-columns:1fr 1fr; gap:1px 10px;");
-            built.forEach(function (n) { grid.appendChild(n); });
-            groups[gkey] = { header: header, grid: grid };
-            secFx.appendChild(header); secFx.appendChild(grid);
+            // Группа — сворачиваемая карточка со счётчиком «включено N из M». Свёрнутость помнится
+            // в cfg.ui.collapsed под ключом "fx:<группа>"; группу с целью перехода из поиска раскрываем.
+            var ck = "fx:" + gkey;
+            var open = !(cfg.ui.collapsed && cfg.ui.collapsed[ck]);
+            if (fxFocusKey && (FX_GROUPS[fxFocusKey] || "other") === gkey) open = true;
+            var card = el("div", null); card.className = "mlp-fxg" + (open ? " open" : "");
+            var header = el("div", null); header.className = "mlp-fxg-h";
+            var chev = el("span", null, "\u25B6"); chev.className = "mlp-chev";
+            var cnt = el("span", null); cnt.className = "mlp-fxg-n";
+            header.appendChild(chev); header.appendChild(el("span", "flex:1 1 auto;", t(glabel))); header.appendChild(cnt);
+            var grid = el("div", "display:grid; grid-template-columns:1fr 1fr; gap:1px 10px;"); grid.className = "mlp-fxg-b";
+            built.forEach(function (n) { grid.appendChild(n); if (n._extra) grid.appendChild(n._extra); });
+            grid.hidden = !open;
+            header.addEventListener("click", function () {
+                var show = grid.hidden; grid.hidden = !show;
+                card.classList.toggle("open", show);
+                header.setAttribute("aria-expanded", show ? "true" : "false");
+                if (!cfg.ui.collapsed) cfg.ui.collapsed = {};
+                if (show) delete cfg.ui.collapsed[ck]; else cfg.ui.collapsed[ck] = true;
+                saveCfg();
+            });
+            keyActivate(header, t(glabel));
+            header.setAttribute("aria-expanded", open ? "true" : "false");
+            card.appendChild(header); card.appendChild(grid);
+            groups[gkey] = { card: card, grid: grid, count: cnt, total: built.length };
+            secFx.appendChild(card);
         }
         FX_GROUP_ORDER.forEach(function (g) { buildGroup(g[0], g[1]); });
         buildGroup("other", "Прочее"); // эффекты без явной группы (обычно пусто)
@@ -6823,9 +7922,17 @@
             fxRows.forEach(function (r) {
                 var isOn = !!cfg.fx[r.key]; if (isOn) on++;
                 var hide = (onlyOn && !isOn);
-                r.node.hidden = hide; if (!hide) { shown++; perGroup[r.group] = (perGroup[r.group] || 0) + 1; }
+                r.node.hidden = hide; if (r.extra) r.extra.hidden = hide;
+                if (!hide) { shown++; perGroup[r.group] = (perGroup[r.group] || 0) + 1; }
             });
-            for (var gk in groups) { var vis = perGroup[gk] > 0; groups[gk].header.hidden = !vis; groups[gk].grid.hidden = !vis; }
+            var onGroup = {};
+            fxRows.forEach(function (r) { if (cfg.fx[r.key]) onGroup[r.group] = (onGroup[r.group] || 0) + 1; });
+            for (var gk in groups) {
+                var G = groups[gk];
+                G.card.hidden = !(perGroup[gk] > 0);
+                G.count.textContent = (onGroup[gk] || 0) + " / " + G.total;
+                G.count.className = "mlp-fxg-n" + ((onGroup[gk] || 0) > 0 ? " on" : "");
+            }
             fxCount.textContent = t("Включено: ") + on + " / " + fxRows.length;
             fxEmpty.hidden = shown > 0;
         }
@@ -6833,20 +7940,12 @@
         keyActivate(onlyBtn, "Показывать только включённые эффекты");
         styleOnlyBtn(); updateFxView();
 
-        // Числовая «сила» эффектов — под тумблерами. Параметры, зависящие от выключенного
-        // эффекта, не показываем: «Частиц» — только когда включены «Частицы», «Помидор, мин» —
-        // когда включён «Помидор» (тумблеры particles/pomodoro пересобирают панель, см. makeCheck).
-        secFx.appendChild(el("div", "margin-top:8px; padding:3px 3px 1px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--mlp-head,#bac2de);", t("Сила")));
-
-        var shownParams = 0;
+        // Параметр сразу нескольких эффектов (размытие стекла) — общим ползунком под сеткой;
+        // остальные ползунки силы живут в строках своих эффектов (inlineParams).
         PARAMS.forEach(function (d) {
-            if (!paramNeeded(d[0])) return;   // ползунок без своего эффекта ничего не меняет
-            shownParams++;
+            if ((PARAM_REQUIRES[d[0]] || []).length < 2 || !paramNeeded(d[0])) return;
             secFx.appendChild(makeParamSlider(d));
         });
-        if (!shownParams) secFx.appendChild(el("div", "padding:4px 4px 2px; font-size:11px; color:var(--mlp-muted,#a6adc8);",
-            t("Ползунки силы появятся, когда включишь эффекты, к которым они относятся.")));
-        if (cfg.fx.particles) secFx.appendChild(makePartStyleSelect()); // форма частиц — только когда частицы включены
 
         // Сброс всей секции к дефолту: тумблеры + сила + стиль частиц. Появляется,
         // только когда есть что сбрасывать (что-то отличается от DEFAULTS) — иначе кнопка-пустышка.
@@ -6996,7 +8095,7 @@
                         node.addEventListener("mouseenter", pOn); node.addEventListener("mouseleave", pOff);
                         var cb = node.querySelector ? node.querySelector("input") : null;
                         if (cb) {
-                            cb.addEventListener("change", function () { previewFxCancel(); try { refreshPanel(); } catch (e) {} });
+                            cb.addEventListener("change", function () { previewFxCancel(); if (!fxAffectsPanel(o[0])) { try { refreshPanel(); } catch (e) {} } }); // иначе makeCheck уже пересобрал
                             cb.addEventListener("focus", pOn); cb.addEventListener("blur", pOff);
                         }
                         grid.appendChild(node);
@@ -7009,51 +8108,161 @@
 
     // ===================== src/ui/panel-tabs.js =====================
     // ===== Наполнение вкладок панели =====
-    // Каркас панели (шапка, бар вкладок, поиск, перетаскивание) собирает togglePanel в
+    // Каркас панели (шапка, вкладки, поиск, перетаскивание) собирает togglePanel в
     // src/ui/panel.js, а КАКИЕ секции лежат на каждой вкладке — здесь. Каждая функция получает
-    // готовую панель-вкладку и наполняет её секциями; порядок вызова = порядок вкладок.
+    // готовую страницу-вкладку и наполняет её секциями.
+    //
+    // Простой режим (panelSimple(), по умолчанию) показывает только главное: наборы и своя
+    // картинка, яркость и акцент, стиль эффектов, образы. Остальное строится лишь в полном режиме.
 
-    // Вкладка «Набор»: какой фон показывать и по какому поводу он меняется.
+    // ===== «Что нового» =====
+    // Одна карточка после обновления: три строки и «Понятно». Показывается, пока cfg.ui.news не
+    // равен NEWS_ID; следующий выпуск — новый NEWS_ID и новый текст.
+    var NEWS_ID = "2026-09-27";
+    var NEWS_TEXT = [
+        "Простой режим: на виду только главное, остальное — «Все настройки».",
+        "Своя картинка или целая папка — кнопками ниже или перетаскиванием в панель.",
+        "Стили эффектов в один клик и копии настроек по дням."
+    ];
+    function makeNewsCard() {
+        if (cfg.ui.news === NEWS_ID) return null;
+        var card = el("div", null); card.className = "mlp-news";
+        var ic = uiIcon("tab-fx", 28); if (ic) card.appendChild(ic);
+        var body = el("div", "flex:1 1 auto; min-width:0;");
+        body.appendChild(el("b", null, t("Что нового")));
+        NEWS_TEXT.forEach(function (s) { body.appendChild(el("div", null, t(s))); });
+        card.appendChild(body);
+        var ok = el("div", null, t("Понятно")); ok.className = "mlp-hbtn";
+        ok.addEventListener("click", function () { cfg.ui.news = NEWS_ID; saveCfg(); refreshPanel(); });
+        keyActivate(ok, t("Понятно"));
+        card.appendChild(ok);
+        return card;
+    }
+
+    // ===== Один совет за раз =====
+    // Панель сама замечает типичную проблему и предлагает одно действие. Не больше одного совета
+    // одновременно; «Не показывать» запоминается (cfg.ui.tipsOff). Совет исчезает, как только
+    // проблема решена.
+    function currentTip() {
+        var off = cfg.ui.tipsOff || {};
+        try {
+            var r = readability();
+            if (!off.readable && r && !r.off && r.worstRatio < 4.5)
+                return { id: "readable", text: "Код местами читается хуже: картинка слишком яркая под текстом.", btn: "Приглушить фон",
+                    act: function () { fixReadability(4.5); apply(); toast(t("Фон приглушён ровно настолько, чтобы код читался")); } };
+            var st = probeImage(zoneUrl(activeIndex(), "editor"));
+            if (!off.autodim && !cfg.autoDim && st && typeof st.luma === "number" && st.luma > 0.55)
+                return { id: "autodim", text: "Картинка светлая — включить авто-яркость, чтобы код не терялся?", btn: "Включить",
+                    act: function () { cfg.autoDim = true; apply(); } };
+        } catch (e) {}
+        return null;
+    }
+    function makeTipCard() {
+        var tip = currentTip(); if (!tip) return null;
+        var card = el("div", null); card.className = "mlp-tip";
+        card.appendChild(el("span", "flex:1 1 auto;", t(tip.text)));
+        var go = el("div", null, t(tip.btn)); go.className = "mlp-hbtn on";
+        go.addEventListener("click", function () { tip.act(); refreshPanel(); });
+        keyActivate(go, t(tip.btn));
+        var no = el("div", null, "\u2715"); no.className = "mlp-hbtn"; no.title = t("Не показывать этот совет");
+        no.addEventListener("click", function () { if (!cfg.ui.tipsOff) cfg.ui.tipsOff = {}; cfg.ui.tipsOff[tip.id] = true; saveCfg(); refreshPanel(); });
+        keyActivate(no, t("Не показывать этот совет"));
+        card.appendChild(go); card.appendChild(no);
+        return card;
+    }
+
+    // Вкладка «Набор»: какой фон показывать и откуда он берётся.
     function buildTabSets(tSet) {
-        // ===== Вкладка «Набор»: какой фон и когда =====
-        // Набор (превью-чипы)
-        var secSet = collapsible(tSet, "Набор", "Выбор набора фоновых картинок (редактор / сайдбар / панель). «случайно» — новый набор при каждом запуске.");
-        var chips = el("div", "display:flex; flex-wrap:wrap; gap:6px; align-items:center;");
-        for (var i = 0; i < SETS.length; i++) chips.appendChild(makeChip(String(i), String(i)));
+        var simple = panelSimple();
+        var news = makeNewsCard(); if (news) tSet.appendChild(news);
+        var secSet = collapsible(tSet, "Набор", "Выбор набора фоновых картинок (редактор / сайдбар / панель). «случайно» — новый набор при каждом запуске. Свою картинку можно выбрать кнопкой или перетащить в панель.");
+        // Фильтр «Все / Любимые»: наборов 25+, любимые (звёздочка на карточке) удобно держать отдельно.
+        // Активный набор показываем всегда — чтобы было видно, что выбрано.
+        var favN = 0; for (var fi = 0; fi < SETS.length; fi++) if (isFavSet(fi)) favN++;
+        var onlyFav = !!cfg.ui.favOnly;
+        secSet.appendChild(makeSeg("", [["all", "Все"], ["fav", t("Любимые") + (favN ? " · " + favN : "")]],
+            function () { return onlyFav ? "fav" : "all"; },
+            function (v) {
+                cfg.ui.favOnly = v === "fav"; saveCfg(); refreshPanel();
+            }));
+        var chips = el("div", null); chips.className = "mlp-sets";
+        for (var i = 0; i < SETS.length; i++) {
+            if (onlyFav && !isFavSet(i) && cfg.mode !== String(i)) continue;
+            chips.appendChild(makeChip(String(i), String(i)));
+        }
+        if (onlyFav && !favN) secSet.appendChild(emptyState("Отметь наборы звёздочкой на карточке — они появятся здесь"));
         chips.appendChild(makeChip("random", "случайно"));
         secSet.appendChild(chips);
-        secSet.appendChild(makeSetNameEdit()); // переименование активного набора
+        secSet.appendChild(makeOwnImageRow()); // своя картинка / папка картинок
+        if (!simple) secSet.appendChild(makeSetNameEdit()); // переименование активного набора
 
+        if (simple) return;
         // Генератор набора по seed/палитре: бесконечные согласованные фоны без ассетов.
         var secGen = collapsible(tSet, "Генератор", "Создать согласованный набор из seed-строки или базового цвета (#rrggbb): тёмная подложка + акцент + гармоничный спутник. Один seed всегда даёт один и тот же набор — им можно делиться. Наборы сохраняются и добавляются в конец списка.");
         secGen.appendChild(makeGenerator());
 
-        // Слайдшоу
-        var secSlide = collapsible(tSet, "Слайдшоу", "Автоматическая смена набора по кругу через заданный интервал.");
-        secSlide.appendChild(makeSlideToggle());
-        // Интервал показываем только когда слайд-шоу включено: иначе это ползунок в никуда.
-        if (cfg.slideshow.on) secSlide.appendChild(makeObjSlider(cfg.slideshow, "min", "Интервал, мин", 1, 120, 1, 0, INFO.slide_min, DEFAULTS.slideshow.min));
-
-        // Свой шейдер: GLSL для набора «Свой шейдер». Рядом с библиотекой картинок —
-
-        // это тоже «свой источник фона», только считаемый на GPU.
-
-        var secShader = collapsible(tSet, "Шейдер", "Свой GLSL-фон для набора «Свой шейдер»: тело функции render(vec2 p). Ошибка компиляции не ломает редактор — фон откатится на встроенный.");
-
-        secShader.appendChild(makeShaderSrcUI());
-
-
         // Библиотека своих картинок: список локальных путей, крутится в редакторе по таймеру слайдшоу.
-        var secLib = collapsible(tSet, "Библиотека", "Свои картинки списком: когда «Крутить библиотеку» включено, они по очереди показываются в редакторе и сменяются по таймеру слайдшоу (интервал — выше). Пути локальные: file:/// или vscode-file://.");
+        var secLib = collapsible(tSet, "Библиотека", "Свои картинки списком: когда «Крутить библиотеку» включено, они по очереди показываются в редакторе и сменяются по таймеру слайдшоу (интервал — на вкладке «Авто-смена»). Пути локальные: file:/// или vscode-file://.");
         secLib.appendChild(makeLibraryUI());
 
-        // Авто-набор по времени суток
-        var secTime = collapsible(tSet, "По времени суток", "Днём — дневной набор, ночью — ночной. Имеет приоритет над слайдшоу; не работает в режиме «случайно».");
+        // Свой шейдер: тоже «свой источник фона», только считаемый на GPU.
+        var secShader = collapsible(tSet, "Шейдер", "Свой GLSL-фон для набора «Свой шейдер»: тело функции render(vec2 p). Ошибка компиляции не ломает редактор — фон откатится на встроенный.");
+        secShader.appendChild(makeShaderSrcUI());
+    }
+
+    // Карточка «Сейчас работает»: какой набор на экране и какое правило его выбрало.
+    function makeActiveRuleCard() {
+        var r = activeRule();
+        var card = el("div", null); card.className = "mlp-now";
+        var pv = el("div", null); pv.className = "mlp-now-pv";
+        try { paintSetPreview(pv, r.idx); } catch (e) {}
+        card.appendChild(pv);
+        var txt = el("div", null); txt.className = "mlp-now-t";
+        var nm = setName(r.idx);
+        txt.appendChild(el("b", null, t("Сейчас: набор ") + r.idx + (nm ? " · " + nm : "")));
+        var WHY = {
+            workspace: t("по проекту") + (r.key ? " «" + r.key + "»" : ""),
+            remote: t("по репозиторию") + (r.key ? " «" + r.key + "»" : ""),
+            branch: t("по ветке") + (r.key ? " «" + r.key + "»" : ""),
+            lang: t("по языку файла") + (r.key ? " «" + r.key + "»" : ""),
+            random: t("случайный при каждом запуске"),
+            time: t("по времени суток"),
+            slide: t("слайдшоу"),
+            manual: t("выбран вручную — авто-смена выключена")
+        };
+        var why = WHY[r.why] || "";
+        if (cfg.librarySlideshow) why += t("; в редакторе крутится библиотека");
+        txt.appendChild(el("span", null, t("Правило: ") + why));
+        card.appendChild(txt);
+        return card;
+    }
+
+    // Вкладка «Авто-смена»: правила выбора набора в порядке старшинства (как в activeIndex):
+    // сработает верхнее включённое. Номер и «вкл» — прямо в заголовке секции.
+    function buildTabAuto(tAuto) {
+        tAuto.appendChild(makeActiveRuleCard());
+        tAuto.appendChild(el("div", "padding:6px 3px 0; font-size:11px; color:var(--mlp-faint);",
+            t("Правила ниже — по старшинству: срабатывает верхнее включённое.")));
+        function rule(n, title, on, info) { return collapsible(tAuto, title, info, { num: n, on: !!on }); }
+
+        var secWs = rule(1, "По проекту", cfg.autoWorkspace, "Набор под открытый проект и полоска-индикатор git-ветки. Держатся на чтении заголовка и статусбара VS Code.");
+        secWs.appendChild(makeWorkspaceUI());
+        secWs.appendChild(makeAmbientBranchToggle());
+
+        var secRemote = rule(2, "По репозиторию", cfg.autoRemote, "Набор под удалённый репозиторий (владелец/имя): один и тот же проект, склонированный в разные папки, получает один фон. Адрес репозитория берётся из git через компаньон-расширение — из вёрстки редактора его не достать.");
+        secRemote.appendChild(makeRemoteAutoUI());
+
+        var secBranch = rule(3, "По ветке", cfg.autoBranch, "Набор под текущую git-ветку: main/master — один, фиче-ветки — другой. Приоритетнее слайдшоу и времени суток, но уступает «по проекту». Ветка читается из статусбара VS Code.");
+        secBranch.appendChild(makeBranchAutoUI());
+
+        var secLang = rule(4, "По языку", cfg.autoLang, "Набор под язык активного файла (по расширению): напр. .py — один набор, .md — другой. Самый частый контекст (низший приоритет). Расширение читается из подписи активной вкладки.");
+        secLang.appendChild(makeLangAutoUI());
+
+        var secTime = rule(5, "По времени суток", cfg.autoTime && cfg.autoTime.on, "Днём — дневной набор, ночью — ночной. Имеет приоритет над слайдшоу; не работает в режиме «случайно».");
         secTime.appendChild(makeAutoTimeToggle());
         secTime.appendChild(makeSetPicker("day", "Дневной"));
         secTime.appendChild(makeSetPicker("night", "Ночной"));
         secTime.appendChild(makeAutoTimeMode());
-        // Границы дня: по часам (from/to) или по реальному рассвету/закату (широта/долгота).
         if (cfg.autoTime && cfg.autoTime.mode === "sun") {
             secTime.appendChild(makeObjSlider(cfg.autoTime, "lat", "Широта", -90, 90, 1, 0, INFO.autotime_lat, DEFAULTS.autoTime.lat));
             secTime.appendChild(makeObjSlider(cfg.autoTime, "lon", "Долгота", -180, 180, 1, 0, INFO.autotime_lon, DEFAULTS.autoTime.lon));
@@ -7062,44 +8271,28 @@
             secTime.appendChild(makeObjSlider(cfg.autoTime, "to", "День до, ч", 0, 23, 1, 0, INFO.autotime_to, DEFAULTS.autoTime.to));
         }
 
-        // Контекст: фон под открытый проект + индикатор git-ветки (оба читают заголовок/статусбар).
-        var secWs = collapsible(tSet, "По проекту", "Набор под открытый проект и полоска-индикатор git-ветки. Держатся на чтении заголовка и статусбара VS Code.");
-        secWs.appendChild(makeWorkspaceUI());
-        secWs.appendChild(makeAmbientBranchToggle());
-
-        // Фон по git-ветке: разный набор на main/master и на фиче-ветках (ветка из статусбара).
-        var secRemote = collapsible(tSet, "По репозиторию", "Набор под удалённый репозиторий (владелец/имя): один и тот же проект, склонированный в разные папки, получает один фон. Адрес репозитория берётся из git через компаньон-расширение — из вёрстки редактора его не достать.");
-        secRemote.appendChild(makeRemoteAutoUI());
-
-        var secBranch = collapsible(tSet, "По ветке", "Набор под текущую git-ветку: main/master — один, фиче-ветки — другой. Приоритетнее слайдшоу и времени суток, но уступает «по проекту». Ветка читается из статусбара VS Code.");
-        secBranch.appendChild(makeBranchAutoUI());
-
-        // Фон по языку/расширению активного файла: напр. .py — один набор, .md — другой.
-        var secLang = collapsible(tSet, "По языку", "Набор под язык активного файла (по расширению): напр. .py — один набор, .md — другой. Самый частый контекст (низший приоритет). Расширение читается из подписи активной вкладки.");
-        secLang.appendChild(makeLangAutoUI());
+        var secSlide = rule(6, "Слайдшоу", cfg.slideshow && cfg.slideshow.on, "Автоматическая смена набора по кругу через заданный интервал.");
+        secSlide.appendChild(makeSlideToggle());
+        if (cfg.slideshow.on) secSlide.appendChild(makeObjSlider(cfg.slideshow, "min", "Интервал, мин", 1, 120, 1, 0, INFO.slide_min, DEFAULTS.slideshow.min));
     }
 
     // Вкладка «Вид»: как этот фон выглядит и не мешает ли он читать код.
     function buildTabView(tView) {
-        // ===== Вкладка «Вид»: как всё выглядит =====
-        // Яркость набора
-        var secOp = collapsible(tView, "Яркость набора", "Насколько ярко проступают фоновые картинки в каждой зоне.");
-        [["editor", "Редактор"], ["side", "Сайдбар"], ["panel", "Панель"]].forEach(function (o) { secOp.appendChild(makeOpSlider(o[0], o[1])); });
-        secOp.appendChild(makeAutoDim());
-        // Метр читаемости — прямо под ползунками яркости: там, где эту величину
-        // и крутят. Показывает контраст кода к реальной подложке и чинит прозрачность одним кликом.
+        var simple = panelSimple();
+        // Одна «Яркость фона» + раскрытие «по зонам»; авто-яркость и метр читаемости рядом.
+        var secOp = collapsible(tView, "Яркость набора", "Насколько ярко проступает фон. Один ползунок двигает все зоны сразу; «по зонам» — тонкая настройка редактора, сайдбара и панели.");
+        secOp.appendChild(makeOpMaster());
+        if (!simple) secOp.appendChild(makeAutoDim());
         secOp.appendChild(makeReadabilityUI());
 
-        // Картинка: акцентный цвет + фильтры фоновой картинки по зонам
+        // Картинка: акцент (+ палитры) и в полном режиме — точка фокуса и фильтры картинки.
         var secImg = collapsible(tView, "Картинка", "Акцентный цвет интерфейса и фильтры фоновой картинки по зонам.");
         secImg.appendChild(makeAccentColor());
-        secImg.appendChild(makeAccentSafeUI()); // дальтоник-безопасные акценты + проверка контраста
+        secImg.appendChild(makeAccentSafeUI());
+        secImg.appendChild(makeImgLook());
+        if (simple) return;
+        secImg.appendChild(makeFocusPoint());
         secImg.appendChild(makeImgFilters());
-
-        // Эффекты (тумблеры + сила + стиль частиц — одной секцией, чтобы включение и сила
-        // эффекта жили рядом). Эффектов за 30 — сверху поле-фильтр по названию (чистый UI).
-        var secFx = collapsible(tView, "Эффекты", "Включение/выключение визуальных эффектов и их сила. Наведи на пункт — пояснение «?» и живой предпросмотр. Эффекты сгруппированы по смыслу; «только включённые» прячет выключенные. Конкретный эффект ищи полем поиска над вкладками.");
-        buildEffectsSection(secFx);
 
         // Витрина/скринсейвер: после простоя — крупные часы и имя набора поверх экрана.
         var secSaver = collapsible(tView, "Витрина", "После нескольких минут простоя показывает крупные часы, дату и имя набора поверх экрана; любое действие возвращает редактор. Удобно для стрима и «настроения» рабочего стола.");
@@ -7107,10 +8300,65 @@
         if (cfg.screensaver.on) secSaver.appendChild(makeObjSlider(cfg.screensaver, "min", "Простой, мин", 1, 60, 1, 0, INFO.screensaver_min, DEFAULTS.screensaver.min));
     }
 
+    // Вкладка «Эффекты»: сверху стили (готовые профили — один клик вместо полусотни тумблеров),
+    // ниже в полном режиме — тонкая настройка каждого эффекта.
+    function buildTabFx(tFx) {
+        var secStyle = collapsible(tFx, "Стили", "Готовые стили вида: спокойный, фокус, презентация, минимал, максимум. Один клик настраивает фон и эффекты целиком. Наведи — примерка без применения.");
+        secStyle.appendChild(makeProfilesUI());
+        if (panelSimple()) {
+            var more = makeIoBtn("Тонкая настройка эффектов");
+            more.style.marginTop = "10px";
+            more.addEventListener("click", function () { cfg.ui.simple = false; cfg.ui.tab = tabIndex("Эффекты"); saveCfg(); refreshPanel(); });
+            tFx.appendChild(more);
+            return;
+        }
+        var secFx = collapsible(tFx, "Эффекты", "Включение/выключение визуальных эффектов и их сила. Наведи на пункт — пояснение и живой предпросмотр. Эффекты сгруппированы по смыслу; «только включённые» прячет выключенные. Конкретный эффект ищи полем поиска вверху панели.");
+        buildEffectsSection(secFx);
+    }
+
+    // Образец терминала для вкладки «Терминал». _sync() перечитывает cfg.term.
+    function makeTermSample() {
+        var box = el("div", null); box.className = "mlp-term";
+        var l1 = el("div", null);
+        l1.appendChild(el("span", "color:#a6e3a1;", "~/project"));
+        l1.appendChild(el("span", "color:var(--mlbg-accent);", " git:(main) "));
+        l1.appendChild(el("span", null, "npm run build"));
+        var l2 = el("div", null);
+        l2.appendChild(el("span", "color:#89b4fa;", "=> "));
+        l2.appendChild(el("span", null, "const ok = a !== b && x >= 0;"));
+        var l3 = el("div", null);
+        l3.appendChild(el("span", "color:#f9e2af;", "$ "));
+        var sel = el("span", null, "echo done"); l3.appendChild(sel);
+        l3.appendChild(el("span", null, " "));
+        var cur = el("span", null); cur.className = "mlp-term-cur"; l3.appendChild(cur);
+        box.appendChild(l1); box.appendChild(l2); box.appendChild(l3);
+        box._sync = function () {
+            try {
+                var tm = cfg.term, g = Number(tm.glow) || 0, cc = effTermColor("cursorColor");
+                box.style.fontFamily = "'" + tm.font + "', var(--vscode-editor-font-family, monospace), monospace";
+                box.style.fontWeight = String(tm.weight || 400);
+                box.style.fontVariantLigatures = tm.ligatures ? "normal" : "none";
+                box.style.fontFeatureSettings = tm.ligatures ? "normal" : "'liga' 0, 'calt' 0";
+                box.style.textShadow = g > 0 ? "0 0 " + g + "px rgba(var(--mlbg-accent-rgb)," + Math.min(g * 0.1, 0.6).toFixed(2) + ")" : "none";
+                sel.style.background = effTermColor("selColor"); sel.style.borderRadius = "2px";
+                var cw = Math.max(1, Math.round(2 + (Number(tm.cursorSize) || 1) * 3)), ch = Math.max(0.6, Math.min(1.4, 0.6 + (Number(tm.cursorHeight) || 1) * 0.35));
+                cur.style.width = cw + "px"; cur.style.height = ch.toFixed(2) + "em";
+                cur.style.background = cc;
+                cur.style.boxShadow = tm.cursorGlow ? "0 0 8px " + cc : "none";
+            } catch (e) {}
+        };
+        box._sync();
+        return box;
+    }
+
     // Вкладка «Терминал»: типографика встроенного терминала.
     function buildTabTerm(tTerm) {
-        // ===== Вкладка «Терминал» =====
-        var secTerm = collapsible(tTerm, "Терминал", "Оформление интегрированного терминала: шрифт, лигатуры, свечение, курсор, выделение.");
+        var secTerm = collapsible(tTerm, "Терминал", "Оформление интегрированного терминала: шрифт, лигатуры, свечение, курсор, выделение. Цвета курсора и выделения, пока их не меняли, следуют за акцентом набора.");
+        // Живой образец: контролы секции меняют cfg.term без пересборки панели, поэтому образец
+        // слушает их события сам (как образец текста в настройках cpp-docs-panel).
+        var sample = makeTermSample();
+        secTerm.appendChild(sample);
+        ["input", "change", "click"].forEach(function (ev) { secTerm.addEventListener(ev, function () { setTimeout(sample._sync, 0); }); });
         secTerm.appendChild(makeTermSelect());
         var tgrid = el("div", "display:grid; grid-template-columns:1fr 1fr; gap:1px 10px;");
         tgrid.appendChild(makeTermCheck("ligatures", "Лигатуры"));
@@ -7124,89 +8372,126 @@
         secTerm.appendChild(makeTermColor("selColor", "Выделение"));
     }
 
-    // Вкладка «Система»: работоспособность установки — диагностика, загрузчик, пути, хоткеи.
+    // Что-то не так с установкой: картинка активного набора не грузится или не пишется резерв
+    // на диск. Тогда технические секции «Системы» показываются сами.
+    function installProblem() {
+        try {
+            var idx = activeIndex(), Z = ["editor", "sidebar", "panel"];
+            for (var i = 0; i < Z.length; i++) {
+                var u = zoneUrl(idx, Z[i]); if (!u) continue;
+                var st = probeImage(u);
+                if (st && st.resolved && !st.ok && !st.none) return true;
+            }
+            if (typeof _disk === "object" && _disk.lastErr) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    // Вкладка «Система»: язык, горячие клавиши, знакомство; технические секции — по нужде.
     function buildTabSys(tSys) {
-        // ===== Вкладка «Система»: установка, диагностика, справка =====
-        // Осталась лёгкой: только то, что относится к работоспособности плагина, — а управление
-        // образами и конфигом переехало в отдельную вкладку «Данные» (ниже), чтобы «Система» не
-        // была стеной из секций и кнопок.
-        // Язык панели — самой первой строкой (высокая заметность): переключение RU/EN/Авто.
         tSys.appendChild(makeLangSelect());
+        // Горячие клавиши целиком: выключены — не перехватываются и не упоминаются в интерфейсе.
+        tSys.appendChild(makeToggle(hotkeysOn, function (v) {
+            cfg.ui.keys = v; saveCfg(); try { updateLabel(); } catch (e) {} refreshPanel();
+        }, "Горячие клавиши", INFO.hotkeys));
 
-        // Диагностика установки — первой: если фон «не появился», сюда заглядывают в первую
-        // очередь. Кнопка собирает отчёт (версия, тема, набор, пути картинок, найден ли стиль)
-        // и копирует его в буфер — удобно приложить к issue. Ничего не меняет.
-        var secDiag = collapsible(tSys, "Диагностика", "Проверка установки: что плагин видит о себе (версия, тема, набор, папка и загрузка картинок, активен ли custom-css). Отчёт копируется в буфер для issue. Загляни сюда, если фон не появился.");
-        secDiag.appendChild(makeDiagnosticsUI());
+        var btns = el("div", "display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;");
+        var tourB = makeIoBtn("Показать знакомство с панелью");
+        tourB.addEventListener("click", function () { try { startTour(); } catch (e) {} });
+        btns.appendChild(tourB);
+        var problem = installProblem();
+        if (!panelShowTech && !problem) {
+            // Всё работает — диагностика, загрузчик и папка плагина не нужны. Кнопка раскрывает их.
+            var techB = makeIoBtn("Проблемы с фоном? Проверить установку");
+            techB.addEventListener("click", function () { panelShowTech = true; refreshPanel(); });
+            btns.appendChild(techB);
+        }
+        tSys.appendChild(btns);
 
-        // Папка плагина: база для картинок набора. Нужна при переносе плагина (иначе фон
-        // пропадает — плитки набора с «!»). Отдельная секция, чтобы не путать с путём картинки.
-        // Загрузчик: каким расширением внедрён скрипт и готово ли окно к настоящей прозрачности.
-        // Здесь же — готовые куски settings.json (плагин сам туда писать не может).
-        var secLoader = collapsible(tSys, "Загрузчик", "Каким расширением внедряется плагин (be5invis.vscode-custom-css или subframe7536.custom-ui-style) и готово ли окно к настоящей прозрачности. Кнопки кладут в буфер нужные строки для settings.json.");
-        secLoader.appendChild(makeLoaderUI());
+        if (panelShowTech || problem) {
+            if (problem) tSys.appendChild(el("div", "margin-top:8px; padding:7px 10px; border-radius:10px; font-size:11.5px; color:#f38ba8; background:rgba(243,139,168,0.10); border:1px solid rgba(243,139,168,0.3);",
+                t("Похоже, картинки набора не грузятся — проверь «Папку плагина» и диагностику ниже.")));
+            var secDiag = collapsible(tSys, "Диагностика", "Проверка установки: что плагин видит о себе (версия, тема, набор, папка и загрузка картинок, найден ли стиль). Отчёт копируется в буфер для issue. Загляни сюда, если фон не появился.");
+            secDiag.appendChild(makeDiagnosticsUI());
+            var secLoader = collapsible(tSys, "Загрузчик", "Каким путём внедрён плагин (Moon Core, Custom UI Style или Custom CSS and JS) и готово ли окно к настоящей прозрачности. Кнопки кладут в буфер нужные строки для settings.json.");
+            secLoader.appendChild(makeLoaderUI());
+            var secBase = collapsible(tSys, "Папка плагина", "Откуда брать картинки наборов. Меняй, если перенёс плагин и фон пропал. Пусто — путь определяется автоматически.");
+            secBase.appendChild(makeImgBaseField());
+            secBase.appendChild(makeRemoteImagesToggle());
+        }
 
-        var secBase = collapsible(tSys, "Папка плагина", "Откуда брать картинки наборов. Меняй, если перенёс плагин и фон пропал. Пусто — путь определяется автоматически.");
-        secBase.appendChild(makeImgBaseField());
-        secBase.appendChild(makeRemoteImagesToggle());
+        // Справка по горячим клавишам — только когда они включены (сами хоткеи — boot.js, onHotkey).
+        if (hotkeysOn()) {
+            var secKeys = collapsible(tSys, "Горячие клавиши", "Быстрые действия без открытия панели. Работают на любой раскладке (RU/EN).");
+            [
+                ["Ctrl+Alt+B", "Открыть / закрыть панель"],
+                ["Ctrl+Alt+P", "Быстрый переключатель (наборы, эффекты, команды)"],
+                ["Ctrl+Alt+.", "Следующий набор"],
+                ["Ctrl+Alt+,", "Предыдущий набор"],
+                ["Ctrl+Alt+0", "Фон и эффекты вкл / выкл"],
+                ["Ctrl+Alt+R", "Режим чтения вкл / выкл"],
+                ["Ctrl+Alt+Z", "Отменить изменение вида"],
+                ["Ctrl+Alt+Y", "Повторить отменённое"]
+            ].forEach(function (k) {
+                var row = el("div", "display:flex; align-items:center; gap:8px; padding:2px 3px;");
+                row.appendChild(el("kbd", "flex:0 0 92px; font-family:var(--vscode-editor-font-family,monospace); font-size:10px; text-align:center; padding:2px 4px; border-radius:6px; background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3); color:var(--mlbg-accent);", k[0]));
+                row.appendChild(el("span", "flex:1 1 auto; font-size:11px; color:var(--mlp-muted);", t(k[1])));
+                secKeys.appendChild(row);
+            });
+        }
 
-        // Горячие клавиши: сами хоткеи заданы в boot.js (onHotkey) — здесь только напоминание,
-        // чтобы их можно было узнать, не заглядывая в код/README. Свёрнуто по умолчанию.
-        var secKeys = collapsible(tSys, "Горячие клавиши", "Быстрые действия без открытия панели. Работают на любой раскладке (RU/EN).");
-        [
-            ["Ctrl+Alt+B", "Открыть / закрыть панель"],
-            ["Ctrl+Alt+P", "Быстрый переключатель (наборы, эффекты, команды)"],
-            ["Ctrl+Alt+.", "Следующий набор"],
-            ["Ctrl+Alt+,", "Предыдущий набор"],
-            ["Ctrl+Alt+0", "Фон и эффекты вкл / выкл"],
-            ["Ctrl+Alt+R", "Режим чтения вкл / выкл"],
-            ["Ctrl+Alt+Z", "Отменить изменение вида"],
-            ["Ctrl+Alt+Y", "Повторить отменённое"]
-        ].forEach(function (k) {
-            var row = el("div", "display:flex; align-items:center; gap:8px; padding:2px 3px;");
-            row.appendChild(el("kbd", "flex:0 0 92px; font-family:var(--vscode-editor-font-family,monospace); font-size:10px; text-align:center; padding:2px 4px; border-radius:5px; background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3); color:var(--mlbg-accent);", k[0]));
-            row.appendChild(el("span", "flex:1 1 auto; font-size:11px; color:var(--mlp-muted,#a6adc8);", t(k[1])));
-            secKeys.appendChild(row);
-        });
-
-        // Настройка меню: показать/скрыть секции и эффекты (тело заполняется в конце — нужен полный
-        // список секций всех вкладок из panelAllSections). Саму эту секцию скрыть нельзя (collapsible).
+        // Настройка меню: тело заполняет buildMenuManager, когда созданы все секции всех вкладок.
         var secMenuBody = collapsible(tSys, "Настройка меню", "Показать/скрыть секции и эффекты панели, чтобы меню не разрасталось. Сними галочку — пункт исчезнет из панели (настройки не теряются), «Показать всё» вернёт всё. Быстро скрыть прямо в панели — кнопка «Настроить» в шапке.");
         return secMenuBody;
     }
 
+    // Подзаголовок внутри секции (для «Образов», где под одной крышей несколько блоков).
+    function subHead(text) {
+        return el("div", "margin:10px 2px 4px; font-size:11px; font-weight:700; color:var(--mlp-head);", t(text));
+    }
+
+    // Копии настроек за последние дни (Moon Core пишет по одной в день): клик — вернуть.
+    function makeDailyCopiesUI() {
+        var list = dailyList();
+        if (!list.length) return null;
+        var box = el("div", null);
+        box.appendChild(subHead("Копии настроек по дням"));
+        var row = el("div", "display:flex; flex-wrap:wrap; gap:5px;");
+        list.forEach(function (x) {
+            var b = el("div", null, x.day.slice(5).split("-").reverse().join(".")); b.className = "mlp-chip";
+            b.title = t("Вернуть настройки на ") + x.day;
+            b.addEventListener("click", function () {
+                backupCfg();
+                var keepUi = cfg.ui;
+                cfg = mergeCfg(x.cfg); cfg.ui = keepUi;
+                syncGenSets(); apply(); refreshPanel();
+                toast(t("Настройки возвращены на ") + x.day + t(" — отменить: «Восстановить прежние настройки»"));
+            });
+            keyActivate(b, b.title);
+            row.appendChild(b);
+        });
+        box.appendChild(row);
+        return box;
+    }
+
     // Вкладка «Данные»: образы вида, обмен и управление конфигом.
     function buildTabData(tData) {
-        // ===== Вкладка «Данные»: образы, обмен, конфиг =====
-        // Всё про сохранение/перенос/обмен образом вида + операции над конфигом (экспорт/импорт,
-        // история, восстановление, сброс). Вынесено из «Системы» — этих пунктов много, вместе они
-        // читаются как один смысловой блок и не мешают быстро найти диагностику/установку.
+        var simple = panelSimple();
+        // «Образы»: сохранённые виды, обмен кодом и синхронизация — одна секция вместо четырёх.
+        var secLooks = collapsible(tData, "Образы", "Сохранённые образы вида: весь вид под именем, переключение одним кликом (наведи — примерка). Ниже — обмен коротким кодом и перенос на другие машины.");
+        secLooks.appendChild(makePresetsUI());
+        secLooks.appendChild(subHead("Поделиться кодом"));
+        secLooks.appendChild(makeShareUI());
+        if (!simple) {
+            secLooks.appendChild(subHead("Между машинами"));
+            secLooks.appendChild(makeSyncUI());
 
-        // Профили-пресеты для быстрого старта: один клик настраивает весь вид (см. онбординг).
-        var secProfiles = collapsible(tData, "Профили", "Готовые профили вида: спокойный, фокус, презентация, минимал, максимум. Один клик настраивает фон и эффекты целиком — дальше можно править вручную.");
-        secProfiles.appendChild(makeProfilesUI());
+            var secStats = collapsible(tData, "Статистика", "Сводка текущей сессии: время, тронутые файлы, нажатия, суммарное время в потоке и лучший стрик непрерывной печати. Копится, пока включён тумблер «Статистика» (вкладка «Эффекты»). Данные живут только в этой сессии.");
+            secStats.appendChild(makeStatsUI());
 
-        // Статистика сессии: время, файлы, нажатия, поток, стрик (копится при включённом тумблере «Статистика»).
-        var secStats = collapsible(tData, "Статистика", "Сводка текущей сессии: время, тронутые файлы, нажатия, суммарное время в потоке и лучший стрик непрерывной печати. Копится, пока включён тумблер «Статистика» (вкладка «Вид» → «Эффекты»). Данные живут только в этой сессии.");
-        secStats.appendChild(makeStatsUI());
-
-        // Пресеты (сохранённые образы)
-        var secPreset = collapsible(tData, "Пресеты", "Сохранённые образы: весь вид под именем, переключение одним кликом.");
-        secPreset.appendChild(makePresetsUI());
-
-        // Синхронизация через settings.json: перенос вида на другие машины (едет с Settings Sync).
-        // Требует компаньон-расширение (оно прокидывает базовый конфиг как window.__MLBG_SEED__).
-        var secSync = collapsible(tData, "Синхронизация", "Через settings.json (едет с Settings Sync). Скопируй строку и вставь её в settings.json — вид перенесётся на другие машины. «Загрузить базу» подтянет синхронизированный образ сюда.");
-        secSync.appendChild(makeSyncUI());
-
-        // Поделиться образом коротким кодом (без картинок/путей)
-        var secShare = collapsible(tData, "Поделиться", "Короткий код всего образа для обмена: скопируй свой или примени чужой. Картинки и пути не входят.");
-        secShare.appendChild(makeShareUI());
-
-        // Экспорт цветовой темы VS Code из палитры активного набора: вид живёт и там, где
-        // custom-фон недоступен (vscode.dev, SSH, Codespaces), и находится поиском тем.
-        var secTheme = collapsible(tData, "Экспорт темы", "Собрать настоящую VS Code-тему (color-theme.json) из палитры активного набора: цвета интерфейса + подсветка синтаксиса. Работает там, где custom-фон недоступен. Как применить — в подсказке «?» рядом с кнопкой.");
-        secTheme.appendChild(makeThemeExportUI());
+            var secTheme = collapsible(tData, "Экспорт темы", "Собрать настоящую VS Code-тему (color-theme.json) из палитры активного набора: цвета интерфейса + подсветка синтаксиса. Работает там, где custom-фон недоступен. Как применить — в пояснении: задержи курсор на кнопке.");
+            secTheme.appendChild(makeThemeExportUI());
+        }
 
         // экспорт / импорт
         var io = el("div", "display:flex; gap:8px; margin-top:12px;");
@@ -7214,42 +8499,41 @@
         var impB = makeIoBtn("Импорт"); impB.addEventListener("click", function () { importCfg(); });
         io.appendChild(expB); io.appendChild(impB);
         tData.appendChild(io);
+        if (!simple) tData.appendChild(makeHistoryUI()); // те же кнопки есть в шапке панели
 
-        // История изменений вида (Undo / Redo) в пределах сессии. Отдельно от авто-резерва ниже:
-        // резерв — откат одной крупной замены (импорт/сброс/пресет), а история — пошаговая отмена
-        // правок панели. Хоткеи: Ctrl+Alt+Z / Ctrl+Alt+Y.
-        tData.appendChild(makeHistoryUI());
-
-        // Восстановление из авто-резерва: появляется, когда резерв есть (после импорта/сброса/
-        // пресета). Возвращает конфиг, бывший до последней такой замены (можно нажать повторно).
+        // Опасная зона: копии по дням, восстановление из резерва и полный сброс (со второго клика).
+        var danger = el("div", null); danger.className = "mlp-danger";
+        var drow = el("div", "display:flex; gap:8px; flex-wrap:wrap;");
         if (hasBackup()) {
-            var restB = el("div", "margin-top:8px; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:#89b4fa; background:rgba(137,180,250,0.14); border:1px solid rgba(137,180,250,0.32);", t("Восстановить прежние настройки"));
-            restB.addEventListener("mouseenter", function () { restB.style.background = "rgba(137,180,250,0.26)"; });
-            restB.addEventListener("mouseleave", function () { restB.style.background = "rgba(137,180,250,0.14)"; });
+            var restB = makeIoBtn("Восстановить прежние настройки");
             restB.addEventListener("click", function () { restoreBackup(); });
-            keyActivate(restB, t("Восстановить прежние настройки из резерва"));
-            tData.appendChild(restB);
+            drow.appendChild(restB);
         }
-
-        // сброс
-        var reset = el("div", "margin-top:8px; padding:7px; text-align:center; border-radius:8px; cursor:pointer; font-weight:600; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.14); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);", t("Сбросить к дефолту"));
-        reset.addEventListener("mouseenter", function () { reset.style.background = "rgba(var(--mlbg-accent-rgb),0.26)"; });
-        reset.addEventListener("mouseleave", function () { reset.style.background = "rgba(var(--mlbg-accent-rgb),0.14)"; });
+        var reset = makeIoBtn("Сбросить к дефолту"), armed = 0;
         reset.addEventListener("click", function () {
+            if (!armed) {
+                reset.textContent = t("Точно сбросить? Нажми ещё раз");
+                armed = setTimeout(function () { armed = 0; try { reset.textContent = t("Сбросить к дефолту"); } catch (e) {} }, 3500);
+                return;
+            }
+            clearTimeout(armed); armed = 0;
             var keepMode = cfg.mode, keepUi = cfg.ui; // сброс дизайна, но не положения/свёрнутости панели
             backupCfg();                              // прежние настройки -> резерв (сброс можно откатить)
             cfg = clone(DEFAULTS); cfg.mode = keepMode; cfg.ui = keepUi;
             syncGenSets(); // дефолт без ген-наборов -> обрезать хвост SETS; keepMode на ген-набор зажмётся на 0
             apply(); refreshPanel();
         });
-        keyActivate(reset, t("Сбросить к дефолту"));
-        tData.appendChild(reset);
-
-        // Строка-указатель секций («Свернуть всё» + чип на каждую секцию) была здесь до v20.
-        // Убрана: при 7-8 секциях на вкладке она занимала две строки над содержимым и мешала
-        // больше, чем помогала. Быстрый доступ к секции остался поиском над вкладками (он умеет
-        // раскрывать и подсвечивать нужную) и сворачиванием секций по клику на заголовок.
+        drow.appendChild(reset);
+        danger.appendChild(drow);
+        var daily = makeDailyCopiesUI(); if (daily) danger.appendChild(daily);
+        tData.appendChild(danger);
     }
+
+    // Какая функция наполняет какую вкладку (ключ — имя из TABS в panel.js).
+    var PANEL_TAB_BUILDERS = {
+        "Набор": buildTabSets, "Авто-смена": buildTabAuto, "Вид": buildTabView, "Эффекты": buildTabFx,
+        "Терминал": buildTabTerm, "Данные": buildTabData, "Система": buildTabSys
+    };
 
     // ===================== src/ui/panel.js =====================
 
@@ -7260,7 +8544,40 @@
     var panelCleanup = null, panelPrevFocus = null;
     // Категории панели. Порядок = порядок вкладок и порядок функций наполнения в
     // src/ui/panel-tabs.js; на эти же имена опирается менеджер «Настройка меню».
-    var TABS = ["Набор", "Вид", "Терминал", "Система", "Данные"];
+    // TAB_META[i] = [значок из UI_ICONS, подпись под заголовком страницы].
+    var TABS = ["Набор", "Авто-смена", "Вид", "Эффекты", "Терминал", "Данные", "Система"];
+    var TAB_META = [
+        ["tab-set", "Какой фон показывать и откуда он берётся"],
+        ["tab-auto", "Когда и по какому поводу фон меняется сам"],
+        ["tab-view", "Яркость, акцент и фильтры картинки"],
+        ["tab-fx", "Анимации, стекло, частицы и виджеты"],
+        ["tab-term", "Шрифт, курсор и свечение терминала"],
+        ["tab-data", "Профили, пресеты, обмен и резервные копии"],
+        ["tab-sys", "Язык, загрузчик, диагностика и состав меню"]
+    ];
+    function tabIndex(name) { return TABS.indexOf(name); }
+    // Простой режим (cfg.ui.simple, по умолчанию): только главное — набор, яркость и акцент,
+    // стиль эффектов, образы. Остальные вкладки и секции появляются по кнопке «Все настройки».
+    // Раньше всё было видно сразу, и полсотни контролов отпугивали с первого взгляда.
+    var SIMPLE_TABS = ["Набор", "Вид", "Эффекты", "Данные"];
+    function panelSimple() { return !(cfg.ui && cfg.ui.simple === false); }
+    function tabVisible(name) { return !panelSimple() || SIMPLE_TABS.indexOf(name) >= 0; }
+    // Технические секции «Системы» (диагностика, загрузчик, папка) видны, только когда с фоном
+    // что-то не так, или по кнопке «Проверить установку». Флаг живёт до закрытия панели.
+    var panelShowTech = false;
+    // Поиск на неправильной раскладке: «yf,jh» -> «набор», «ыуеы» -> «sets».
+    var KB_EN = "qwertyuiop[]asdfghjkl;'zxcvbnm,." + String.fromCharCode(96), KB_RU = "йцукенгшщзхъфывапролджэячсмитьбюё";
+    function swapLayout(s) {
+        var out = "";
+        for (var i = 0; i < s.length; i++) {
+            var ch = s[i], a = KB_EN.indexOf(ch), b = KB_RU.indexOf(ch);
+            out += a >= 0 ? KB_RU[a] : (b >= 0 ? KB_EN[b] : ch);
+        }
+        return out;
+    }
+    // Горячие клавиши можно выключить целиком (cfg.ui.keys): тогда они не перехватываются,
+    // а их подписи и справка пропадают из интерфейса.
+    function hotkeysOn() { return !(cfg.ui && cfg.ui.keys === false); }
     // Активная вкладка-категория панели (см. TABS в togglePanel). Модульная переменная, а не
     // поле cfg: переживает refreshPanel (пересборку панели таймерами/действиями) в пределах
     // сессии, но не тянет за собой миграцию схемы конфига. Индекс валидируется при выборе.
@@ -7280,34 +8597,36 @@
     // Совпадение по подписи ИЛИ синониму ведёт к секции (разворот+подсветка) или просто к вкладке.
     /** @type {Array<[string, number, string, string]>} подпись, вкладка, секция, синонимы */
     var PANEL_SEARCH_CATALOG = [
-        ["Яркость: редактор", 1, "Яркость набора", "прозрачность opacity фон код editor brightness"],
-        ["Яркость: сайдбар", 1, "Яркость набора", "прозрачность opacity sidebar проводник"],
-        ["Яркость: панель", 1, "Яркость набора", "прозрачность opacity panel терминал"],
-        ["Авто-яркость", 1, "Яркость набора", "autodim читаемость светлая картинка"],
-        ["Акцентный цвет", 1, "Картинка", "accent цвет hex палитра из картинки"],
-        ["Читаемость кода", 1, "Яркость набора", "контраст wcag читаемость скрим адаптивный исправить"],
-        ["Загрузчик", 3, "Загрузчик", "custom-css custom-ui-style прозрачность mica vibrancy импорт settings"],
+        ["Яркость: редактор", 2, "Яркость набора", "прозрачность opacity фон код editor brightness"],
+        ["Яркость: сайдбар", 2, "Яркость набора", "прозрачность opacity sidebar проводник"],
+        ["Яркость: панель", 2, "Яркость набора", "прозрачность opacity panel терминал"],
+        ["Авто-яркость", 2, "Яркость набора", "autodim читаемость светлая картинка"],
+        ["Акцентный цвет", 2, "Картинка", "accent цвет hex палитра из картинки"],
+        ["Читаемость кода", 2, "Яркость набора", "контраст wcag читаемость скрим адаптивный исправить"],
+        ["Загрузчик", 6, "Загрузчик", "custom-css custom-ui-style прозрачность mica vibrancy импорт settings"],
         ["Свой шейдер", 0, "Шейдер", "glsl webgl шейдер фон gpu"],
-        ["Безопасные акценты", 1, "Картинка", "дальтоник контраст wcag colorblind окабэ"],
-        ["Фильтры картинки", 1, "Картинка", "размытие blur яркость brightness насыщенность saturate вписывание fit путь"],
-        ["Сила эффектов", 1, "Эффекты", "размытие стекла ken burns виньетка помидор aurora спот тон strength ползунок"],
-        ["Стиль частиц", 1, "Эффекты", "particles форма снег сакура дождь конфетти звёзды"],
-        ["Сброс эффектов", 1, "Эффекты", "reset дефолт по умолчанию"],
-        ["Шрифт терминала", 2, "Терминал", "font nerd jetbrains моноширинный"],
-        ["Лигатуры", 2, "Терминал", "ligatures слитные символы"],
-        ["Курсор терминала", 2, "Терминал", "cursor цвет ширина высота"],
-        ["Выделение терминала", 2, "Терминал", "selection цвет"],
-        ["Свечение терминала", 2, "Терминал", "glow тень"],
-        ["Интервал слайдшоу", 0, "Слайдшоу", "минуты interval таймер смена"],
-        ["Границы дня", 0, "По времени суток", "рассвет закат часы sun день ночь"],
-        ["Язык панели", 3, "", "language ru en english русский интерфейс"],
-        ["Экспорт настроек", 4, "", "export json файл сохранить бэкап"],
-        ["Импорт настроек", 4, "", "import json файл загрузить"],
-        ["Отменить / Повторить", 4, "", "undo redo история отменить повторить"],
-        ["Сбросить к дефолту", 4, "", "reset сброс всё по умолчанию"]
+        ["Безопасные акценты", 2, "Картинка", "дальтоник контраст wcag colorblind окабэ"],
+        ["Фильтры картинки", 2, "Картинка", "размытие blur яркость brightness насыщенность saturate вписывание fit путь"],
+        ["Сила эффектов", 3, "Эффекты", "размытие стекла ken burns виньетка помидор aurora спот тон strength ползунок"],
+        ["Стиль частиц", 3, "Эффекты", "particles форма снег сакура дождь конфетти звёзды"],
+        ["Сброс эффектов", 3, "Эффекты", "reset дефолт по умолчанию"],
+        ["Шрифт терминала", 4, "Терминал", "font nerd jetbrains моноширинный"],
+        ["Лигатуры", 4, "Терминал", "ligatures слитные символы"],
+        ["Курсор терминала", 4, "Терминал", "cursor цвет ширина высота"],
+        ["Выделение терминала", 4, "Терминал", "selection цвет"],
+        ["Свечение терминала", 4, "Терминал", "glow тень"],
+        ["Интервал слайдшоу", 1, "Слайдшоу", "минуты interval таймер смена"],
+        ["Границы дня", 1, "По времени суток", "рассвет закат часы sun день ночь"],
+        ["Язык панели", 6, "", "language ru en english русский интерфейс"],
+        ["Экспорт настроек", 5, "", "export json файл сохранить бэкап"],
+        ["Импорт настроек", 5, "", "import json файл загрузить"],
+        ["Отменить / Повторить", 5, "", "undo redo история отменить повторить"],
+        ["Сбросить к дефолту", 5, "", "reset сброс всё по умолчанию"]
     ];
+    var _panelRebuilding = false; // refreshPanel: закрытие ради пересборки не гасит знакомство
     function closePanel() {
         hideInfo();
+        if (!_panelRebuilding) { try { endTour(false); } catch (e) {} panelShowTech = false; }
         try { previewEnd(); } catch (e) {} // снять «залипшее» превью и вернуть реальный набор: удалённый чип может не прислать mouseleave
         try { previewFxEnd(); } catch (e) {} // снять «залипшее» превью эффекта (строка могла не прислать mouseleave)
         try { endLookPreview(); } catch (e) {} // снять «залипшее» превью образа (профиль/пресет мог не прислать mouseleave)
@@ -7333,9 +8652,16 @@
         } catch (e) {}
         return list;
     }
+    // Прокручиваемая область панели: страница справа от вкладок (сама панель не скроллится).
+    function panelScroller(p) {
+        try { var sc = p && p.querySelector && p.querySelector(".mlp-pages"); if (sc) return sc; } catch (e) {}
+        return p;
+    }
     function togglePanel(ev) {
         ev.stopPropagation();
         if (document.getElementById(PANEL_ID)) { closePanel(); return; }
+        try { closeQuickMenu(); } catch (e) {}
+        ensurePanelCss();
 
         panelSections = []; // индекс секций для поиска — заново под текущую сборку панели
         panelAllSections = []; // полный список секций (в т.ч. скрытых) для менеджера «Настройка меню»
@@ -7344,35 +8670,34 @@
         var p = el("div", null);
         p.id = PANEL_ID;
         p.setAttribute("role", "dialog");
-        p.setAttribute("aria-modal", "true");
-        p.setAttribute("aria-label", "Фон и дизайн — настройки");
+        p.setAttribute("aria-modal", cfg.ui.pinned ? "false" : "true");
+        p.setAttribute("aria-label", t("Фон и дизайн — настройки"));
         p.tabIndex = -1; // чтобы можно было сфокусировать сам диалог при открытии
-        // Ширина панели: запомненная (cfg.ui.width) или дефолт 380, зажатая в
-        // разумные пределы и под ширину окна. Тянется за левый край (ручка ниже).
-        var PANEL_W_MIN = 320, PANEL_W_MAX = 760, panelW = 380;
+        // Ширина: запомненная (cfg.ui.width) или 560 — под колонку вкладок слева. Тянется за
+        // левый край (ручка ниже). Уже 470 px вкладки сворачиваются до значков (.mlp-narrow).
+        var PANEL_W_MIN = 320, PANEL_W_MAX = 760, panelW = 580, NARROW_W = 480;
         if (typeof cfg.ui.width === "number") panelW = Math.max(PANEL_W_MIN, Math.min(PANEL_W_MAX, cfg.ui.width));
         try { panelW = Math.min(panelW, (window.innerWidth || 800) - 16); } catch (e) {}
+        function syncNarrow(w) { try { p.classList.toggle("mlp-narrow", w < NARROW_W); } catch (e) {} }
+        // Высота фиксированная: при смене вкладки окно не прыгает (оно привязано к кнопке BG снизу).
         p.style.cssText =
-            "position:fixed; z-index:100000; width:" + panelW + "px; max-height:82vh; overflow-y:auto; overflow-x:hidden;" +
-            "background:var(--mlp-bg,rgba(24,24,37,0.98)); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);" +
-            "border:1px solid rgba(var(--mlbg-accent-rgb),0.35); border-radius:12px; padding:10px 13px 13px;" +
-            "box-shadow:0 14px 40px rgba(0,0,0,0.6); font-size:12px; line-height:1.35; color:var(--mlp-fg,#cdd6f4);" +
+            "position:fixed; z-index:100000; width:" + panelW + "px; height:min(640px, 82vh); box-sizing:border-box;" +
+            "background:var(--mlp-bg); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);" +
+            "border:1px solid rgba(var(--mlbg-accent-rgb),0.35); font-size:12px; line-height:1.35; color:var(--mlp-fg);" +
             "font-family:var(--vscode-font-family, sans-serif);";
-        // Палитра панели как CSS-переменные на её корне — контролы (метки, поля, границы)
-        // читают их через var(--mlp-*, <тёмный fallback>). На тёмной теме значения равны
-        // прежним литералам (внешний вид не меняется), на светлой — подменяются на светлые,
-        // иначе панель оставалась тёмной поверх светлого VS Code. Каскадирует на всех потомков.
+        syncNarrow(panelW);
+        // Палитра панели как CSS-переменные на её корне: контролы и panel-css.js читают --mlp-*.
+        // На светлой теме значения светлые, иначе панель оставалась тёмной поверх светлого VS Code.
+        // --mlp-tint — RGB нейтрального оттенка для полупрозрачных подложек (карточки, треки).
         (function () {
-            // faint подняли по контрасту (WCAG): на светлой теме темнее (#6b6e85 вместо #8c8fa1),
-            // на тёмной светлее (#8b93ad вместо #6c7086) — вспомогательный текст стал читаемым.
             var V = isLightTheme() ? {
                 fg: "#1e1e2e", muted: "#5c5f77", faint: "#6b6e85", field: "rgba(255,255,255,0.75)",
                 border: "rgba(30,30,46,0.22)", borderSoft: "rgba(30,30,46,0.16)", borderFaint: "rgba(30,30,46,0.12)",
-                head: "#4c4f69", bg: "rgba(245,245,250,0.98)"
+                head: "#4c4f69", bg: "rgba(245,245,250,0.98)", tint: "30,30,46"
             } : {
                 fg: "#cdd6f4", muted: "#a6adc8", faint: "#8b93ad", field: "rgba(30,30,46,0.6)",
                 border: "rgba(205,214,244,0.2)", borderSoft: "rgba(205,214,244,0.16)", borderFaint: "rgba(205,214,244,0.12)",
-                head: "#bac2de", bg: "rgba(24,24,37,0.98)"
+                head: "#bac2de", bg: "rgba(24,24,37,0.97)", tint: "205,214,244"
             };
             try {
                 p.style.setProperty("--mlp-bg", V.bg);
@@ -7384,35 +8709,71 @@
                 p.style.setProperty("--mlp-border-soft", V.borderSoft);
                 p.style.setProperty("--mlp-border-faint", V.borderFaint);
                 p.style.setProperty("--mlp-head", V.head);
+                p.style.setProperty("--mlp-tint", V.tint);
+                // Светлая тема: пастельный акцент набора как цвет текста/рамок на светлом фоне не
+                // читается. Внутри панели подменяем его затемнённым до контраста 4.5:1 (оттенок тот же).
+                if (isLightTheme()) {
+                    var dark = accentForContrast(safeColor(getAccent(), DEFAULTS.accent), "#f5f5fa", 4.5);
+                    p.style.setProperty("--mlbg-accent", dark);
+                    p.style.setProperty("--mlbg-accent-rgb", hexToRgbArr(dark).join(","));
+                    p.style.setProperty("--mlp-on-accent", "#ffffff"); // текст на затемнённом акценте
+                }
             } catch (e) {}
         })();
         p.addEventListener("click", function (e) { e.stopPropagation(); });
+        // Перетащить картинку (из проводника VS Code) в панель — она станет фоном активного набора.
+        p.addEventListener("dragover", function (e) {
+            var dt = e.dataTransfer; if (!dt) return;
+            e.preventDefault(); try { dt.dropEffect = "copy"; } catch (er) {}
+            p.classList.add("mlp-drop");
+        });
+        p.addEventListener("dragleave", function (e) { if (!p.contains(/** @type {Node} */ (e.relatedTarget))) p.classList.remove("mlp-drop"); });
+        p.addEventListener("drop", function (e) {
+            e.preventDefault(); p.classList.remove("mlp-drop");
+            var url = droppedImageUrl(e.dataTransfer);
+            if (url) setUserImage(url);
+            else toast(t("Перетащи картинку из проводника VS Code или нажми «Своя картинка…»"), false);
+        });
 
-        // Заголовок = ручка перетаскивания
-        var head = el("div", "display:flex; align-items:center; justify-content:space-between; cursor:move; user-select:none; padding:2px 2px 7px;");
-        head.appendChild(el("div", "font-weight:700; font-size:13px; letter-spacing:0.3px;", t("⠿  Фон и дизайн")));
-        var hr = el("div", "display:flex; align-items:center; gap:5px;");
-        // Кнопка «Настроить» — режим настройки меню: у секций и эффектов появляются кнопки «скрыть».
-        var editB = el("div", "flex:0 0 auto; padding:2px 8px; border-radius:6px; cursor:pointer; font-size:11px; " +
-            (panelEditMenu ? "color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.18); border:1px solid rgba(var(--mlbg-accent-rgb),0.4);"
-                           : "color:var(--mlp-muted,#a6adc8); background:rgba(var(--mlbg-accent-rgb),0.06); border:1px solid var(--mlp-border-faint,rgba(205,214,244,0.12));"),
-            t("Настроить"));
-        editB.title = t("Настроить меню: показать кнопки «скрыть» у секций и эффектов");
-        editB.addEventListener("click", function (e) { e.stopPropagation(); panelEditMenu = !panelEditMenu; try { refreshPanel(); } catch (er) {} });
-        keyActivate(editB, t("Настроить меню"));
-        hr.appendChild(editB);
-        var infoAll = infoDot(t("Перетаскивай окно за заголовок. Секции сворачиваются кликом по названию. У настроек «?» — клик показывает пояснение. Положение и свёрнутость запоминаются."));
-        if (infoAll) hr.appendChild(infoAll);
-        var close = el("div", "flex:0 0 auto; width:20px; height:20px; line-height:18px; text-align:center; border-radius:6px; cursor:pointer; color:var(--mlp-muted,#a6adc8);", "×");
-        close.addEventListener("mouseenter", function () { close.style.background = "rgba(var(--mlbg-accent-rgb),0.2)"; });
-        close.addEventListener("mouseleave", function () { close.style.background = "transparent"; });
-        close.addEventListener("click", function (e) { e.stopPropagation(); closePanel(); });
-        keyActivate(close, t("Закрыть"));
-        hr.appendChild(close);
-        head.appendChild(hr);
+        // ===== Шапка: значок, заголовок с подписью, кнопки действий. Она же — ручка перетаскивания =====
+        var head = el("div", null); head.className = "mlp-head";
+        var hic = el("div", null); hic.className = "mlp-hic";
+        var logo = uiIcon("logo", 26); if (logo) hic.appendChild(logo);
+        head.appendChild(hic);
+        var ht = el("div", null); ht.className = "mlp-ht";
+        ht.appendChild(el("b", null, t("Фон и дизайн")));
+        ht.appendChild(el("span", null, t("Всё меняется сразу — сохранять не нужно")));
+        head.appendChild(ht);
+        var hbtns = [];
+        function hbtn(text, title, onClick, extraCls) {
+            var b = el("div", null, text); b.className = "mlp-hbtn" + (extraCls ? " " + extraCls : "");
+            b.title = title;
+            b.addEventListener("click", function (e) { e.stopPropagation(); onClick(); });
+            keyActivate(b, title);
+            hbtns.push(b); head.appendChild(b);
+            return b;
+        }
+        // Быстрый переключатель (наборы, эффекты, команды) — раньше только по Ctrl+Alt+P.
+        hbtn("⌕", t("Быстрый переключатель: наборы, эффекты, команды"), function () { closePanel(); try { openQuick(); } catch (e) {} });
+        hbtn("↶", t("Отменить изменение вида"), function () { undo(); }, canUndo() ? "" : "off");
+        hbtn("↷", t("Повторить отменённое"), function () { redo(); }, canRedo() ? "" : "off");
+        // Простой / полный режим панели.
+        hbtn(panelSimple() ? t("Все настройки") : t("Проще"),
+            panelSimple() ? t("Показать все вкладки и настройки") : t("Оставить только главное"),
+            function () { cfg.ui.simple = !panelSimple(); panelEditMenu = false; saveCfg(); try { refreshPanel(); } catch (er) {} });
+        // «Настроить» — режим настройки меню: у секций и эффектов появляются «скрыть» и звёздочка.
+        // В простом режиме прятать нечего — кнопки нет.
+        if (!panelSimple()) hbtn(t("Настроить"), t("Настроить меню: показать кнопки «скрыть» у секций и эффектов"),
+            function () { panelEditMenu = !panelEditMenu; try { refreshPanel(); } catch (er) {} }, panelEditMenu ? "on" : "");
+        // Закрепить: панель не закрывается кликом мимо и не ловит клавиши вне себя — можно
+        // крутить настройки и параллельно работать в редакторе.
+        var pinB = hbtn("", cfg.ui.pinned ? t("Открепить панель") : t("Закрепить панель: не закрывать кликом мимо"),
+            function () { cfg.ui.pinned = !cfg.ui.pinned; saveCfg(); try { refreshPanel(); } catch (e) {} }, cfg.ui.pinned ? "on" : "");
+        var pinIco = uiIcon("pin", 16); if (pinIco) pinB.appendChild(pinIco); else pinB.textContent = "◉";
+        var close = hbtn("✕", t("Закрыть"), function () { closePanel(); });
         p.appendChild(head);
 
-        // Перетаскивание за заголовок (в пределах окна)
+        // Перетаскивание за шапку (в пределах окна)
         var drag = null;
         function onMove(e) {
             if (!drag) return;
@@ -7430,7 +8791,8 @@
             cfg.ui.posX = Math.round(r.left); cfg.ui.posY = Math.round(r.top); saveCfg();
         }
         head.addEventListener("mousedown", function (e) {
-            if (e.button !== 0 || close.contains(e.target) || (infoAll && infoAll.contains(e.target)) || (editB && editB.contains(e.target))) return;
+            if (e.button !== 0) return;
+            for (var hb = 0; hb < hbtns.length; hb++) if (hbtns[hb].contains(e.target)) return;
             hideInfo();
             var r = p.getBoundingClientRect();
             drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
@@ -7440,9 +8802,13 @@
             document.addEventListener("mousemove", onMove);
             document.addEventListener("mouseup", onUp);
         });
+        // Двойной клик по шапке — вернуть панель к кнопке BG (забыть перетащенную позицию).
+        head.addEventListener("dblclick", function (e) {
+            for (var hb = 0; hb < hbtns.length; hb++) if (hbtns[hb].contains(e.target)) return;
+            cfg.ui.posX = null; cfg.ui.posY = null; saveCfg(); try { refreshPanel(); } catch (er) {}
+        });
 
-        // Ручка изменения ширины: тонкая полоса у левого края панели. Тянешь влево —
-        // шире, вправо — уже; правый край при этом закреплён (рост идёт влево). Ширина сохраняется.
+        // Ручка изменения ширины: тонкая полоса у левого края. Правый край закреплён (рост влево).
         var grip = el("div", "position:absolute; left:0; top:0; bottom:0; width:6px; cursor:ew-resize; z-index:5;");
         grip.title = t("Потянуть — ширина панели");
         grip.setAttribute("aria-hidden", "true");
@@ -7451,7 +8817,7 @@
             if (!rz) return;
             var w = Math.max(PANEL_W_MIN, Math.min(PANEL_W_MAX, rz.w + (rz.x - e.clientX)));
             try { w = Math.min(w, (window.innerWidth || 800) - 16); } catch (er) {}
-            p.style.width = w + "px";
+            p.style.width = w + "px"; syncNarrow(w);
         }
         function onRzUp() {
             if (!rz) return;
@@ -7467,119 +8833,116 @@
             hideInfo();
             var r = p.getBoundingClientRect();
             rz = { x: e.clientX, w: r.width };
-            // Закрепляем правый край, чтобы панель росла/сжималась влево, а не «уползала».
             p.style.left = "auto"; p.style.right = Math.max(0, (window.innerWidth || 800) - r.right) + "px";
             document.addEventListener("mousemove", onRz);
             document.addEventListener("mouseup", onRzUp);
         });
         p.appendChild(grip);
 
-        // Мастер-выключатель фона/эффектов (вверху, до секций и вкладок — он глобальный)
-        p.appendChild(makeMasterToggle());
+        // ===== Верхняя полоса: мастер-выключатель + поиск по настройкам =====
+        var top = el("div", null); top.className = "mlp-top";
+        top.appendChild(makeMasterToggle());
+        p.appendChild(top);
 
-        // Блок «Избранное»: закреплённые секции и эффекты, поднятые наверх панели.
-        // Позицию (сразу под мастер-выключателем) фиксируем здесь, а наполняем в конце (buildFavorites),
-        // когда известны секции (panelAllSections) и навигация (selectTab/sectionByTitle). Пуст и не в
-        // режиме «Настроить» — скрыт целиком.
-        var favBox = el("div", null); favBox.hidden = true;
+        // Блок «Избранное»: закреплённые секции и эффекты. Позицию фиксируем здесь, наполняем в
+        // конце (buildFavorites), когда известны все секции и навигация. Пуст — скрыт целиком.
+        // Совет — над избранным: одна строка с действием, если панель заметила проблему.
+        try { var tipCard = makeTipCard(); if (tipCard) { var tipWrap = el("div", "padding:0 14px 8px;"); tipWrap.appendChild(tipCard); p.appendChild(tipWrap); } } catch (e) {}
+        var favBox = el("div", null); favBox.className = "mlp-fav"; favBox.hidden = true;
         p.appendChild(favBox);
 
-        // ===== Вкладки-категории =====
-        // Полтора десятка секций разложены по пяти вкладкам, чтобы одновременно была видна только
-        // одна группа. Скрытые вкладки помечены hidden — их не видят ни ловушка Tab, ни стартовый
-        // фокус (panelFocusables отсеивает offsetParent === null). Активная вкладка помнится между
-        // сессиями в cfg.ui.tab; клампим её под текущее число вкладок.
+        // ===== Вкладки колонкой слева + страница справа =====
+        // Активная вкладка помнится между сессиями в cfg.ui.tab; клампим под текущее число вкладок.
         if (typeof cfg.ui.tab === "number") panelTab = cfg.ui.tab;
-        if (panelTab < 0 || panelTab >= TABS.length) panelTab = 0;
+        if (panelTab < 0 || panelTab >= TABS.length || !tabVisible(TABS[panelTab])) panelTab = 0;
+        var body = el("div", null); body.className = "mlp-body";
+        var nav = el("div", null); nav.className = "mlp-nav";
+        nav.setAttribute("role", "tablist"); nav.setAttribute("aria-orientation", "vertical");
+        nav.setAttribute("aria-label", t("Категории настроек"));
+        var pages = el("div", null); pages.className = "mlp-pages";
+        body.appendChild(nav); body.appendChild(pages);
         var tabPanes = [], tabBtns = [];
         function styleTabBtn(btn, active) {
-            btn.style.cssText =
-                "position:relative; flex:1 1 0; text-align:center; padding:6px 3px; border-radius:8px 8px 0 0; cursor:pointer;" +
-                "font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" +
-                "font-weight:" + (active ? "700" : "500") + ";" +
-                "color:" + (active ? "var(--mlbg-accent)" : "var(--mlp-muted,#a6adc8)") + ";" +
-                "background:" + (active ? "rgba(var(--mlbg-accent-rgb),0.16)" : "transparent") + ";" +
-                "border-bottom:2px solid " + (active ? "var(--mlbg-accent)" : "var(--mlp-border-faint,rgba(205,214,244,0.12))") + ";";
+            btn.className = "mlp-tab" + (active ? " on" : "");
             btn.setAttribute("aria-selected", active ? "true" : "false");
             btn.tabIndex = active ? 0 : -1; // роуминг-tabindex: Tab заходит на активную вкладку, стрелки ходят между ними
         }
         function selectTab(ti, focusBtn) {
             if (ti < 0 || ti >= tabPanes.length) return;
+            if (!tabVisible(TABS[ti])) { cfg.ui.simple = false; cfg.ui.tab = ti; saveCfg(); try { refreshPanel(); } catch (e) {} return; }
             panelTab = ti;
             cfg.ui.tab = ti; saveCfg(); // запомнить вкладку между сессиями
             for (var i = 0; i < tabPanes.length; i++) tabPanes[i].hidden = (i !== ti);
             for (var b = 0; b < tabBtns.length; b++) styleTabBtn(tabBtns[b], b === ti);
             if (focusBtn) { try { tabBtns[ti].focus(); } catch (e) {} }
-            try { p.scrollTop = 0; } catch (e) {}
+            try { pages.scrollTop = 0; } catch (e) {}
         }
-        // Счётчик-бейдж вкладки: сколько на вкладке активного/не-по-умолчанию — чтобы
-        // с одного взгляда понять, где что включено, не открывая каждую. 0 -> бейджа нет.
-        function tabBadgeCount(ti) {
+        // Бейдж вкладки: сколько там включено/изменено — видно, где что настроено, не открывая.
+        function tabBadgeCount(name) {
             try {
-                if (ti === 0) { // Набор: включённые авто/контекст-режимы выбора набора
+                if (name === "Авто-смена") { // включённые режимы авто-смены набора
                     var n = 0;
                     if (cfg.slideshow && cfg.slideshow.on) n++;
                     if (cfg.autoTime && cfg.autoTime.on) n++;
                     if (cfg.autoWorkspace) n++;
                     if (cfg.autoBranch) n++;
                     if (cfg.autoLang) n++;
-                    if (cfg.librarySlideshow) n++;
+                    if (cfg.autoRemote) n++;
                     return n;
                 }
-                if (ti === 1) { var c = 0, k; for (k in cfg.fx) if (cfg.fx[k]) c++; return c; }          // Вид: включённые эффекты
-                if (ti === 2) { var d = 0, t2; for (t2 in DEFAULTS.term) if (cfg.term[t2] !== DEFAULTS.term[t2]) d++; return d; } // Терминал: не-дефолтные настройки
-                if (ti === 3) { return (cfg.ui.hidden ? Object.keys(cfg.ui.hidden).length : 0) + (cfg.ui.hiddenFx ? Object.keys(cfg.ui.hiddenFx).length : 0); } // Система: скрытые пункты меню
-                if (ti === 4) { try { return Object.keys(loadPresets()).length; } catch (e) { return 0; } } // Данные: сохранённые пресеты
+                if (name === "Набор") return cfg.librarySlideshow ? 1 : 0; // крутится своя библиотека
+                if (name === "Эффекты") { var c = 0, k; for (k in cfg.fx) if (cfg.fx[k]) c++; return c; }
+                if (name === "Терминал") { var d = 0, t2; for (t2 in DEFAULTS.term) if (cfg.term[t2] !== DEFAULTS.term[t2]) d++; return d; }
+                if (name === "Данные") { try { return Object.keys(loadPresets()).length; } catch (e) { return 0; } }
             } catch (e) {}
             return 0;
         }
-        // Бар вкладок «прилипает» к верху при прокрутке длинной вкладки (напр. «Вид» с сеткой
-        // эффектов), чтобы переключаться, не мотая вверх. Фон бара = фон панели (нет просвечивания).
-        var tabBar = el("div",
-            "display:flex; gap:3px; margin:6px 0 2px; position:sticky; top:0; z-index:3;" +
-            "background:var(--mlp-bg,rgba(24,24,37,0.98));");
-        tabBar.setAttribute("role", "tablist");
-        tabBar.setAttribute("aria-label", t("Категории настроек"));
         TABS.forEach(function (tabName, ti) {
+            var meta = TAB_META[ti] || ["", ""];
             var btn = el("div", null);
             btn.id = PANEL_ID + "-tab-" + ti;
-            btn.appendChild(el("span", "vertical-align:middle;", t(tabName)));
-            var cnt = tabBadgeCount(ti);
+            var tic = el("span", null); tic.className = "mlp-tic";
+            var ico = uiIcon(meta[0], 21); if (ico) tic.appendChild(ico);
+            btn.appendChild(tic);
+            var tl = el("span", null, t(tabName)); tl.className = "mlp-tl"; btn.appendChild(tl);
+            var cnt = tabBadgeCount(tabName);
             if (cnt > 0) {
-                var badge = el("span",
-                    "position:absolute; top:1px; right:2px; min-width:14px; height:13px; line-height:11px; padding:0 3px; box-sizing:border-box;" +
-                    "border-radius:7px; font-size:8px; font-weight:700; text-align:center;" +
-                    "color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.22); border:1px solid rgba(var(--mlbg-accent-rgb),0.5);", String(cnt));
+                var badge = el("span", null, String(cnt)); badge.className = "mlp-badge";
                 badge.setAttribute("aria-hidden", "true");
                 btn.appendChild(badge);
             }
             keyActivate(btn, t(tabName) + (cnt ? " (" + cnt + ")" : ""));
             btn.setAttribute("role", "tab");
+            btn.title = t(tabName);
             styleTabBtn(btn, ti === panelTab);
             btn.addEventListener("click", function () { selectTab(ti); });
-            tabBtns.push(btn); tabBar.appendChild(btn);
-            var pane = el("div", null); pane.setAttribute("role", "tabpanel");
+            tabBtns.push(btn);
+            if (tabVisible(tabName)) nav.appendChild(btn); // скрытая вкладка простого режима: кнопки нет, индексы те же
+            var pane = el("div", null); pane.className = "mlp-page"; pane.setAttribute("role", "tabpanel");
             pane.id = PANEL_ID + "-pane-" + ti;
             pane.setAttribute("aria-labelledby", btn.id);
             btn.setAttribute("aria-controls", pane.id);
             pane.hidden = (ti !== panelTab);
-            tabPanes.push(pane);
+            var ph = el("div", null); ph.className = "mlp-ph";
+            ph.appendChild(el("b", null, t(tabName)));
+            ph.appendChild(el("span", null, t(meta[1])));
+            pane.appendChild(ph);
+            tabPanes.push(pane); pages.appendChild(pane);
         });
-        // ===== Поиск по панели (над баром вкладок) =====
+        // ===== Поиск по панели =====
         // Быстрый переход к любой секции на любой вкладке: набери часть названия («терм», «пресет»,
-        // «виньет») — в выпадающем списке появятся совпадения (секции + отдельные эффекты). Выбор
-        // переключает вкладку, разворачивает секцию и подсвечивает её; для эффекта дополнительно
-        // проставляется фильтр внутри секции «Эффекты». Индекс — panelSections (наполняется ниже).
-        var searchWrap = el("div", "position:relative; margin:4px 0 2px;");
-        var searchInp = el("input", fieldStyle(" padding:5px 8px; font-size:11px;"));
+        // «виньет») — в выпадающем списке появятся совпадения (секции + эффекты + отдельные контролы).
+        var searchWrap = el("div", null); searchWrap.className = "mlp-search";
+        var searchInp = el("input", fieldStyle(" width:100%; box-sizing:border-box; font-size:11.5px;"));
         searchInp.type = "text"; searchInp.placeholder = t("Поиск настроек…"); searchInp.maxLength = 40;
         searchInp.setAttribute("aria-label", t("Поиск настроек…"));
         var searchRes = el("div",
-            "position:absolute; left:0; right:0; top:100%; z-index:6; margin-top:2px; max-height:240px; overflow-y:auto;" +
-            "background:var(--mlp-bg,rgba(24,24,37,0.99)); border:1px solid rgba(var(--mlbg-accent-rgb),0.35); border-radius:8px;" +
-            "box-shadow:0 10px 28px rgba(0,0,0,0.5);");
+            "position:absolute; left:0; right:0; top:100%; z-index:6; margin-top:4px; max-height:260px; overflow-y:auto; padding:4px;" +
+            "background:var(--mlp-bg); border:1px solid rgba(var(--mlbg-accent-rgb),0.35); border-radius:11px;" +
+            "box-shadow:0 12px 30px rgba(0,0,0,0.5);");
         searchRes.hidden = true;
         searchWrap.appendChild(searchInp); searchWrap.appendChild(searchRes);
+        top.appendChild(searchWrap);
         function flashSection(head) {
             try {
                 if (head.scrollIntoView) head.scrollIntoView({ block: "nearest" });
@@ -7595,13 +8958,12 @@
             searchRes.hidden = true; searchInp.value = "";
             flashSection(entry.head);
         }
-        // Переход из поиска к КОНКРЕТНОМУ эффекту: открываем «Вид», разворачиваем
-        // «Эффекты», снимаем «только включённые» (чтобы цель не была спрятана) и запоминаем ключ —
-        // после пересборки панели блок фокуса (в конце togglePanel) прокрутит к нему и подсветит.
+        // Переход к КОНКРЕТНОМУ эффекту: вкладка «Эффекты», секция развёрнута, фильтр «только
+        // включённые» снят; после пересборки блок фокуса (в конце togglePanel) прокрутит к нему.
         function goEffect(key) {
-            fxFocusKey = key; fxOnlyOn = false;
-            if (cfg.ui.collapsed) delete cfg.ui.collapsed["Эффекты"]; // развернуть секцию эффектов
-            cfg.ui.tab = 1; // вкладка «Вид»
+            fxFocusKey = key; fxOnlyOn = false; cfg.ui.simple = false; // сетка эффектов — в полном режиме
+            if (cfg.ui.collapsed) delete cfg.ui.collapsed["Эффекты"];
+            cfg.ui.tab = tabIndex("Эффекты");
             searchRes.hidden = true; searchInp.value = "";
             saveCfg(); try { refreshPanel(); } catch (e) {}
         }
@@ -7613,28 +8975,30 @@
             var q = (searchInp.value || "").trim().toLowerCase();
             searchRes.textContent = "";
             if (!q) { searchRes.hidden = true; return; }
+            var q2 = swapLayout(q);
+            function hit(s) { s = String(s || "").toLowerCase(); return s.indexOf(q) >= 0 || s.indexOf(q2) >= 0; }
             var rows = [], seen = {};
             panelSections.forEach(function (s) { // секции по названию (совпадение по переводу или по русскому ключу)
                 var disp = s.label || s.title;
-                if ((disp.toLowerCase().indexOf(q) >= 0 || s.title.toLowerCase().indexOf(q) >= 0) && !seen["s:" + s.title]) {
+                if ((hit(disp) || hit(s.title)) && !seen["s:" + s.title]) {
                     seen["s:" + s.title] = 1; seen["l:" + disp] = 1;
                     var ti = tabPanes.indexOf(s.parent);
                     rows.push({ label: disp, sub: ti >= 0 ? t(TABS[ti]) : "", act: (function (sec) { return function () { goSection(sec); }; })(s) });
                 }
             });
             FX_LIST.forEach(function (o) { // отдельные эффекты -> переход прямо к их тумблеру (goEffect)
-                var disp = t(o[1]); // переведённое имя эффекта
-                if ((disp.toLowerCase().indexOf(q) >= 0 || o[1].toLowerCase().indexOf(q) >= 0) && !seen["f:" + o[0]]) {
+                var disp = t(o[1]);
+                if ((hit(disp) || hit(o[1])) && !seen["f:" + o[0]]) {
                     seen["f:" + o[0]] = 1;
-                    rows.push({ label: t("Эффект: ") + disp, sub: t("Вид"), act: (function (key) { return function () { goEffect(key); }; })(o[0]) });
+                    rows.push({ label: t("Эффект: ") + disp, sub: t("Эффекты"), act: (function (key) { return function () { goEffect(key); }; })(o[0]) });
                 }
             });
             // Глубокий поиск: отдельные контролы из каталога (по подписи ИЛИ синониму RU/EN).
             PANEL_SEARCH_CATALOG.forEach(function (c) {
                 var label = c[0], tab = c[1], secTitle = c[2], syn = c[3] || "";
                 var disp = t(label);
-                if ((disp + " " + label + " " + syn).toLowerCase().indexOf(q) < 0) return;
-                if (seen["c:" + label] || seen["l:" + disp]) return; // дубли с самим собой и с секцией того же имени
+                if (!hit(disp + " " + label + " " + syn)) return;
+                if (seen["c:" + label] || seen["l:" + disp]) return;
                 seen["c:" + label] = 1;
                 rows.push({
                     label: disp, sub: (tab >= 0 && tab < TABS.length) ? t(TABS[tab]) : "",
@@ -7642,16 +9006,23 @@
                         return function () {
                             var sec = st ? sectionByTitle(st) : null;
                             if (sec) { goSection(sec); return; }
-                            selectTab(tb); searchRes.hidden = true; searchInp.value = ""; try { p.scrollTop = 0; } catch (e) {}
+                            // Секции нет в текущей сборке (простой режим или техническая секция) —
+                            // открываем полный режим на нужной вкладке и разворачиваем её там.
+                            if (st) {
+                                cfg.ui.simple = false; panelShowTech = true; cfg.ui.tab = tb; panelStartFocus = st;
+                                if (cfg.ui.collapsed) delete cfg.ui.collapsed[st];
+                                saveCfg(); try { refreshPanel(); } catch (e) {} return;
+                            }
+                            selectTab(tb); searchRes.hidden = true; searchInp.value = "";
                         };
                     })(tab, secTitle)
                 });
             });
             searchRes.hidden = false;
-            if (!rows.length) { searchRes.appendChild(el("div", "padding:7px 9px; font-size:11px; color:var(--mlp-faint,#6c7086);", t("Ничего не найдено"))); return; }
+            if (!rows.length) { searchRes.appendChild(emptyState("Ничего не найдено", "noresult")); return; }
             rows.slice(0, 10).forEach(function (r) {
-                var row = el("div", "display:flex; align-items:center; gap:8px; padding:6px 9px; cursor:pointer; font-size:11px;");
-                row.appendChild(el("span", "flex:1 1 auto; color:var(--mlp-fg,#cdd6f4);", r.label));
+                var row = el("div", "display:flex; align-items:center; gap:8px; padding:6px 9px; border-radius:8px; cursor:pointer; font-size:11.5px;");
+                row.appendChild(el("span", "flex:1 1 auto; color:var(--mlp-fg);", r.label));
                 if (r.sub) row.appendChild(el("span", "flex:0 0 auto; font-size:10px; color:var(--mlbg-accent);", r.sub));
                 row.addEventListener("mouseenter", function () { row.style.background = "rgba(var(--mlbg-accent-rgb),0.14)"; });
                 row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
@@ -7665,20 +9036,18 @@
             if (e.key === "Escape" && searchInp.value) { e.stopPropagation(); searchInp.value = ""; searchRes.hidden = true; }
             else if (e.key === "Enter") { var first = searchRes.firstChild; if (first && first.click) { e.preventDefault(); first.click(); } }
         });
-        p.appendChild(searchWrap);
 
-        p.appendChild(tabBar);
-        tabPanes.forEach(function (pane) { p.appendChild(pane); });
-        var tSet = tabPanes[0], tView = tabPanes[1], tTerm = tabPanes[2], tSys = tabPanes[3], tData = tabPanes[4];
+        p.appendChild(body);
 
-        // Секции вкладок живут в src/ui/panel-tabs.js: там видно, что где лежит, без 300 строк
-        // посреди сборки каркаса. «Система» возвращает тело секции «Настройка меню» — его
-        // наполняет менеджер ниже, когда все секции уже созданы.
-        buildTabSets(tSet);
-        buildTabView(tView);
-        buildTabTerm(tTerm);
-        var secMenuBody = buildTabSys(tSys);
-        buildTabData(tData);
+        // Секции вкладок живут в src/ui/panel-tabs.js. «Система» возвращает тело секции
+        // «Настройка меню» — его наполняет менеджер ниже, когда все секции уже созданы.
+        var secMenuBody = null;
+        TABS.forEach(function (name, ti) {
+            var fill = PANEL_TAB_BUILDERS[name];
+            if (!fill || !tabVisible(name)) return;
+            var r = fill(tabPanes[ti]);
+            if (name === "Система") secMenuBody = r;
+        });
 
         buildMenuManager(secMenuBody, tabPanes);
 
@@ -7687,14 +9056,19 @@
         });
 
         document.body.appendChild(p);
+        try { wireInfoHovers(p); } catch (e) {} // пояснения — наведением на строку, без кружков «?»
+        try { labelInputs(p); } catch (e) {}     // имена полям без подписи (скринридер)
 
         // Esc и клик мимо панели — закрыть. onOutside вешаем через setTimeout,
         // чтобы клик, которым панель открыли, её же не закрыл.
         function onKey(e) {
+            // Закреплённая панель не перехватывает клавиши, набранные вне её (редактор, терминал).
+            if (cfg.ui.pinned && !p.contains(/** @type {Node} */ (e.target))) return;
+            if (e.key === "Escape" && tourActive()) { e.stopPropagation(); endTour(true); return; } // Esc сначала гасит знакомство
             if (e.key === "Escape") { e.stopPropagation(); closePanel(); return; }
-            // Клавиатурные ускорители, только когда фокус НЕ в поле ввода: цифры 1..N
-            // переключают вкладки, «/» ставит фокус в поиск. Модификаторы не трогаем (не мешаем хоткеям).
-            if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+            // Ускорители внутри панели (когда фокус не в поле ввода): цифры 1..N — вкладки, «/» — поиск.
+            // Выключаются вместе с горячими клавишами (cfg.ui.keys).
+            if (hotkeysOn() && !e.ctrlKey && !e.altKey && !e.metaKey) {
                 var ae = document.activeElement, tag = ae && ae.tagName;
                 var typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
                 if (!typing) {
@@ -7702,18 +9076,18 @@
                     if (e.key === "/") { e.preventDefault(); try { searchInp.focus(); } catch (er) {} return; }
                 }
             }
-            // Стрелки/Home/End на баре вкладок (стандартный ARIA-паттерн tablist): когда фокус на
-            // вкладке, ←/→ ходят по кругу, Home/End — к первой/последней. Переключают и фокусируют.
-            if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End") {
-                var ai = tabBtns.indexOf(document.activeElement);
+            // Стрелки/Home/End на колонке вкладок (ARIA tablist): ↑/↓ (и ←/→) ходят по кругу.
+            if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End") {
+                var vis = tabBtns.filter(function (b, i) { return tabVisible(TABS[i]); });
+                var ai = vis.indexOf(document.activeElement);
                 if (ai >= 0) {
                     e.preventDefault();
                     var ni = ai;
-                    if (e.key === "ArrowLeft") ni = (ai - 1 + tabBtns.length) % tabBtns.length;
-                    else if (e.key === "ArrowRight") ni = (ai + 1) % tabBtns.length;
+                    if (e.key === "ArrowUp" || e.key === "ArrowLeft") ni = (ai - 1 + vis.length) % vis.length;
+                    else if (e.key === "ArrowDown" || e.key === "ArrowRight") ni = (ai + 1) % vis.length;
                     else if (e.key === "Home") ni = 0;
-                    else ni = tabBtns.length - 1;
-                    selectTab(ni, true);
+                    else ni = vis.length - 1;
+                    selectTab(tabBtns.indexOf(vis[ni]), true);
                     return;
                 }
             }
@@ -7726,9 +9100,15 @@
             }
         }
         function onOutside(e) {
+            if (cfg.ui.pinned) return; // закреплена — клик мимо её не закрывает
+            var tr = document.getElementById(TOUR_ID);
+            if (tr && tr.contains(e.target)) return; // подсказка знакомства
             if (p.contains(e.target)) return;
             var btn = document.getElementById(SB_ID);
             if (btn && btn.contains(e.target)) return; // клик по кнопке BG обработает togglePanel
+            var qm = document.getElementById(QMENU_ID);
+            if (qm && qm.contains(e.target)) return;   // пункт быстрого меню сам решит, что делать с панелью
+            if (_infoPop && _infoPop.contains(e.target)) return; // попап «?» может жить вне панели
             closePanel();
         }
         document.addEventListener("keydown", onKey, true);
@@ -7752,8 +9132,7 @@
             } else { p.style.bottom = "26px"; p.style.right = "8px"; }
         }
 
-        // Онбординг: открыть панель сразу на нужной секции. panelStartFocus задаётся
-        // из boot.js при первом запуске (напр. «Профили») — переключаем вкладку, разворачиваем, мигаем.
+        // Онбординг: открыть панель сразу на нужной секции (panelStartFocus задаёт boot.js).
         if (panelStartFocus) {
             var sf = sectionByTitle(panelStartFocus); panelStartFocus = "";
             if (sf) {
@@ -7762,8 +9141,7 @@
                 setTimeout(function () { try { flashSection(sf.head); } catch (e) {} }, 90);
             }
         }
-        // Переход к конкретному эффекту из единого поиска: прокрутить к его строке и
-        // подсветить. Ключ задан в goEffect до refreshPanel; здесь потребляем и гасим его.
+        // Переход к конкретному эффекту из поиска: прокрутить к его строке и подсветить.
         if (fxFocusKey) {
             var fk = fxFocusKey; fxFocusKey = "";
             setTimeout(function () {
@@ -7777,36 +9155,148 @@
             }, 60);
         }
 
-        // Стартовый фокус: сам диалог (screen reader объявит role="dialog"), дальше Tab ходит
-        // внутри по ловушке. Focus здесь, а не в момент создания, чтобы уже был в DOM.
+        // Стартовый фокус: сам диалог (screen reader объявит role="dialog"), дальше Tab ходит внутри.
         try { p.focus(); } catch (e) {}
+        // Знакомство в 3 шага при первом открытии (tour.js). Через таймер — панель уже на месте.
+        if (!cfg.ui.tour && !tourActive()) setTimeout(function () { try { startTour(); } catch (e) {} }, 350);
     }
 
-    // Пересобрать открытую панель, СОХРАНИВ прокрутку и фокус. Раньше refreshPanel просто
-    // закрывал и открывал панель заново — прокрутка прыгала наверх, а фокус терялся; при этом
-    // его дёргают и таймеры (слайдшоу/по времени), так что открытая панель «саморазрушалась»
-    // под пользователем каждые N минут. Теперь: запоминаем scrollTop и ПОРЯДКОВЫЙ номер
-    // сфокусированного контрола в списке фокусируемых (структура панели детерминирована —
-    // после пересборки тот же контрол стоит на том же месте), затем восстанавливаем. Фокус
-    // ставим ДО scrollTop: .focus() сам подкручивает элемент в видимую область, поэтому scrollTop
-    // должен побеждать последним. Активная подсветка чипов при этом остаётся корректной.
+    // Пересобрать открытую панель, СОХРАНИВ прокрутку страницы и фокус. Фокус восстанавливаем по
+    // порядковому номеру в списке фокусируемых (структура панели детерминирована) и ДО scrollTop:
+    // .focus() сам подкручивает элемент в видимую область, поэтому scrollTop побеждает последним.
     function refreshPanel() {
         var old = document.getElementById(PANEL_ID);
         if (!old) return;
+        _refreshPending = false;
         var scroll = 0, focusIdx = -1;
-        try { scroll = old.scrollTop; } catch (e) {}
+        try { scroll = panelScroller(old).scrollTop; } catch (e) {}
         try {
             var f = panelFocusables(old), act = document.activeElement;
             for (var i = 0; i < f.length; i++) if (f[i] === act) { focusIdx = i; break; }
         } catch (e) {}
-        closePanel();
-        togglePanel({ stopPropagation: function () {} });
+        _panelRebuilding = true;
+        try { closePanel(); togglePanel({ stopPropagation: function () {} }); } finally { _panelRebuilding = false; }
         var np = document.getElementById(PANEL_ID);
+        if (tourActive()) { try { showTourStep(); } catch (e) {} } // цели пересобраны — переставить рамку
         if (!np) return;
+        try { np.style.animation = "none"; } catch (e) {} // пересборка — не открытие: без «прыжка»
         if (focusIdx >= 0) {
             try { var nf = panelFocusables(np); if (nf[focusIdx] && nf[focusIdx].focus) nf[focusIdx].focus(); } catch (e) {}
         }
-        try { np.scrollTop = scroll; } catch (e) {}
+        try { panelScroller(np).scrollTop = scroll; } catch (e) {}
+    }
+    // Пересборка по ТАЙМЕРУ (слайдшоу, время суток): если пользователь сейчас печатает в поле
+    // панели (seed, путь, поиск) или раскрыл список, откладываем её до ухода фокуса из поля —
+    // иначе набранный текст пропадал бы, а открытый список закрывался.
+    var _refreshPending = false;
+    function refreshPanelSoon() {
+        var p = document.getElementById(PANEL_ID); if (!p) return;
+        var ae = /** @type {HTMLInputElement} */ (document.activeElement), tag = ae && ae.tagName;
+        var busy = p.contains(ae) && (tag === "TEXTAREA" || tag === "SELECT" || (tag === "INPUT" && ae.type !== "checkbox" && ae.type !== "range"));
+        if (!busy) { refreshPanel(); return; }
+        if (_refreshPending) return;
+        _refreshPending = true;
+        ae.addEventListener("blur", function () {
+            setTimeout(function () { if (_refreshPending) refreshPanel(); }, 0);
+        }, { once: true });
+    }
+
+    // ===================== src/ui/tour.js =====================
+    // ===== Знакомство с панелью в 3 шага =====
+    // Как тур в cpp-docs-panel: подсвечиваем НАСТОЯЩИЕ элементы (а не картинки с ними) —
+    // затемнение вокруг, рамка и подсказка рядом. «Дальше» / «Пропустить» / Esc. Показывается
+    // при первом открытии панели (cfg.ui.tour), повторить — кнопкой во вкладке «Система».
+    // Слой не ловит мышь (pointer-events:none), кроме самой подсказки: панель под ним работает.
+    var TOUR_ID = "moonlight-bg-tour";
+    var TOUR_STEPS = [
+        { sel: "#" + "moonlight-bg-panel .mlp-nav", title: "1. Вкладки",
+          text: "Здесь только главное. Число на вкладке — сколько там включено. Кнопка «Все настройки» в шапке открывает остальное, а поиск вверху находит любой пункт." },
+        { sel: "#" + "moonlight-bg-panel .mlp-hbtn", all: true, title: "2. Кнопки в шапке",
+          text: "Быстрый переключатель наборов и эффектов, отмена и повтор, «Все настройки» и булавка: закреплённая панель не закрывается кликом мимо. Свою картинку можно просто перетащить в панель." },
+        { sel: "#" + "moonlight-bg-switcher", title: "3. Кнопка BG",
+          text: "Клик — эта панель. Колесо мыши над кнопкой листает наборы. Правый клик — любимые наборы, закрепление набора за проектом и частые действия." }
+    ];
+    var _tourI = 0;
+    function tourActive() { return !!document.getElementById(TOUR_ID); }
+    function startTour() {
+        if (window.__MLBG_NO_TOUR__ === true) return; // тесты: снимки не должны ловить затемнение
+        if (!document.getElementById(PANEL_ID)) return;
+        endTour(false);
+        _tourI = 0;
+        var light = false; try { light = isLightTheme(); } catch (e) {}
+        var root = /** @type {any} */ (el("div", "position:fixed; inset:0; z-index:100003; pointer-events:none;"));
+        root.id = TOUR_ID;
+        var hole = el("div", "position:fixed; border-radius:12px; border:2px solid var(--mlbg-accent); box-shadow:0 0 0 9999px rgba(0,0,0,0.5); transition:all .18s ease;");
+        hole.className = "mlbg-tour-hole";
+        var tip = el("div",
+            "position:fixed; width:290px; box-sizing:border-box; padding:12px 14px; border-radius:14px; pointer-events:auto;" +
+            "font-family:var(--vscode-font-family,sans-serif); font-size:12px; line-height:1.45;" +
+            "background:" + (light ? "rgba(245,245,250,0.99)" : "rgba(24,24,37,0.99)") + "; color:" + (light ? "#1e1e2e" : "#cdd6f4") + ";" +
+            "border:1px solid rgba(var(--mlbg-accent-rgb),0.45); box-shadow:0 16px 40px rgba(0,0,0,0.5);");
+        tip.className = "mlbg-tour-tip";
+        tip.setAttribute("role", "dialog"); tip.setAttribute("aria-live", "polite");
+        var tt = el("div", "font-weight:700; font-size:13px; margin-bottom:4px; color:var(--mlbg-accent);");
+        var tx = el("div", null);
+        var nav = el("div", "display:flex; align-items:center; gap:8px; margin-top:10px;");
+        var num = el("span", "flex:1 1 auto; font-size:11px; opacity:0.65;");
+        var skip = el("div", "padding:4px 10px; border-radius:8px; cursor:pointer; font-size:11.5px; opacity:0.8;", t("Пропустить"));
+        var next = el("div", "padding:4px 12px; border-radius:8px; cursor:pointer; font-size:11.5px; font-weight:600; color:#1e1e2e; background:var(--mlbg-accent);", t("Дальше"));
+        keyActivate(skip, t("Пропустить")); keyActivate(next, t("Дальше"));
+        skip.addEventListener("click", function (e) { e.stopPropagation(); endTour(true); });
+        next.addEventListener("click", function (e) { e.stopPropagation(); _tourI++; showTourStep(); });
+        tip.addEventListener("mousedown", function (e) { e.stopPropagation(); }, true); // не «клик мимо» панели
+        tip.addEventListener("click", function (e) { e.stopPropagation(); });
+        tip.addEventListener("keydown", function (e) { if (e.key === "Escape") { e.stopPropagation(); endTour(true); } });
+        nav.appendChild(num); nav.appendChild(skip); nav.appendChild(next);
+        tip.appendChild(tt); tip.appendChild(tx); tip.appendChild(nav);
+        root.appendChild(hole); root.appendChild(tip);
+        root._p = { hole: hole, tip: tip, tt: tt, tx: tx, num: num, next: next };
+        document.body.appendChild(root);
+        showTourStep();
+    }
+    // Рамка цели: для all — общий прямоугольник всех совпавших элементов (ряд кнопок шапки).
+    function _tourRect(st) {
+        var nodes = st.all ? document.querySelectorAll(st.sel) : [document.querySelector(st.sel)];
+        var r = null;
+        for (var i = 0; i < nodes.length; i++) {
+            var n = nodes[i]; if (!n || !n.getBoundingClientRect) continue;
+            var b = n.getBoundingClientRect(); if (!b.width && !b.height) continue;
+            r = r ? { left: Math.min(r.left, b.left), top: Math.min(r.top, b.top), right: Math.max(r.right, b.right), bottom: Math.max(r.bottom, b.bottom) }
+                  : { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+        }
+        return r;
+    }
+    function showTourStep() {
+        var root = /** @type {any} */ (document.getElementById(TOUR_ID)); if (!root) return;
+        var P = root._p, st = null, r = null;
+        // шаг, чья цель не видна (панель узкая, кнопки BG нет), пропускаем
+        while (_tourI < TOUR_STEPS.length) {
+            st = TOUR_STEPS[_tourI]; r = _tourRect(st);
+            if (r) break;
+            _tourI++;
+        }
+        if (_tourI >= TOUR_STEPS.length || !r) { endTour(true); return; }
+        var pad = 5, W = window.innerWidth || 800, H = window.innerHeight || 600;
+        P.hole.style.left = (r.left - pad) + "px"; P.hole.style.top = (r.top - pad) + "px";
+        P.hole.style.width = (r.right - r.left + pad * 2) + "px"; P.hole.style.height = (r.bottom - r.top + pad * 2) + "px";
+        P.tt.textContent = t(st.title); P.tx.textContent = t(st.text);
+        P.num.textContent = (_tourI + 1) + " " + t("из") + " " + TOUR_STEPS.length;
+        P.next.textContent = _tourI === TOUR_STEPS.length - 1 ? t("Понятно") : t("Дальше");
+        // Подсказка: слева от цели, если там есть место (панель прижата к правому краю), иначе
+        // над/под целью. По краям окна — зажимаем.
+        var tw = 290, th = P.tip.offsetHeight || 150, x, y;
+        if (r.left - tw - 16 > 8) { x = r.left - tw - 16; y = Math.min(Math.max(8, r.top), H - th - 8); }
+        else {
+            x = Math.min(Math.max(8, r.left), W - tw - 8);
+            y = (r.top - th - 14 > 8) ? r.top - th - 14 : Math.min(r.bottom + 14, H - th - 8);
+        }
+        P.tip.style.left = x + "px"; P.tip.style.top = y + "px";
+        try { P.next.focus(); } catch (e) {}
+    }
+    // done=true — пройдено/пропущено (больше сам не покажется); false — просто убрать слой.
+    function endTour(done) {
+        var root = document.getElementById(TOUR_ID); if (root && root.remove) root.remove();
+        if (done) { cfg.ui.tour = true; try { saveCfg(); } catch (e) {} }
     }
 
     // ===================== src/widgets/extras.js =====================
@@ -7948,15 +9438,18 @@
     }
 
     function syncWidgets() {
-        try { ensureClock(); } catch (e) {}
-        try { ensurePomodoro(); } catch (e) {}
-        try { ensureParticles(); } catch (e) {}
-        try { ensureCursorTrail(); } catch (e) {} // шлейф курсора (создать/убрать canvas под настройку)
-        try { ensurePet(); } catch (e) {}         // питомец-компаньон (создать/убрать canvas под настройку)
-        try { screensaverSync(); } catch (e) {}   // убрать витрину сразу, если её выключили в панели
-        try { ensureStats(); } catch (e) {}       // виджет статистики сессии в статусбаре
-        try { syncFocusClass(); } catch (e) {} // отразить вкл/выкл эффекта фокуса без ожидания тика
-        try { perfSync(); } catch (e) {}       // запустить/остановить авто-бюджет FPS под текущие настройки
+        // Виджеты живут в <body>; до его появления (ранний запуск в <head> через Moon Core)
+        // делать нечего — heal повторит вызов после DOMContentLoaded.
+        if (!document.body) return;
+        try { ensureClock(); } catch (e) { logErr("виджеты: ensureClock", e); }
+        try { ensurePomodoro(); } catch (e) { logErr("виджеты: ensurePomodoro", e); }
+        try { ensureParticles(); } catch (e) { logErr("виджеты: ensureParticles", e); }
+        try { ensureCursorTrail(); } catch (e) { logErr("виджеты: ensureCursorTrail", e); } // шлейф курсора (создать/убрать canvas под настройку)
+        try { ensurePet(); } catch (e) { logErr("виджеты: ensurePet", e); }         // питомец-компаньон (создать/убрать canvas под настройку)
+        try { screensaverSync(); } catch (e) { logErr("виджеты: screensaverSync", e); }   // убрать витрину сразу, если её выключили в панели
+        try { ensureStats(); } catch (e) { logErr("виджеты: ensureStats", e); }       // виджет статистики сессии в статусбаре
+        try { syncFocusClass(); } catch (e) { logErr("виджеты: syncFocusClass", e); } // отразить вкл/выкл эффекта фокуса без ожидания тика
+        try { perfSync(); } catch (e) { logErr("виджеты: perfSync", e); }       // запустить/остановить авто-бюджет FPS под текущие настройки
     }
 
     // ===================== src/widgets/particles.js =====================
@@ -8505,8 +9998,16 @@
         if (Date.now() - libSlide.last < period) return;
         libSlide.last = Date.now();
         sessionLibIndex++;
-        // Смена картинки библиотеки — не шаг истории Undo (как тик слайдшоу).
-        _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
+        // Смена картинки — только когда следующая уже загружена и разобрана: иначе fade показывал
+        // пустую подложку, пока большой файл декодируется. Смена — не шаг истории Undo.
+        var nowUrl = libraryEditorUrl();
+        onImage(nowUrl, function () {
+            if (libraryEditorUrl() !== nowUrl) return; // пока ждали, успели сменить
+            var go = function () { _histSuppress++; try { applyFade(); } finally { _histSuppress--; } };
+            try { var im = new Image(); im.src = nowUrl; if (im.decode) im.decode().then(go, go); else go(); } catch (e) { go(); }
+        });
+        // Следующую картинку — заранее (и её пробу: метрики и уменьшенная копия будут готовы).
+        try { var all = libraryAll(); var nx = imgUrl(all[(sessionLibIndex + 1) % all.length]); preloadOne(nx); probeImage(nx); } catch (e) {}
     }
 
     // ===== Скринсейвер / витрина при простое (cfg.screensaver) =====
@@ -8615,7 +10116,7 @@
         if (cfg.mode === ws) return; // уже нужный набор
         // Авто-смена по времени — не шаг истории Undo (сдвигаем базу через _histSuppress).
         cfg.mode = ws; _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
-        if (document.getElementById(PANEL_ID)) refreshPanel();
+        if (document.getElementById(PANEL_ID)) refreshPanelSoon();
     }
 
     function slideTick() {
@@ -8633,7 +10134,7 @@
         // Тик слайдшоу — не шаг истории Undo (сдвигаем базу через _histSuppress).
         _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
         preloadNext();                                          // подготовить следующий заранее
-        if (document.getElementById(PANEL_ID)) refreshPanel(); // подсветить активный чип в открытой панели
+        if (document.getElementById(PANEL_ID)) refreshPanelSoon(); // подсветить активный чип в открытой панели
     }
 
     // ===================== src/boot.js =====================
@@ -8641,22 +10142,19 @@
     // Самолечение (интервал + observer) регистрируем ДО виджетов и всё оборачиваем в try,
     // чтобы ошибка любого виджета не убивала возврат кнопки BG после перестройки DOM.
     function heal() {
-        try { if (!_themeWatched) _themeWatched = watchTheme(); } catch (e) {}
-        try { ensureStyle(); } catch (e) {}
-        try { ensureStatusBar(); } catch (e) {}
-        try { ensureBranchStrip(); } catch (e) {}
-        try { ensureErrorClass(); } catch (e) {}
+        try { if (!_themeWatched) _themeWatched = watchTheme(); } catch (e) { logErr("самолечение: watchTheme", e); }
+        try { ensureStyle(); } catch (e) { logErr("самолечение: ensureStyle", e); }
+        try { ensureStatusBar(); } catch (e) { logErr("самолечение: ensureStatusBar", e); }
+        try { ensureBranchStrip(); } catch (e) { logErr("самолечение: ensureBranchStrip", e); }
+        try { ensureErrorClass(); } catch (e) { logErr("самолечение: ensureErrorClass", e); }
         // Питомец: раз в цикл heal (≈3с) обновляем счётчик ошибок для его «настороженного» настроения —
         // читаем DOM только когда питомец включён (иначе нулевой оверхед), как и errorReact.
-        try { if (cfg.fx.pet) petState.errors = problemsCount(); } catch (e) {}
+        try { if (cfg.fx.pet) petState.errors = problemsCount(); } catch (e) { logErr("самолечение: питомец", e); }
         // Статистика: раз в цикл heal отмечаем активный файл в множестве тронутых за сессию.
-        try { if (cfg.fx.stats) statsTrackFile(); } catch (e) {}
+        try { if (cfg.fx.stats) statsTrackFile(); } catch (e) { logErr("самолечение: statsTrackFile", e); }
         // Шейдерный фон: холст живёт внутри части «редактор», а VS Code пересоздаёт её
         // при смене раскладки/групп — поэтому проверяем и возвращаем его в том же цикле heal.
-        try { ensureShader(); } catch (e) {}
-        // Живые данные редактора: переподключаем файл компаньона тем же циклом, что и лечение
-        // виджетов, — своего таймера не заводим.
-        try { liveRefresh(); } catch (e) {}
+        try { ensureShader(); } catch (e) { logErr("самолечение: ensureShader", e); }
         syncWidgets();
     }
     // ===== Реакция на ошибки в коде (fx.errorReact) =====
@@ -8718,9 +10216,44 @@
             // (querySelector+closest+textContent+regex), а ветка меняется редко — обновляем
             // его в heal раз в 3с (ensureBranchStrip там же). Экономия на постоянном чтении DOM.
             if (_tick % 3 === 0) heal();                         // самолечение раз в 3с
-        } catch (e) {}
+        } catch (e) { logErr("секундный тикер", e); }
     }, 1000);
     window.addEventListener("resize", function () { try { resizeParticles(); } catch (e) {} try { resizeTrail(); } catch (e) {} try { shaderResize(); } catch (e) {} });
+
+    // Через Moon Core среда (прозрачность окна и пр.) приходит по мосту уже после старта —
+    // пересобираем стиль, когда она пришла или поменялась.
+    if (_viaMoonCore) {
+        try {
+            var _mcMod = mooncoreModule();
+            if (_mcMod) _mcMod.on("env", function () { try { bumpStyle(); ensureStyle(); } catch (e) { logErr("среда", e); } });
+        } catch (e) { logErr("подписка на среду", e); }
+    }
+    // Живые данные (ветка, ошибки, язык файла): сразу прогоняем самолечение — фон по ветке или
+    // языку переключится без ожидания трёхсекундного цикла.
+    liveSubscribe(heal);
+    // Образ фона — часть профилей вида Moon Core (сохраняется и применяется вместе с ними).
+    try { registerMoonCoreProfile(); } catch (e) { logErr("профили Moon Core", e); }
+    // Резерв конфига на диске: при старте сверяем его с текущим конфигом и дописываем, если
+    // отличается (первый запуск через Moon Core, правки прошлой сессии без Moon Core).
+    try {
+        var _disk0 = diskCfg();
+        if (_viaMoonCore && (!_disk0 || JSON.stringify(_disk0) !== JSON.stringify(cfg))) scheduleDiskSave();
+    } catch (e) { logErr("резерв конфига", e); }
+
+    // Папка-источник фона (cfg.libraryDir): при старте перечитываем её через компаньона, чтобы
+    // новые картинки в папке подхватились без повторного выбора. Нет Moon Core — тихо пропускаем.
+    if (cfg.libraryDir && _viaMoonCore) {
+        setTimeout(function () {
+            mlbgRpc("listFolder", { dir: cfg.libraryDir }).then(function (r) {
+                if (!r || !Array.isArray(r.images) || !r.images.length) return;
+                if (JSON.stringify(r.images) === JSON.stringify(cfg.library)) return;
+                cfg.library = r.images.slice(0, 64); saveCfg(); apply();
+            }, function () {});
+        }, 5000);
+    }
+
+    // Синхронизация между машинами: при старте подтянуть более новый вид (тихо).
+    if (cfg.ui && cfg.ui.sync && _viaMoonCore) setTimeout(function () { syncPull(true).then(null, function () {}); }, 4000);
 
     // ===== Горячие клавиши =====
     // Переключение набора без открытия панели и быстрый вызов панели. Коды клавиш (e.code)
@@ -8744,6 +10277,7 @@
                 screensaverBump();
             } catch (er) {}
             if (!e.ctrlKey || !e.altKey || e.shiftKey || e.metaKey) return;
+            if (!hotkeysOn()) return; // выключены в «Системе» — сочетания не перехватываем (AltGr-раскладки)
             if (e.code === "Period") { e.preventDefault(); cycleSet(1); }
             else if (e.code === "Comma") { e.preventDefault(); cycleSet(-1); }
             else if (e.code === "KeyB") { e.preventDefault(); togglePanel({ stopPropagation: function () {} }); }
@@ -8908,6 +10442,12 @@
         new MutationObserver(healSoon).observe(document.head || document.documentElement, { childList: true });
     } catch (e) {}
     heal();
+    // Через Moon Core скрипт исполняется в <head>, когда <body> ещё нет: стиль уже встал, а
+    // виджеты (холсты частиц, шлейфа, питомца) ждут body. Не ждём трёхсекундного тикера —
+    // повторяем самолечение, как только документ разобран.
+    if (!document.body) {
+        try { document.addEventListener("DOMContentLoaded", function () { heal(); }, { once: true }); } catch (e) {}
+    }
 
     // ===== Мост для интеграционного теста =====
     // Модули живут внутри IIFE, поэтому снаружи (из Playwright) до них не дотянуться. В обычном
@@ -8943,7 +10483,7 @@
             cfg = loadCfg();          // перечитываем из общего хранилища (mergeCfg санитизирует)
             bumpStyle(); ensureStyle(); updateLabel(); syncWidgets();
             try { slideReset(); } catch (e) {}   // таймер слайд-шоу — от момента чужой смены: окна не «спорят»
-            try { refreshPanel(); } catch (e) {} // панель открыта — пересобираем под новый конфиг
+            try { refreshPanelSoon(); } catch (e) {} // панель открыта — пересобираем под новый конфиг
         } catch (e) {}
         _bcApplying = false;
     }
@@ -8987,11 +10527,11 @@
                     // только когда панели нет.
                     try {
                         if (!document.getElementById(PANEL_ID)) {
-                            panelStartFocus = "Профили";
+                            panelStartFocus = "Стили";
                             togglePanel({ stopPropagation: function () {} });
                         }
                     } catch (e2) {}
-                    toast(t("MoonLight BG: открой панель кнопкой BG в статусбаре (Ctrl+Alt+B). Быстрый старт — «Данные → Профили»; правый клик по кнопке BG — быстрые действия."));
+                    toast(t("MoonLight BG: открой панель кнопкой BG в статусбаре. Быстрый старт — «Данные → Профили»; колесо над кнопкой листает наборы, правый клик — быстрые действия."));
                 } catch (e) {}
             }, 4000);
         }

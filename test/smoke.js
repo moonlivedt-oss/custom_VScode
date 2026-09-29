@@ -849,6 +849,9 @@ ok(sandbox.cfg.partStyle === "sakura", "shareEncode/applyShareCode: стиль �
 sandbox.cfg.partStyle = "dots";
 
 // ---- 20. Панель со вкладками собирается без ошибок (togglePanel не бросает) ----
+// Простой режим (по умолчанию) строит только главное — его проверяем отдельно ниже; здесь
+// проверяется полная панель со всеми вкладками и техническими секциями.
+sandbox.DEFAULTS.ui.simple = false; sandbox.panelShowTech = true;
 // Панель раскладывает 12 секций по 4 вкладкам (Набор/Вид/Терминал/Система). Прямой вызов
 // togglePanel в мини-DOM-стабе ловит ReferenceError/битую проводку контролов панели, которую
 // проверка только buildCSS не видит (панель строит десятки контролов из controls.js/io.js).
@@ -861,8 +864,8 @@ ok(panelThrew === null, "togglePanel: панель со вкладками ст�
 ok(Array.isArray(sandbox.panelSections) && sandbox.panelSections.length >= 8,
     "поиск: секции панели зарегистрированы в panelSections (" + (sandbox.panelSections ? sandbox.panelSections.length : "нет") + ")");
 var _secTitles = (sandbox.panelSections || []).map(function (s) { return s.title; });
-ok(_secTitles.indexOf("Эффекты") >= 0 && _secTitles.indexOf("Пресеты") >= 0 && _secTitles.indexOf("Диагностика") >= 0,
-    "поиск: индекс содержит ключевые секции (Эффекты / Пресеты / Диагностика)");
+ok(_secTitles.indexOf("Эффекты") >= 0 && _secTitles.indexOf("Образы") >= 0 && _secTitles.indexOf("Диагностика") >= 0 && _secTitles.indexOf("Стили") >= 0,
+    "поиск: индекс содержит ключевые секции (Эффекты / Образы / Стили / Диагностика)");
 // панель добавлена в body и это наш диалог (id === PANEL_ID)
 var builtPanel = null;
 for (var bi = 0; bi < sandbox.document.body.children.length; bi++) {
@@ -1198,8 +1201,60 @@ sandbox.togglePanel({ stopPropagation: function () {} });
 var allTitles40 = (sandbox.panelAllSections || []).map(function (s) { return s.title; });
 var catBadSec = sandbox.PANEL_SEARCH_CATALOG.filter(function (c) { return c[2] && allTitles40.indexOf(c[2]) < 0; });
 ok(catBadSec.length === 0, "каталог поиска: все секции каталога существуют среди секций панели" + (catBadSec.length ? "  (нет: " + catBadSec.map(function (c) { return c[2]; }).join(", ") + ")" : ""));
-var catBadTab = sandbox.PANEL_SEARCH_CATALOG.filter(function (c) { return !(c[1] >= 0 && c[1] < 5); });
-ok(catBadTab.length === 0, "каталог поиска: индексы вкладок в диапазоне 0..4");
+var catBadTab = sandbox.PANEL_SEARCH_CATALOG.filter(function (c) { return !(c[1] >= 0 && c[1] < sandbox.TABS.length); });
+ok(catBadTab.length === 0, "каталог поиска: индексы вкладок в диапазоне вкладок (TABS)");
+
+// «Сейчас работает»: activeRule объясняет выбор набора тем же приоритетом, что activeIndex.
+sandbox.cfg = sandbox.mergeCfg({ mode: "3" });
+var _ar = sandbox.activeRule();
+ok(_ar.idx === 3 && _ar.why === "manual", "activeRule: ручной выбор без авто-смены -> manual, тот же индекс");
+sandbox.cfg = sandbox.mergeCfg({ mode: "random" });
+ok(sandbox.activeRule().why === "random", "activeRule: режим «случайно» -> random");
+sandbox.cfg = sandbox.mergeCfg({ mode: "2", slideshow: { on: true, min: 5 } });
+ok(sandbox.activeRule().why === "slide", "activeRule: слайдшоу -> slide");
+// Любимые наборы: только индексы-строки и булевы значения.
+var _fs = sandbox.mergeCfg({ ui: { favSets: { "3": true, "x": true, "12": "yes" }, pinned: true, tour: true } }).ui;
+ok(_fs.favSets["3"] === true && !("x" in _fs.favSets) && !("12" in _fs.favSets) && _fs.pinned === true && _fs.tour === true,
+    "mergeCfg: ui.favSets — индексы-строки с булевыми значениями; pinned/tour — булевы");
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" });
+
+// Простой режим: только главные вкладки и секции, без технических и тонкой настройки.
+sandbox.DEFAULTS.ui.simple = true; sandbox.panelShowTech = false;
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" });
+var _smThrew = null; try { sandbox.togglePanel({ stopPropagation: function () {} }); } catch (e) { _smThrew = e; }
+ok(_smThrew === null, "простой режим: панель строится без исключений" + (_smThrew ? " (" + _smThrew.message + ")" : ""));
+var _smT = (sandbox.panelAllSections || []).map(function (s) { return s.title; });
+ok(_smT.indexOf("Набор") >= 0 && _smT.indexOf("Стили") >= 0 && _smT.indexOf("Образы") >= 0 && _smT.indexOf("Яркость набора") >= 0,
+    "простой режим: главные секции на месте (Набор / Яркость / Стили / Образы)");
+ok(_smT.indexOf("Эффекты") < 0 && _smT.indexOf("Генератор") < 0 && _smT.indexOf("Диагностика") < 0 && _smT.indexOf("Слайдшоу") < 0,
+    "простой режим: тонкая настройка, генератор, диагностика и авто-смена не строятся");
+ok(sandbox.swapLayout("yf,jh") === "набор" && sandbox.swapLayout("ыуеы") === "sets", "поиск: неправильная раскладка переводится (yf,jh -> набор)");
+ok(sandbox.isPosStr("40% 60%") && !sandbox.isPosStr("140% 0%") && !sandbox.isPosStr("1px 2px") && !sandbox.isPosStr("40%;x"),
+    "точка фокуса: только «N% N%» в пределах 0..100");
+sandbox.DEFAULTS.ui.simple = false; sandbox.panelShowTech = true;
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" });
+
+// Умные зоны: сайдбару — самая тёмная колонка, панели — самая тёмная строка карты 8x8.
+var _grid = []; for (var _gi = 0; _gi < 64; _gi++) _grid.push(0.8);
+for (var _gr = 0; _gr < 8; _gr++) _grid[_gr * 8 + 7] = 0.1;   // тёмная правая колонка
+for (var _gc = 0; _gc < 8; _gc++) _grid[0 * 8 + _gc] = 0.05;  // тёмная верхняя строка
+var _zp = sandbox.smartZonePos(_grid);
+ok(_zp && _zp.sidebar === "100% 50%" && _zp.panel === "50% 0%" && sandbox.smartZonePos(null) === null,
+    "smartZonePos: сайдбар — тёмная колонка, панель — тёмная строка; без карты -> null");
+// Пресеты картинки: применённый пресет узнаётся, ручная правка — нет.
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" });
+ok(sandbox.currentImgLook() === "none", "пресет картинки: дефолтные фильтры = «Как есть»");
+sandbox.cfg.imgfx.side.blur = 3;
+ok(sandbox.currentImgLook() === "", "пресет картинки: ручная правка одной зоны — пресета нет");
+// Синхронизация: машинно-зависимое (пути, библиотека, ui) не уезжает на другую машину.
+sandbox.cfg = sandbox.mergeCfg({ mode: "2", imgBase: "D:/x/", library: ["file:///a.jpg"] });
+var _snap = sandbox.syncSnapshot();
+ok(_snap.mode === "2" && !("imgBase" in _snap) && !("library" in _snap) && !("ui" in _snap),
+    "синхронизация: в образ не попадают imgBase/library/ui");
+ok(sandbox.mergeCfg({ ui: { news: "x", tipsOff: { readable: true, bad: 1 }, sync: true } }).ui.tipsOff.readable === true &&
+    !("bad" in sandbox.mergeCfg({ ui: { tipsOff: { bad: 1 } } }).ui.tipsOff),
+    "mergeCfg: ui.tipsOff — только булевы");
+sandbox.cfg = sandbox.mergeCfg({ mode: "0" });
 
 // Активный профиль: сразу после применения он активен; ручная правка снимает активность.
 var _cfgSave40 = sandbox.clone(sandbox.cfg);
@@ -1245,6 +1300,18 @@ sandbox.previewLook(function (s) { return sandbox.profilePreviewCfg(s, prof); })
 ok(sandbox.localStorage.getItem(sandbox.CFG_KEY) === "SENTINEL41", "previewLook: не пишет конфиг в localStorage");
 sandbox.endLookPreview();
 sandbox.cfg = _snap41;
+
+// В оболочке VS Code (vscode-file:) file:///-адреса картинок переводятся в vscode-file: запросы
+// file:// VS Code отклоняет. Вне оболочки (стенд по http) адрес остаётся как был.
+var _loc = sandbox.location;
+sandbox.location = { protocol: "vscode-file:" };
+ok(sandbox.appFileUrl("file:///d:/Pics/a%20b.png") === "vscode-file://vscode-app/d:/Pics/a%20b.png" &&
+    sandbox.imgUrl("file:///d:/x.jpg") === "vscode-file://vscode-app/d:/x.jpg" &&
+    sandbox.appFileUrl("vscode-file://vscode-app/x.png") === "vscode-file://vscode-app/x.png",
+    "appFileUrl: file:/// -> vscode-file:// в оболочке VS Code");
+sandbox.location = { protocol: "http:" };
+ok(sandbox.appFileUrl("file:///d:/x.jpg") === "file:///d:/x.jpg", "appFileUrl: вне оболочки адрес не меняется");
+sandbox.location = _loc;
 
 // Пресет-превью сохраняет текущий набор/картинки (слой «эффекты + палитра»).
 var _pp = sandbox.presetPreviewCfg(sandbox.mergeCfg({ mode: "3", setImg: { "0": { editor: "keep.jpg" } } }),
@@ -1395,6 +1462,139 @@ ok(build().indexOf("body, .monaco-workbench, .monaco-workbench > .part.editor { 
 sandbox.cfg.fx.trueGlass = false;
 contains(sandbox.trueGlassSnippet(), "custom-ui-style.electron", "готовый сниппет опций Electron для settings.json");
 contains(sandbox.loaderImportSnippet(), "imports", "готовый сниппет импорта для settings.json");
+
+// ---- Moon Core: плагин встроен ядром как модуль "mlbg" ----
+ok(sandbox._viaMoonCore === false, "moon-core: обычный <script src> не считается модулем ядра");
+ok(sandbox.mooncoreModule() === null && sandbox.mooncoreBase() === "", "moon-core: без ядра помощника и базы нет");
+var mcEnv = null;
+sandbox.window.__MOONCORE__ = {
+    version: "0.1.0",
+    module: function (id) {
+        if (id !== "mlbg") return null;
+        return { id: "mlbg", base: "vscode-file://vscode-app/d:/mods/bg", get: function (ev) { return ev === "env" ? mcEnv : undefined; }, on: function () { return function () {}; } };
+    }
+};
+ok(sandbox.mooncoreBase() === "vscode-file://vscode-app/d:/mods/bg/", "moon-core: база ресурсов со слэшем на конце");
+sandbox.window.__MOONCORE__.module = function () { return { base: "https://evil.example/" }; };
+ok(sandbox.mooncoreBase() === "", "moon-core: сетевая база ресурсов отвергается");
+sandbox.window.__MOONCORE__.module = function () { return { base: "vscode-file://vscode-app/x/", get: function (ev) { return ev === "env" ? mcEnv : undefined; } }; };
+ok(sandbox.loaderKind().id === "custom-css", "moon-core: ядро есть, но скрипт внедрён не им — загрузчик прежний");
+sandbox._viaMoonCore = true;
+ok(sandbox.loaderKind().id === "moon-core" && sandbox.loaderKind().sure === true && sandbox.loaderKind().version === "0.1.0",
+   "moon-core: встроены ядром — загрузчик Moon Core, точно");
+ok(sandbox.mlbgEnv() === null && sandbox.trueGlassReady() === false, "moon-core: среды по мосту ещё нет");
+mcEnv = { loader: "moon-core", transparent: true, vscode: "1.99.0" };
+ok(sandbox.mlbgEnv() && sandbox.mlbgEnv().loader === "moon-core" && sandbox.trueGlassReady() === true,
+   "moon-core: среда (прозрачность окна) приходит событием env по мосту");
+// Живые данные по мосту Moon Core (событие "live"), а не файлом через <script src>.
+var mcLive = { branch: "moon/branch", errors: 2, languageId: "Rust", evil: 1 };
+var mcLogged = [], mcSaved = [], mcData = null;
+sandbox.window.__MOONCORE__.module = function () {
+    return {
+        base: "vscode-file://vscode-app/x/",
+        get: function (ev) { return ev === "env" ? mcEnv : ev === "live" ? mcLive : undefined; },
+        on: function () { return function () {}; },
+        log: function (where, err) { mcLogged.push([where, String(err && err.message || err)]); },
+        data: function () { return mcData; },
+        saveData: function (obj) { mcSaved.push(obj); return { then: function (ok) { ok({ ok: true }); } }; }
+    };
+};
+sandbox.window.__MLBG_LIVE__ = null;
+var mlv = sandbox.mlbgLive();
+ok(mlv && mlv.branch === "moon/branch" && mlv.errors === 2 && mlv.languageId === "rust" && mlv.evil === undefined,
+   "живые данные: берутся из события live моста и санитизируются");
+ok(sandbox.gitBranch() === "moon/branch", "живые данные моста важнее статусбара");
+ok(sandbox.liveSource() === "хост расширений", "liveSource: данные от компаньона пришли");
+mcLive = undefined;
+ok(sandbox.liveSource().indexOf("ещё не пришли") >= 0, "liveSource: через Moon Core, но данных пока нет");
+ok(typeof sandbox.liveRefresh === "undefined" && typeof sandbox.liveUrl === "undefined", "файл живых данных и его опрос убраны");
+
+// Журнал ошибок: каждая разная ошибка один раз, повторы только считаются, копия — в Moon Core.
+var errBefore = sandbox.errTotal();
+sandbox.logErr("тест: место", new Error("сломалось"));
+sandbox.logErr("тест: место", new Error("сломалось"));
+sandbox.logErr("тест: другое", "строкой");
+ok(sandbox.errTotal() === errBefore + 3, "logErr: считает все ошибки, включая повторы");
+var lastErr = sandbox.errLog[sandbox.errLog.length - 2];
+ok(lastErr.where === "тест: место" && lastErr.n === 2, "logErr: повтор не дублирует запись, а увеличивает счётчик");
+ok(mcLogged.length === 2 && mcLogged[0][0] === "тест: место" && mcLogged[0][1] === "сломалось", "logErr: разные ошибки уходят в журнал Moon Core по одному разу");
+for (var ei = 0; ei < 40; ei++) sandbox.logErr("тест: поток", "ошибка " + ei);
+ok(sandbox.errLog.length <= 20, "logErr: для диагностики держим только последние");
+
+// Резерв конфига на диске: при пустом localStorage конфиг восстанавливается из файла модуля.
+ok(sandbox.diskCfg() === null, "резерв: файла данных нет -> null");
+mcData = { v: 1, cfg: { accent: "#123456", mode: "4", allowRemoteImages: true } };
+ok(sandbox.diskCfg() && sandbox.diskCfg().mode === "4", "резерв: конфиг читается из файла данных модуля");
+var lsKeep = sandbox.localStorage.getItem(sandbox.CFG_KEY);
+sandbox.localStorage.removeItem(sandbox.CFG_KEY);
+var restored = sandbox.loadCfg();
+ok(restored.mode === "4" && restored.accent === "#123456" && sandbox.cfgLoadedFrom === "disk", "резерв: пустой localStorage -> конфиг из резерва на диске");
+ok(restored.allowRemoteImages === true, "резерв: свой конфиг сохраняет согласие на сетевые картинки (это не чужой импорт)");
+mcData = { v: 1, cfg: [1, 2] };
+ok(sandbox.diskCfg() === null, "резерв: не объект — игнорируется");
+mcData = { v: 1, cfg: { big: "x".repeat(300 * 1024) } };
+ok(sandbox.diskCfg() === null, "резерв: сверх 256 КБ — игнорируется");
+if (lsKeep !== null) sandbox.localStorage.setItem(sandbox.CFG_KEY, lsKeep);
+sandbox.diskSaveNow();
+ok(mcSaved.length === 1 && mcSaved[0].v === 1 && mcSaved[0].cfg && mcSaved[0].cfg.mode === sandbox.cfg.mode, "резерв: копия текущего конфига уходит в файл данных");
+ok(sandbox.diskBackupInfo().indexOf("сохранён") === 0, "резерв: диагностика показывает время сохранения");
+// Образ фона как часть профиля вида Moon Core.
+var mcHooks = /** @type {any} */ (null);
+var mcModObj = sandbox.window.__MOONCORE__.module();
+sandbox.window.__MOONCORE__.module = function () { mcModObj.profile = function (h) { mcHooks = h; return true; }; return mcModObj; };
+ok(sandbox.registerMoonCoreProfile() === true && mcHooks, "профиль: vscode-bg регистрирует свою часть в профилях Moon Core");
+sandbox.cfg.mode = "2"; sandbox.cfg.imgBase = "vscode-file://vscode-app/мой/путь/";
+var snap = mcHooks.save();
+ok(snap.mode === "2" && snap.fx && snap.imgBase === undefined, "профиль: снимок — ключи образа, без машинно-зависимого (imgBase)");
+sandbox.cfg.mode = "0";
+mcHooks.apply(snap, "Только код");
+ok(sandbox.cfg.mode === "2" && sandbox.cfg.imgBase === "vscode-file://vscode-app/мой/путь/", "профиль: применение возвращает образ и не трогает машинно-зависимое");
+mcHooks.apply({ mode: "999", accent: "red;}body{x" }, "мусор");
+ok(sandbox.isColor(sandbox.cfg.accent), "профиль: чужая часть проходит санитизацию mergeCfg");
+sandbox.cfg.imgBase = ""; sandbox.cfg.mode = "0";
+
+sandbox._viaMoonCore = false;
+ok(sandbox.diskCfg() === null && sandbox.diskBackupInfo().indexOf("нужен Moon Core") >= 0, "резерв: без Moon Core не используется");
+ok(sandbox.registerMoonCoreProfile() === false, "профиль: без Moon Core не регистрируется");
+mcData = null;
+
+sandbox._viaMoonCore = false;
+sandbox.window.__MOONCORE__ = undefined;
+
+// Защита от двойного запуска: собранный файл во второй раз в том же окне ничего не делает.
+(function () {
+    var built = require("../build.js").build(false);
+    var sb = makeSandbox();
+    var styles = 0;
+    var mk = sb.document.createElement;
+    sb.document.createElement = function (tag) { if (tag === "style") styles++; return mk(tag); };
+    vm.runInNewContext(built, sb, { filename: "custom-bg.js" });
+    var afterFirst = styles;
+    ok(sb.window.__MLBG_RUNNING__ === "loader", "двойной запуск: первый экземпляр отмечает себя (через загрузчик)");
+    vm.runInNewContext(built, sb, { filename: "custom-bg.js" });
+    ok(styles === afterFirst, "двойной запуск: второй экземпляр пропущен, новых <style> не создал");
+    var sb2 = makeSandbox();
+    sb2.document.currentScript = { src: "", getAttribute: function (k) { return k === "data-mooncore-module" ? "mlbg" : null; } };
+    vm.runInNewContext(built, sb2, { filename: "custom-bg.js" });
+    ok(sb2.window.__MLBG_RUNNING__ === "moon-core", "двойной запуск: экземпляр от Moon Core отмечает себя как moon-core");
+})();
+
+// Версия модуля Moon Core совпадает с версией плагина во всех манифестах.
+(function () {
+    var rootPkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+    var extPkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "extension", "package.json"), "utf8"));
+    var mod = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "mooncore-module.json"), "utf8"));
+    var extMod = extPkg.moonCore && extPkg.moonCore.modules && extPkg.moonCore.modules[0];
+    ok(mod.id === "mlbg" && extMod && extMod.id === "mlbg", "moon-core: id модуля mlbg в обоих манифестах");
+    ok(mod.version === rootPkg.version && extMod.version === rootPkg.version && extPkg.version === rootPkg.version,
+       "moon-core: версия модуля = версии плагина (package.json, extension/package.json, mooncore-module.json)");
+    ok(mod.script === "custom-bg.min.js" && extMod.script === "custom-bg.min.js", "moon-core: модуль встраивает сжатую сборку (вдвое меньше кода на старте)");
+    // Сжатая сборка — это тот же код без комментариев: она должна исполняться так же.
+    var bm = require("../build.js");
+    var sbMin = makeSandbox();
+    vm.runInNewContext(bm.minify(bm.build(false)), sbMin, { filename: "custom-bg.min.js" });
+    ok(sbMin.window.__MLBG_RUNNING__ === "loader", "сжатая сборка исполняется целиком");
+})();
 
 // ---- Здоровье селекторов вёрстки ----
 var sh = sandbox.selectorHealthSummary();

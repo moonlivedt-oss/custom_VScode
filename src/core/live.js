@@ -4,19 +4,29 @@
 // добывалось скрейпингом DOM. Это работает, но держится на чужой вёрстке и ломается на
 // обновлениях редактора; ради этого пришлось завести целую систему здоровья селекторов.
 //
-// Компаньон-расширение живёт там, где эти данные точные (см. extension/live.js), и кладёт их
-// в маленький JS-файл, который выставляет window.__MLBG_LIVE__. Рантайм переподключает файл
-// на своём цикле самолечения — отдельного таймера не нужно, а цена одного цикла измерена и
-// составляет доли миллисекунды (создание и удаление одного <script>).
+// Компаньон-расширение живёт там, где эти данные точные (см. extension/live.js), и присылает
+// их событием "live" по мосту Moon Core — только окну своего хоста, поэтому у каждого окна
+// VS Code своя ветка и свои ошибки. Раньше это был JS-файл в globalStorage, подключаемый
+// через <script src>: оболочка VS Code такие внешние скрипты блокирует, и данные молча не
+// доходили. Глобал window.__MLBG_LIVE__ остался как ручной/тестовый источник.
 //
-// Данных может не быть вовсе: компаньон не установлен, git выключен, окно без папки. Поэтому
-// живые данные — это ПРЕДПОЧТЕНИЕ, а не требование: где их нет, работает прежний скрейпинг.
+// Данных может не быть вовсе: нет Moon Core или компаньона, git выключен, окно без папки.
+// Поэтому живые данные — это ПРЕДПОЧТЕНИЕ, а не требование: где их нет, работает скрейпинг DOM.
 
-// Санитизация: файл лежит на диске и в теории может быть подменён, а значения уходят в UI и
-// в ключи конфига. Пропускаем только известные поля известных типов и ограничиваем длину.
+// Сырые данные: глобал (тесты, ручная подстановка) или последнее событие "live" от компаньона.
+function _liveRaw() {
+    var d = (typeof window !== "undefined") ? window.__MLBG_LIVE__ : null;
+    if (d && typeof d === "object") return d;
+    if (!_viaMoonCore) return null;
+    var m = mooncoreModule();
+    return (m && typeof m.get === "function") ? m.get("live") : null;
+}
+
+// Санитизация: данные приходят снаружи, а значения уходят в UI и в ключи конфига.
+// Пропускаем только известные поля известных типов и ограничиваем длину.
 function mlbgLive() {
     try {
-        var d = (typeof window !== "undefined") ? window.__MLBG_LIVE__ : null;
+        var d = _liveRaw();
         if (!d || typeof d !== "object") return null;
         function str(v, max) { return (typeof v === "string") ? v.slice(0, max) : ""; }
         function num(v) { return (typeof v === "number" && isFinite(v) && v >= 0) ? Math.round(v) : 0; }
@@ -33,29 +43,14 @@ function mlbgLive() {
         };
     } catch (e) { return null; }
 }
-// Есть ли вообще живой источник (компаньон прописал адрес файла в пролог).
-function liveUrl() {
-    var e = (typeof mlbgEnv === "function") ? mlbgEnv() : null;
-    return (e && typeof e.live === "string" && e.live) ? e.live : "";
-}
-
-// Переподключение файла: адрес один и тот же, поэтому браузер отдал бы его из кэша —
-// добавляем метку. Старый тег снимаем сразу после загрузки, чтобы в <head> не копились сотни
-// элементов за сессию. Ошибка загрузки (файла ещё нет) — нормальная ситуация, молчим.
-var _liveBusy = false;
-function liveRefresh() {
-    var url = liveUrl();
-    if (!url || _liveBusy) return;
-    try {
-        _liveBusy = true;
-        var s = document.createElement("script");
-        s.src = url + (url.indexOf("?") >= 0 ? "&" : "?") + "r=" + Date.now();
-        s.async = true;
-        var done = function () { _liveBusy = false; try { s.remove(); } catch (e) {} };
-        s.onload = done;
-        s.onerror = done;
-        document.head.appendChild(s);
-    } catch (e) { _liveBusy = false; }
+// Подписка на свежие данные: fn зовётся, когда компаньон прислал новое событие "live"
+// (ветка сменилась, появились ошибки) — не ждать цикла самолечения. Без Moon Core — ничего.
+function liveSubscribe(fn) {
+    if (!_viaMoonCore) return false;
+    var m = mooncoreModule();
+    if (!m || typeof m.on !== "function") return false;
+    m.on("live", function () { try { fn(); } catch (e) { logErr("живые данные", e); } });
+    return true;
 }
 
 // Значение с приоритетом живых данных: если поле есть и непустое — берём его, иначе null,
@@ -72,6 +67,7 @@ function liveNum(key) {
 }
 // Откуда пришло значение — показываем в диагностике, чтобы было видно, работает ли мостик.
 function liveSource() {
-    if (!liveUrl()) return "DOM (компаньон не подключён)";
-    return mlbgLive() ? "хост расширений" : "DOM (данные ещё не пришли)";
+    if (mlbgLive()) return "хост расширений";
+    if (!_viaMoonCore) return "DOM (без Moon Core)";
+    return "DOM (данные от компаньона ещё не пришли)";
 }

@@ -29,9 +29,9 @@ function makeTermColor(key, label) {
     var wrap = el("div", ST.row);
     wrap.appendChild(el("span", mutedLabel(56), t(label)));
     var ip = el("input", "flex:0 0 auto; width:34px; height:22px; padding:0; border:1px solid var(--mlp-border,rgba(205,214,244,0.2)); border-radius:6px; background:transparent; cursor:pointer;");
-    ip.type = "color"; ip.value = cfg.term[key];
+    ip.type = "color"; ip.value = effTermColor(key); // пока не меняли — акцент набора
     var hex = el("input", "flex:1 1 auto; min-width:0; background:transparent; border:none; padding:0; color:var(--mlp-faint,#6c7086); font-size:11px; font-family:inherit;");
-    hex.type = "text"; hex.value = cfg.term[key]; hex.maxLength = 7; hex.setAttribute("aria-label", t(label) + " HEX");
+    hex.type = "text"; hex.value = effTermColor(key); hex.maxLength = 7; hex.setAttribute("aria-label", t(label) + " HEX");
     ip.addEventListener("input", function () { cfg.term[key] = ip.value; hex.value = ip.value; applyThrottledLive(); });
     ip.addEventListener("change", function () { try { saveCfg(); } catch (e) {} });
     function commitTermHex() {
@@ -43,7 +43,15 @@ function makeTermColor(key, label) {
     hex.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commitTermHex(); hex.blur(); } });
     wrap.appendChild(ip); wrap.appendChild(hex);
     var d = infoDot(INFO["term_" + key]); if (d) wrap.appendChild(d);
-    return wrap;
+    // Образцы: акцент набора + Catppuccin. Выделению нужна полупрозрачность, но hex её не
+    // хранит — поэтому для него те же цвета, а читаемость даёт сам терминал.
+    var box = el("div", null);
+    box.appendChild(wrap);
+    box.appendChild(makeSwatches([["", [getAccent()].concat(SWATCH_CATPPUCCIN)]], cfg.term[key], function (v) {
+        cfg.term[key] = v; ip.value = v; hex.value = v; apply();
+        try { var rows = box.querySelectorAll(".mlp-sw"); for (var i = 0; i < rows.length; i++) rows[i].classList.toggle("on", rows[i].title.toLowerCase() === v.toLowerCase()); } catch (e) {}
+    }));
+    return box;
 }
 
 // Поле «Папка плагина» (cfg.imgBase): база для относительных путей картинок набора.
@@ -85,16 +93,9 @@ function makeAmbientBranchToggle() {
 // Селект «Авто / Русский / English». Смена перестраивает панель (refreshPanel), чтобы все
 // подписи сразу перерисовались на новом языке. «Авто» — по языку интерфейса VS Code (uiLang).
 function makeLangSelect() {
-    var wrap = el("div", ST.row);
-    wrap.appendChild(el("span", mutedLabel(92), t("Язык панели")));
-    var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
-    var cur = safeLang(cfg.lang);
-    LANGS.forEach(function (o) {
-        var op = el("option", null, o[1]); op.value = o[0]; if (o[0] === cur) op.selected = true; sel.appendChild(op);
-    });
-    sel.addEventListener("change", function () { cfg.lang = safeLang(sel.value); saveCfg(); try { updateLabel(); } catch (e) {} refreshPanel(); });
-    wrap.appendChild(sel);
-    return wrap;
+    return makeSeg("Язык панели", LANGS,
+        function () { return safeLang(cfg.lang); },
+        function (v) { cfg.lang = safeLang(v); saveCfg(); try { updateLabel(); } catch (e) {} refreshPanel(); });
 }
 
 
@@ -104,7 +105,7 @@ function makeLangSelect() {
 // которые кладут в буфер ровно тот кусок настроек, который нужно вставить.
 function makeLoaderUI() {
     var box = el("div", "padding:2px 4px;");
-    var ld = { id: "custom-css", title: "Custom CSS and JS (be5invis)", sure: false, version: "" };
+    var ld = { id: "custom-css", title: "Custom CSS and JS", sure: false, version: "" };
     try { ld = loaderKind(); } catch (e) {}
     var ready = false;
     try { ready = trueGlassReady(); } catch (e) {}
@@ -128,7 +129,9 @@ function makeLoaderUI() {
         try { ok = copyText(trueGlassSnippet()); } catch (e) {}
         toast(ok ? t("Скопировано в буфер — вставь в settings.json и перезапусти редактор") : t("Не удалось скопировать"));
     });
-    btns.appendChild(b1); btns.appendChild(b2);
+    // Через Moon Core импорт в settings.json не нужен: модуль встраивает ядро.
+    if (ld.id !== "moon-core") btns.appendChild(b1);
+    btns.appendChild(b2);
     box.appendChild(info); box.appendChild(glass); box.appendChild(btns);
     return box;
 }
@@ -136,15 +139,14 @@ function makeLoaderUI() {
 // ==== Мастер-выключатель фона и эффектов (cfg.enabled) ====
 // Заметный тумблер вверху панели: выкл — «ванильный» VS Code, настройки сохранены.
 function makeMasterToggle() {
-    var row = el("label",
-        "display:flex; align-items:center; gap:8px; padding:8px 10px; margin:2px 2px 4px; border-radius:8px; cursor:pointer;" +
-        "background:rgba(var(--mlbg-accent-rgb),0.12); border:1px solid rgba(var(--mlbg-accent-rgb),0.3);");
-    var cb = el("input", "flex:0 0 auto; accent-color:var(--mlbg-accent); cursor:pointer; transform:scale(1.15);");
-    cb.type = "checkbox"; cb.checked = cfg.enabled !== false;
-    var txt = el("span", "flex:1 1 auto; font-weight:700; letter-spacing:0.2px;", cfg.enabled !== false ? t("Фон и эффекты включены") : t("Фон и эффекты выключены"));
+    var on = cfg.enabled !== false;
+    var row = el("label", null); row.className = "mlp-master" + (on ? "" : " off");
+    var cb = el("input", null); cb.type = "checkbox"; cb.checked = on;
+    var txt = el("span", null, on ? t("Фон и эффекты включены") : t("Фон и эффекты выключены"));
     cb.addEventListener("change", function () {
         cfg.enabled = cb.checked;
         txt.textContent = cb.checked ? t("Фон и эффекты включены") : t("Фон и эффекты выключены");
+        row.className = "mlp-master" + (cb.checked ? "" : " off");
         apply();
     });
     row.appendChild(cb); row.appendChild(txt);

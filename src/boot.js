@@ -2,22 +2,19 @@
 // Самолечение (интервал + observer) регистрируем ДО виджетов и всё оборачиваем в try,
 // чтобы ошибка любого виджета не убивала возврат кнопки BG после перестройки DOM.
 function heal() {
-    try { if (!_themeWatched) _themeWatched = watchTheme(); } catch (e) {}
-    try { ensureStyle(); } catch (e) {}
-    try { ensureStatusBar(); } catch (e) {}
-    try { ensureBranchStrip(); } catch (e) {}
-    try { ensureErrorClass(); } catch (e) {}
+    try { if (!_themeWatched) _themeWatched = watchTheme(); } catch (e) { logErr("самолечение: watchTheme", e); }
+    try { ensureStyle(); } catch (e) { logErr("самолечение: ensureStyle", e); }
+    try { ensureStatusBar(); } catch (e) { logErr("самолечение: ensureStatusBar", e); }
+    try { ensureBranchStrip(); } catch (e) { logErr("самолечение: ensureBranchStrip", e); }
+    try { ensureErrorClass(); } catch (e) { logErr("самолечение: ensureErrorClass", e); }
     // Питомец: раз в цикл heal (≈3с) обновляем счётчик ошибок для его «настороженного» настроения —
     // читаем DOM только когда питомец включён (иначе нулевой оверхед), как и errorReact.
-    try { if (cfg.fx.pet) petState.errors = problemsCount(); } catch (e) {}
+    try { if (cfg.fx.pet) petState.errors = problemsCount(); } catch (e) { logErr("самолечение: питомец", e); }
     // Статистика: раз в цикл heal отмечаем активный файл в множестве тронутых за сессию.
-    try { if (cfg.fx.stats) statsTrackFile(); } catch (e) {}
+    try { if (cfg.fx.stats) statsTrackFile(); } catch (e) { logErr("самолечение: statsTrackFile", e); }
     // Шейдерный фон: холст живёт внутри части «редактор», а VS Code пересоздаёт её
     // при смене раскладки/групп — поэтому проверяем и возвращаем его в том же цикле heal.
-    try { ensureShader(); } catch (e) {}
-    // Живые данные редактора: переподключаем файл компаньона тем же циклом, что и лечение
-    // виджетов, — своего таймера не заводим.
-    try { liveRefresh(); } catch (e) {}
+    try { ensureShader(); } catch (e) { logErr("самолечение: ensureShader", e); }
     syncWidgets();
 }
 // ===== Реакция на ошибки в коде (fx.errorReact) =====
@@ -79,9 +76,44 @@ setInterval(function () {
         // (querySelector+closest+textContent+regex), а ветка меняется редко — обновляем
         // его в heal раз в 3с (ensureBranchStrip там же). Экономия на постоянном чтении DOM.
         if (_tick % 3 === 0) heal();                         // самолечение раз в 3с
-    } catch (e) {}
+    } catch (e) { logErr("секундный тикер", e); }
 }, 1000);
 window.addEventListener("resize", function () { try { resizeParticles(); } catch (e) {} try { resizeTrail(); } catch (e) {} try { shaderResize(); } catch (e) {} });
+
+// Через Moon Core среда (прозрачность окна и пр.) приходит по мосту уже после старта —
+// пересобираем стиль, когда она пришла или поменялась.
+if (_viaMoonCore) {
+    try {
+        var _mcMod = mooncoreModule();
+        if (_mcMod) _mcMod.on("env", function () { try { bumpStyle(); ensureStyle(); } catch (e) { logErr("среда", e); } });
+    } catch (e) { logErr("подписка на среду", e); }
+}
+// Живые данные (ветка, ошибки, язык файла): сразу прогоняем самолечение — фон по ветке или
+// языку переключится без ожидания трёхсекундного цикла.
+liveSubscribe(heal);
+// Образ фона — часть профилей вида Moon Core (сохраняется и применяется вместе с ними).
+try { registerMoonCoreProfile(); } catch (e) { logErr("профили Moon Core", e); }
+// Резерв конфига на диске: при старте сверяем его с текущим конфигом и дописываем, если
+// отличается (первый запуск через Moon Core, правки прошлой сессии без Moon Core).
+try {
+    var _disk0 = diskCfg();
+    if (_viaMoonCore && (!_disk0 || JSON.stringify(_disk0) !== JSON.stringify(cfg))) scheduleDiskSave();
+} catch (e) { logErr("резерв конфига", e); }
+
+// Папка-источник фона (cfg.libraryDir): при старте перечитываем её через компаньона, чтобы
+// новые картинки в папке подхватились без повторного выбора. Нет Moon Core — тихо пропускаем.
+if (cfg.libraryDir && _viaMoonCore) {
+    setTimeout(function () {
+        mlbgRpc("listFolder", { dir: cfg.libraryDir }).then(function (r) {
+            if (!r || !Array.isArray(r.images) || !r.images.length) return;
+            if (JSON.stringify(r.images) === JSON.stringify(cfg.library)) return;
+            cfg.library = r.images.slice(0, 64); saveCfg(); apply();
+        }, function () {});
+    }, 5000);
+}
+
+// Синхронизация между машинами: при старте подтянуть более новый вид (тихо).
+if (cfg.ui && cfg.ui.sync && _viaMoonCore) setTimeout(function () { syncPull(true).then(null, function () {}); }, 4000);
 
 // ===== Горячие клавиши =====
 // Переключение набора без открытия панели и быстрый вызов панели. Коды клавиш (e.code)
@@ -105,6 +137,7 @@ function onHotkey(e) {
             screensaverBump();
         } catch (er) {}
         if (!e.ctrlKey || !e.altKey || e.shiftKey || e.metaKey) return;
+        if (!hotkeysOn()) return; // выключены в «Системе» — сочетания не перехватываем (AltGr-раскладки)
         if (e.code === "Period") { e.preventDefault(); cycleSet(1); }
         else if (e.code === "Comma") { e.preventDefault(); cycleSet(-1); }
         else if (e.code === "KeyB") { e.preventDefault(); togglePanel({ stopPropagation: function () {} }); }
@@ -269,6 +302,12 @@ try {
     new MutationObserver(healSoon).observe(document.head || document.documentElement, { childList: true });
 } catch (e) {}
 heal();
+// Через Moon Core скрипт исполняется в <head>, когда <body> ещё нет: стиль уже встал, а
+// виджеты (холсты частиц, шлейфа, питомца) ждут body. Не ждём трёхсекундного тикера —
+// повторяем самолечение, как только документ разобран.
+if (!document.body) {
+    try { document.addEventListener("DOMContentLoaded", function () { heal(); }, { once: true }); } catch (e) {}
+}
 
 // ===== Мост для интеграционного теста =====
 // Модули живут внутри IIFE, поэтому снаружи (из Playwright) до них не дотянуться. В обычном
@@ -304,7 +343,7 @@ function _applyExternalCfg() {
         cfg = loadCfg();          // перечитываем из общего хранилища (mergeCfg санитизирует)
         bumpStyle(); ensureStyle(); updateLabel(); syncWidgets();
         try { slideReset(); } catch (e) {}   // таймер слайд-шоу — от момента чужой смены: окна не «спорят»
-        try { refreshPanel(); } catch (e) {} // панель открыта — пересобираем под новый конфиг
+        try { refreshPanelSoon(); } catch (e) {} // панель открыта — пересобираем под новый конфиг
     } catch (e) {}
     _bcApplying = false;
 }
@@ -348,11 +387,11 @@ try {
                 // только когда панели нет.
                 try {
                     if (!document.getElementById(PANEL_ID)) {
-                        panelStartFocus = "Профили";
+                        panelStartFocus = "Стили";
                         togglePanel({ stopPropagation: function () {} });
                     }
                 } catch (e2) {}
-                toast(t("MoonLight BG: открой панель кнопкой BG в статусбаре (Ctrl+Alt+B). Быстрый старт — «Данные → Профили»; правый клик по кнопке BG — быстрые действия."));
+                toast(t("MoonLight BG: открой панель кнопкой BG в статусбаре. Быстрый старт — «Данные → Профили»; колесо над кнопкой листает наборы, правый клик — быстрые действия."));
             } catch (e) {}
         }, 4000);
     }

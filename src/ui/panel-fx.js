@@ -18,6 +18,10 @@ var fxOnlyOn = false, fxFocusKey = "", panelStartFocus = "", panelFxNodes = {};
 // слайдеры «силы», стиль частиц), и держать её отдельно чище. Зависит только от secFx +
 // модульного/глобального окружения (FX_LIST, PARAMS, cfg, makeCheck/makeParamSlider,
 // makePartStyleSelect, fxOnlyOn), поэтому не тянет за собой локали togglePanel.
+// Параметры силы, принадлежащие ровно одному эффекту key.
+function inlineParams(key) {
+    return PARAMS.filter(function (d) { var r = PARAM_REQUIRES[d[0]]; return r && r.length === 1 && r[0] === key; });
+}
 function buildEffectsSection(secFx) {
     // Шапка секции: счётчик включённых эффектов + быстрый фильтр «только включённые».
     // Помогает ориентироваться в полусотне тумблеров и одним кликом свернуть список
@@ -101,12 +105,21 @@ function buildEffectsSection(secFx) {
         if (cb) {
             // Переключение фиксирует выбор (превью не откатывает) и пересчитывает счётчик. Если
             // эффект в избранном — пересобираем панель, чтобы его копия-тумблер вверху синхронизировалась.
-            cb.addEventListener("change", function () { previewFxCancel(); updateFxView(); if (cfg.ui.favFx && cfg.ui.favFx[key]) { try { refreshPanel(); } catch (er) {} } });
+            cb.addEventListener("change", function () { previewFxCancel(); updateFxView(); if (cfg.ui.favFx && cfg.ui.favFx[key] && !fxAffectsPanel(key)) { try { refreshPanel(); } catch (er) {} } });
             cb.addEventListener("focus", pOn);
             cb.addEventListener("blur", pOff);
         }
         panelFxNodes[key] = node; // для прокрутки к эффекту из единого поиска
-        fxRows.push({ node: node, key: key, label: t(o[1]).toLowerCase(), group: FX_GROUPS[key] || "other" });
+        // Сила эффекта — прямо под его строкой (на всю ширину сетки), пока он включён. Раньше
+        // все ползунки жили общим блоком «Сила» внизу, далеко от своих тумблеров.
+        var extra = null, own = inlineParams(key);
+        if (cfg.fx[key] && (own.length || (key === "particles"))) {
+            extra = el("div", null); extra.className = "mlp-inl";
+            own.forEach(function (d) { extra.appendChild(makeParamSlider(d)); });
+            if (key === "particles") extra.appendChild(makePartStyleSelect());
+            node._extra = extra;
+        }
+        fxRows.push({ node: node, extra: extra, key: key, label: t(o[1]).toLowerCase(), group: FX_GROUPS[key] || "other" });
         return node;
     }
 
@@ -118,11 +131,32 @@ function buildEffectsSection(secFx) {
         var built = [];
         FX_LIST.forEach(function (o) { if ((FX_GROUPS[o[0]] || "other") === gkey) { var n = buildFxRow(o); if (n) built.push(n); } });
         if (!built.length) return;
-        var header = el("div", "margin-top:7px; padding:3px 3px 1px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--mlp-head,#bac2de);", t(glabel));
-        var grid = el("div", "display:grid; grid-template-columns:1fr 1fr; gap:1px 10px;");
-        built.forEach(function (n) { grid.appendChild(n); });
-        groups[gkey] = { header: header, grid: grid };
-        secFx.appendChild(header); secFx.appendChild(grid);
+        // Группа — сворачиваемая карточка со счётчиком «включено N из M». Свёрнутость помнится
+        // в cfg.ui.collapsed под ключом "fx:<группа>"; группу с целью перехода из поиска раскрываем.
+        var ck = "fx:" + gkey;
+        var open = !(cfg.ui.collapsed && cfg.ui.collapsed[ck]);
+        if (fxFocusKey && (FX_GROUPS[fxFocusKey] || "other") === gkey) open = true;
+        var card = el("div", null); card.className = "mlp-fxg" + (open ? " open" : "");
+        var header = el("div", null); header.className = "mlp-fxg-h";
+        var chev = el("span", null, "\u25B6"); chev.className = "mlp-chev";
+        var cnt = el("span", null); cnt.className = "mlp-fxg-n";
+        header.appendChild(chev); header.appendChild(el("span", "flex:1 1 auto;", t(glabel))); header.appendChild(cnt);
+        var grid = el("div", "display:grid; grid-template-columns:1fr 1fr; gap:1px 10px;"); grid.className = "mlp-fxg-b";
+        built.forEach(function (n) { grid.appendChild(n); if (n._extra) grid.appendChild(n._extra); });
+        grid.hidden = !open;
+        header.addEventListener("click", function () {
+            var show = grid.hidden; grid.hidden = !show;
+            card.classList.toggle("open", show);
+            header.setAttribute("aria-expanded", show ? "true" : "false");
+            if (!cfg.ui.collapsed) cfg.ui.collapsed = {};
+            if (show) delete cfg.ui.collapsed[ck]; else cfg.ui.collapsed[ck] = true;
+            saveCfg();
+        });
+        keyActivate(header, t(glabel));
+        header.setAttribute("aria-expanded", open ? "true" : "false");
+        card.appendChild(header); card.appendChild(grid);
+        groups[gkey] = { card: card, grid: grid, count: cnt, total: built.length };
+        secFx.appendChild(card);
     }
     FX_GROUP_ORDER.forEach(function (g) { buildGroup(g[0], g[1]); });
     buildGroup("other", "Прочее"); // эффекты без явной группы (обычно пусто)
@@ -133,9 +167,17 @@ function buildEffectsSection(secFx) {
         fxRows.forEach(function (r) {
             var isOn = !!cfg.fx[r.key]; if (isOn) on++;
             var hide = (onlyOn && !isOn);
-            r.node.hidden = hide; if (!hide) { shown++; perGroup[r.group] = (perGroup[r.group] || 0) + 1; }
+            r.node.hidden = hide; if (r.extra) r.extra.hidden = hide;
+            if (!hide) { shown++; perGroup[r.group] = (perGroup[r.group] || 0) + 1; }
         });
-        for (var gk in groups) { var vis = perGroup[gk] > 0; groups[gk].header.hidden = !vis; groups[gk].grid.hidden = !vis; }
+        var onGroup = {};
+        fxRows.forEach(function (r) { if (cfg.fx[r.key]) onGroup[r.group] = (onGroup[r.group] || 0) + 1; });
+        for (var gk in groups) {
+            var G = groups[gk];
+            G.card.hidden = !(perGroup[gk] > 0);
+            G.count.textContent = (onGroup[gk] || 0) + " / " + G.total;
+            G.count.className = "mlp-fxg-n" + ((onGroup[gk] || 0) > 0 ? " on" : "");
+        }
         fxCount.textContent = t("Включено: ") + on + " / " + fxRows.length;
         fxEmpty.hidden = shown > 0;
     }
@@ -143,20 +185,12 @@ function buildEffectsSection(secFx) {
     keyActivate(onlyBtn, "Показывать только включённые эффекты");
     styleOnlyBtn(); updateFxView();
 
-    // Числовая «сила» эффектов — под тумблерами. Параметры, зависящие от выключенного
-    // эффекта, не показываем: «Частиц» — только когда включены «Частицы», «Помидор, мин» —
-    // когда включён «Помидор» (тумблеры particles/pomodoro пересобирают панель, см. makeCheck).
-    secFx.appendChild(el("div", "margin-top:8px; padding:3px 3px 1px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--mlp-head,#bac2de);", t("Сила")));
-
-    var shownParams = 0;
+    // Параметр сразу нескольких эффектов (размытие стекла) — общим ползунком под сеткой;
+    // остальные ползунки силы живут в строках своих эффектов (inlineParams).
     PARAMS.forEach(function (d) {
-        if (!paramNeeded(d[0])) return;   // ползунок без своего эффекта ничего не меняет
-        shownParams++;
+        if ((PARAM_REQUIRES[d[0]] || []).length < 2 || !paramNeeded(d[0])) return;
         secFx.appendChild(makeParamSlider(d));
     });
-    if (!shownParams) secFx.appendChild(el("div", "padding:4px 4px 2px; font-size:11px; color:var(--mlp-muted,#a6adc8);",
-        t("Ползунки силы появятся, когда включишь эффекты, к которым они относятся.")));
-    if (cfg.fx.particles) secFx.appendChild(makePartStyleSelect()); // форма частиц — только когда частицы включены
 
     // Сброс всей секции к дефолту: тумблеры + сила + стиль частиц. Появляется,
     // только когда есть что сбрасывать (что-то отличается от DEFAULTS) — иначе кнопка-пустышка.

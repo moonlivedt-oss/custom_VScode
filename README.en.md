@@ -13,11 +13,11 @@ Ken Burns, frosted glass, Aurora, spotlight · background per project · status-
 
 [![CI](https://github.com/moonlivedt-oss/custom_VScode/actions/workflows/ci.yml/badge.svg)](https://github.com/moonlivedt-oss/custom_VScode/actions/workflows/ci.yml)
 ![version](https://img.shields.io/badge/version-v20-cba6f7)
-![vscode](https://img.shields.io/badge/VS%20Code-custom--css%20%7C%20custom--ui--style-007ACC?logo=visualstudiocode&logoColor=white)
+![vscode](https://img.shields.io/badge/VS%20Code-Moon%20Core-007ACC?logo=visualstudiocode&logoColor=white)
 ![sets](https://img.shields.io/badge/sets-37-f5a97f)
 ![effects](https://img.shields.io/badge/effects-51-f38ba8)
 ![lang](https://img.shields.io/badge/language-RU%20%7C%20EN-89b4fa)
-![tests](https://img.shields.io/badge/tests-352%20ok-a6e3a1)
+![tests](https://img.shields.io/badge/tests-430%20ok-a6e3a1)
 ![deps](https://img.shields.io/badge/dependencies-0-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -99,7 +99,7 @@ that adds a full theming panel right inside the editor.
 
 ## Features
 
-Everything is configured in the **Background & design** panel (the `BG N` button in the status bar):
+Everything is configured in the **Background & design** panel (the set-thumbnail button in the status bar):
 
 > **New in v20:**
 > - **Adaptive scrim** — the background is dimmed exactly where it is brighter than comfortable
@@ -154,14 +154,14 @@ Everything is configured in the **Background & design** panel (the `BG N` button
   (`--vscode-*`); the panel itself adapts too.
 - **Master switch** — one toggle (or `Ctrl+Alt+0`) removes all background and effects for plain VS
   Code, keeping your settings.
-- **Hotkeys** — `Ctrl+Alt+B` opens the panel, `Ctrl+Alt+.` / `Ctrl+Alt+,` cycle sets,
-  `Ctrl+Alt+0` on/off, `Ctrl+Alt+R` reading mode, `Ctrl+Alt+Z` / `Ctrl+Alt+Y` undo/redo.
+- **Everything by mouse** — scroll over the button to flip sets, right-click for a quick menu, the
+  panel header has the quick switcher, undo and redo. `Ctrl+Alt+…` hotkeys are optional and can be turned off.
 - **Per-zone brightness** + **editor auto-brightness** (dims light art automatically).
 - **Image** — accent color (per set), per-zone image filters (cover / contain, brightness /
   saturation / blur) and a **custom image path** per zone.
 - **Effects** — Ken Burns, frosted glass, vignette, cursor glow, living border and more, including
   **accent tint**, **code legibility**, **error reaction**, **Present mode**, **Contrast+** and a
-  **focus session** tied to the pomodoro. ~50 toggles, each with a "?" hint.
+  **focus session** tied to the pomodoro. ~50 toggles, each explained on hover.
 - **Terminal** — font (width-compatible Nerd fonts), ligatures, glow, cursor size/height/color,
   selection color.
 
@@ -215,40 +215,50 @@ scrollbar, cursor, borders, active-line highlight — all change together with t
 
 ## The panel by tabs
 
-After install a **`BG N`** button appears at the bottom-right. Click it to open the **Background &
-design** panel. At the top is the master toggle; below it settings are laid out across **five tabs**
-(one visible at a time, so the panel stays short); sections inside a tab collapse.
+After install a button with the **set thumbnail** and its name appears at the bottom-right.
+**Click** opens the **Background & design** panel, the **mouse wheel** over it flips sets, and a
+**right-click** opens a quick menu: favorite sets as thumbnails, reading mode, presentation mode,
+pin the set to the project, undo.
+
+The panel opens in **simple mode** — only the essentials, on four tabs:
+
+- **Sets** — set cards with a preview and name (hover to try, click to pick, star to favorite;
+  “All / Favorites” filter), **“Your image…”** and **“Image folder…”**. You can also just drag an
+  image into the panel from the VS Code explorer.
+- **View** — a single **Background brightness** (expands “per zone”), a code-readability meter,
+  the accent with palettes (from the image, Catppuccin, colorblind-safe) and an image look:
+  “As is / Soft / Crisp / Muted”.
+- **Effects** — one-click **styles**: calm, focus, presentation, minimal, maximum (hover to try).
+- **Data** — **looks** (saved looks, share by code, sync between machines), export / import,
+  daily settings copies and reset (on the second click).
+
+**All settings** in the header adds the **Auto switch** tab (rules in priority order: project,
+repository, branch, language, time of day, slideshow — plus a “now active” card), **Terminal**
+(with a live sample) and **System**, and fine-tuning on the other tabs: a grid of ~50 effects with
+strength right in the row, the image focus point, the generator, the library, the shader.
+
+Hover any setting to see its explanation. The search at the top finds anything — even typed in the
+wrong keyboard layout. The pin in the header keeps the panel open on an outside click.
 
 <table>
   <tr>
     <th align="center">Sets</th>
     <th align="center">View</th>
-    <th align="center">Terminal</th>
-    <th align="center">System</th>
+    <th align="center">Effects</th>
     <th align="center">Data</th>
   </tr>
   <tr valign="top">
-    <td align="center"><img src="docs/screenshots/menu-en-sets.webp" width="165" alt="Sets tab: chips for 25 sets, generator, slideshow, by time of day, by project"></td>
-    <td align="center"><img src="docs/screenshots/menu-en-view.webp" width="165" alt="View tab: brightness, image and ~50 effects with search and FPS auto-budget"></td>
-    <td align="center"><img src="docs/screenshots/menu-en-terminal.webp" width="165" alt="Terminal tab: font, ligatures, glow, cursor"></td>
-    <td align="center"><img src="docs/screenshots/menu-en-system.webp" width="165" alt="System tab: panel language, diagnostics, plugin folder, hotkeys"></td>
-    <td align="center"><img src="docs/screenshots/menu-en-data.webp" width="165" alt="Data tab: profiles, presets, sync, share, theme export"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-sets.webp" width="200" alt="Sets tab: set cards with preview and name, favorites filter, your image and folder"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-view.webp" width="200" alt="View tab: background brightness, readability, accent palettes, image look"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-effects.webp" width="200" alt="Effects tab: one-click styles"></td>
+    <td align="center"><img src="docs/screenshots/menu-en-data.webp" width="200" alt="Data tab: looks, export and import, danger zone"></td>
   </tr>
 </table>
 
-- **Sets** — set chips with previews (hover previews, click selects; a red "!" means an image failed
-  to load), plus **Generator**, **Slideshow**, **By time of day** and **By project**.
-- **View** — **Set brightness**, **Image** (accent, filters and a custom image path per zone) and
-  **Effects** — ~50 toggles with a search filter, then "Strength" sliders, particle style and the
-  **FPS auto-budget**.
-- **Terminal** — font, ligatures, glow, cursor and selection.
-- **System** — panel language (**RU / EN / Auto**), install **Diagnostics**, **Plugin folder** and a
-  hotkeys reference.
-- **Data** — quick-start **Profiles**, **Presets**, **Sync** via `settings.json`, **Share** by code,
-  **Theme export**, **Export / import** to JSON with auto-backup, Undo/Redo and reset to defaults.
-
-The active tab is **remembered between sessions**; a panel auto-rebuild (slideshow, set change) does
-not reset you to the first tab. Drag the panel by its header; `Esc` or a click outside closes it.
+The first time, the panel shows a short 3-step tour (repeat it from “System → Show the panel
+tour”). Drag the panel by its header; double-click the header to put it back by the button.
+Hotkeys are optional — everything is reachable by mouse — and can be turned off entirely in
+“System → Hotkeys”.
 
 ---
 
@@ -281,9 +291,10 @@ installation in the panel.
 
 ## FAQ / Troubleshooting
 
-**No `BG` button / no background.** Make sure `be5invis.vscode-custom-css` is installed, the path in
-`vscode_custom_css.imports` points exactly to your `custom-bg.js`, Custom CSS is enabled, and you
-**fully** restarted VS Code. Check the version line in `Help → Toggle Developer Tools` → Console:
+**No button / no background.** Via Moon Core (the main way): make sure Moon Core is enabled and
+`moonCore.modules` contains the plugin folder, then run `Developer: Reload Window`. Via the legacy
+loaders: `vscode_custom_css.imports` must point to your `custom-bg.js`, Custom CSS must be enabled,
+and VS Code **fully** restarted. Check the version line in `Help → Toggle Developer Tools` → Console:
 `[MoonLight custom-bg] v19 …`. If it's missing, the script wasn't loaded (check the path and slashes).
 
 **The background vanished after moving the folder.** The set images are read relative to the plugin

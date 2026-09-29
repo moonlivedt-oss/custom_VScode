@@ -21,13 +21,17 @@ const path = require("path");
 const fixtureUrl = "file://" + path.join(__dirname, "fixture.html").replace(/\\/g, "/");
 
 test.describe("MoonLight custom-bg — интеграция в живом DOM", () => {
+    // Знакомство с панелью (tour.js) затемняет экран при первом открытии — в тестах не нужно.
+    test.beforeEach(async ({ page }) => { await page.addInitScript(() => { window.__MLBG_NO_TOUR__ = true; }); });
+
     test("кнопка BG, инжект стиля, открытие панели, локализация", async ({ page }) => {
         await page.goto(fixtureUrl);
 
         // 1. Кнопка BG появляется в статусбаре (heal() отработал на живом DOM).
         const btn = page.locator("#moonlight-bg-switcher");
         await expect(btn).toBeVisible({ timeout: 8000 });
-        await expect(btn).toContainText("BG");
+        // Кнопка — миниатюра набора + его имя (раньше «BG N · имя»).
+        await expect(btn.locator(".mlbg-sb-thumb")).toHaveCount(1);
 
         // 2. Наш <style> инжектится в <head>, а переменная акцента выставлена на :root.
         await expect(page.locator("head style#moonlight-custom-bg")).toHaveCount(1);
@@ -44,7 +48,9 @@ test.describe("MoonLight custom-bg — интеграция в живом DOM", 
         // 4. Авто-локализация: фикстура с lang="en" -> английский UI. exact:true — иначе строгий
         // режим Playwright падает на неоднозначности: «Background & effects on» встречается и в
         // мастер-тумблере, и в подписи хоткея «Background & effects on / off». Вкладку берём по роли.
-        await expect(panel.getByRole("tab", { name: "System" })).toBeVisible();
+        // Простой режим по умолчанию: видны главные вкладки, «System» — только в полном.
+        await expect(panel.getByRole("tab", { name: "Data" })).toBeVisible();
+        await expect(panel.getByRole("tab", { name: "System" })).toHaveCount(0);
         await expect(panel.getByText("Background & effects on", { exact: true })).toBeVisible();
 
         // 5. Esc закрывает панель.
@@ -114,7 +120,7 @@ test.describe("MoonLight custom-bg — интеграция в живом DOM", 
         page.on("pageerror", (e) => errors.push(String(e)));
         await page.addInitScript(() => {
             try { localStorage.setItem("moonlight-bg-onboarded", "1"); } catch (e) {}
-            window.__MLBG_SEED__ = { lang: "ru", enabled: true, ui: { favSec: { "Слайдшоу": true } } };
+            window.__MLBG_SEED__ = { lang: "ru", enabled: true, ui: { simple: false, favSec: { "Слайдшоу": true } } };
         });
         await page.goto(fixtureUrl);
         await expect(page.locator("#moonlight-bg-switcher")).toBeVisible({ timeout: 8000 });
@@ -127,53 +133,34 @@ test.describe("MoonLight custom-bg — интеграция в живом DOM", 
         await expect(chip).toBeVisible();
         await chip.click();
 
-        // Переход отработал: вкладка «Набор» активна, а в консоли пусто.
-        await expect(panel.getByRole("tab", { name: "Набор" })).toHaveAttribute("aria-selected", "true");
+        // Переход отработал: вкладка «Авто-смена» (там живёт «Слайдшоу») активна, а в консоли пусто.
+        await expect(panel.getByRole("tab", { name: "Авто-смена" })).toHaveAttribute("aria-selected", "true");
         expect(errors).toEqual([]);
     });
 
 
-    // Живой мостик с хостом расширений: компаньон кладёт данные в файл, рантайм подключает
-    // его своим циклом самолечения. В vm-песочнице это не проверить — нужен настоящий
-    // <script src="file://…"> и настоящий цикл. Замеренная цена одного цикла: ~1 мс.
-    test("живые данные: файл компаньона доезжает в окно и важнее DOM", async ({ page }) => {
-        const fs = require("fs");
-        const livePath = path.join(__dirname, "mlbg-live-e2e.js");
-        fs.writeFileSync(livePath,
-            'window.__MLBG_LIVE__ = { rev: 1, branch: "release/7.7", remote: "acme/widget", ' +
-            'errors: 3, warnings: 0, languageId: "typescript", fileExt: "ts", folder: "e2e-folder" };\n',
-            "utf8");
-        // Три слэша обязательны: file://D:/… означало бы хост «D:», и рантайм справедливо
-        // отбросит такой адрес как сетевой (см. imgAllowed/isRemoteUrl).
-        const liveUrl = "file:///" + livePath.split(String.fromCharCode(92)).join("/");
-        try {
-            await page.addInitScript((url) => {
-                localStorage.setItem("moonlight-bg-onboarded", "1");
-                window.__MLBG_TEST_HOOKS__ = true;
-                window.__MLBG_ENV__ = { loader: "custom-ui-style", transparent: false, live: url };
-                window.__MLBG_SEED__ = { lang: "ru", enabled: true, perfGuard: false };
-            }, liveUrl);
-            await page.goto(fixtureUrl);
-            await expect(page.locator("#moonlight-bg-switcher")).toBeVisible({ timeout: 8000 });
-
-            // Цикл самолечения идёт раз в 3 с — ждём подключения файла.
-            await expect.poll(async () => page.evaluate(() => (window.__MLBG_LIVE__ || {}).branch || ""),
-                { timeout: 8000 }).toBe("release/7.7");
-
-            // И рантайм действительно берёт ветку оттуда, а не из статусбара фикстуры.
-            const seen = await page.evaluate(() => {
-                const w = window;
-                return w.__mlbgTest ? w.__mlbgTest.live() : null;
-            });
-            expect(seen && seen.branch).toBe("release/7.7");
-            expect(seen && seen.source).toContain("хост");
-
-            // Теги скриптов не копятся: после нескольких циклов их в DOM нет.
-            const left = await page.evaluate(() => document.querySelectorAll('script[src*="mlbg-live"]').length);
-            expect(left).toBe(0);
-        } finally {
-            try { fs.unlinkSync(livePath); } catch (e) { /* уже удалён */ }
-        }
+    // Живые данные хоста расширений важнее DOM. От компаньона они приходят событием "live"
+    // моста Moon Core (это проверяет смоук и стенд Moon Core); здесь — ручной источник
+    // window.__MLBG_LIVE__ в настоящем браузере: ветка берётся из данных, а не из статусбара.
+    test("живые данные: важнее статусбара фикстуры", async ({ page }) => {
+        await page.addInitScript(() => {
+            localStorage.setItem("moonlight-bg-onboarded", "1");
+            window.__MLBG_TEST_HOOKS__ = true;
+            window.__MLBG_LIVE__ = { rev: 1, branch: "release/7.7", remote: "acme/widget",
+                errors: 3, warnings: 0, languageId: "typescript", fileExt: "ts", folder: "e2e-folder" };
+            window.__MLBG_SEED__ = { lang: "ru", enabled: true, perfGuard: false };
+        });
+        await page.goto(fixtureUrl);
+        await expect(page.locator("#moonlight-bg-switcher")).toBeVisible({ timeout: 8000 });
+        const seen = await page.evaluate(() => {
+            const w = window;
+            return w.__mlbgTest ? w.__mlbgTest.live() : null;
+        });
+        expect(seen && seen.branch).toBe("release/7.7");
+        expect(seen && seen.source).toContain("хост");
+        // Никаких подключаемых файлов живых данных больше нет.
+        const tags = await page.evaluate(() => document.querySelectorAll('script[src*="mlbg-live"]').length);
+        expect(tags).toBe(0);
     });
 
     test("здоровье селекторов: фикстура-воркбенч распознаётся", async ({ page }) => {

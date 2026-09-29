@@ -31,6 +31,8 @@ var DEFAULTS = {
     setAccent: {},                                      // переопределение акцента конкретного набора: { idx: "#rrggbb" }
     setName: {},                                        // пользовательское имя набора: { idx: "строка" }
     setImg: {},                                         // свои картинки набора по зонам: { idx: { editor?, sidebar?, panel? } }
+    setPos: {},                                         // точка фокуса картинки по зонам: { idx: { editor?: "40% 60%", ... } }
+    libraryDir: "",                                     // папка-источник библиотеки: при старте перечитывается (новые картинки подхватываются)
     genSets: [],                                        // сгенерированные наборы (по seed/палитре): дозагружаются в хвост SETS
     shaderSrc: "",                                      // свой GLSL для шейдерного набора «Свой шейдер»; пусто — встроенный
 
@@ -142,7 +144,7 @@ var DEFAULTS = {
     // эффекты (ключ — тот же, что у hidden/hiddenFx). Закрепить/открепить — звёздочкой в режиме
     // «Настроить». Зеркально к hidden: hidden прячет пункт, fav — поднимает его в блок «Избранное».
     // ui.width — ширина панели в px (перетаскивается за левый край); null — дефолт 380.
-    ui: { collapsed: {}, hidden: {}, hiddenFx: {}, favSec: {}, favFx: {}, posX: null, posY: null, width: null, tab: 0 } // tab — активная вкладка панели (Набор/Вид/Терминал/Система/Данные)
+    ui: { collapsed: {}, hidden: {}, hiddenFx: {}, favSec: {}, favFx: {}, posX: null, posY: null, width: null, tab: 0, keys: true, pinned: false, tour: false, favSets: {}, favOnly: false, simple: true, news: "", tipsOff: {}, sync: false } // simple — простой режим панели (только главное); keys — горячие клавиши; pinned — панель не закрывается кликом мимо; tour — знакомство пройдено; favSets/favOnly — любимые наборы и фильтр по ним // tab — активная вкладка панели (Набор/Вид/Терминал/Система/Данные)
 };
 
 var TERM_FONTS = [
@@ -353,6 +355,11 @@ var PARAMS = [
     ["tintStrength", "Тон сила", 0, 0.6, 0.02, 2]
 ];
 
+// Точка фокуса картинки: "x% y%", оба 0..100 целые.
+function isPosStr(v) {
+    var m = typeof v === "string" && /^(\d{1,3})% (\d{1,3})%$/.exec(v);
+    return !!(m && +m[1] <= 100 && +m[2] <= 100);
+}
 // Шрифт — строго из белого списка (там нет кавычек/;/{} — CSS-инъекция невозможна).
 function safeFont(f) { return TERM_FONTS.indexOf(f) >= 0 ? f : DEFAULTS.term.font; }
 // диапазоны параметров эффектов (ключ -> [min, max]) из PARAMS
@@ -550,6 +557,18 @@ function mergeCfg(p) {
             }
         }
         if (typeof p.librarySlideshow === "boolean") c.librarySlideshow = p.librarySlideshow;
+        if (typeof p.libraryDir === "string" && p.libraryDir.length <= 1024) c.libraryDir = p.libraryDir;
+        // точка фокуса: только «N% N%» (0..100) — строка уходит в CSS background-position
+        if (p.setPos && typeof p.setPos === "object") {
+            c.setPos = {};
+            for (var _pi in p.setPos) {
+                if (!/^\d{1,2}$/.test(_pi)) continue;
+                var _po = p.setPos[_pi]; if (!_po || typeof _po !== "object") continue;
+                var _pz = {};
+                ["editor", "sidebar", "panel"].forEach(function (z) { if (isPosStr(_po[z])) _pz[z] = _po[z]; });
+                c.setPos[_pi] = _pz;
+            }
+        }
         // скринсейвер/витрина при простое: флаг + минуты простоя до показа
         if (p.screensaver && typeof p.screensaver === "object") {
             if (typeof p.screensaver.on === "boolean") c.screensaver.on = p.screensaver.on;
@@ -615,6 +634,17 @@ function mergeCfg(p) {
             // активная вкладка панели: неотрицательное целое (реальный верх зажмёт togglePanel
             // под число вкладок; здесь просто небольшой безопасный потолок против мусора)
             if (typeof p.ui.tab === "number" && isFinite(p.ui.tab)) c.ui.tab = Math.min(15, Math.max(0, Math.floor(p.ui.tab)));
+            if (typeof p.ui.keys === "boolean") c.ui.keys = p.ui.keys; // горячие клавиши вкл/выкл
+            if (typeof p.ui.pinned === "boolean") c.ui.pinned = p.ui.pinned;
+            if (typeof p.ui.tour === "boolean") c.ui.tour = p.ui.tour;
+            if (typeof p.ui.favOnly === "boolean") c.ui.favOnly = p.ui.favOnly;
+            if (typeof p.ui.simple === "boolean") c.ui.simple = p.ui.simple;
+            if (typeof p.ui.news === "string" && p.ui.news.length <= 32) c.ui.news = p.ui.news;   // просмотренный выпуск «Что нового»
+            c.ui.tipsOff = _sanBoolMap(p.ui.tipsOff, 32);                                           // отклонённые советы
+            if (typeof p.ui.sync === "boolean") c.ui.sync = p.ui.sync;                              // синхронизация через Settings Sync
+            // любимые наборы: ключ — индекс набора строкой ("0".."99")
+            c.ui.favSets = _sanBoolMap(p.ui.favSets, 64);
+            for (var _fk in c.ui.favSets) if (!/^\d{1,2}$/.test(_fk)) delete c.ui.favSets[_fk];
         }
     }
     return c;
@@ -629,21 +659,98 @@ function mergeForeign(p) {
     c.allowRemoteImages = false;
     return c;
 }
+// Откуда взялся конфиг при старте: "local" | "disk" | "seed" | "defaults" (для диагностики).
+var cfgLoadedFrom = "defaults";
 function loadCfg() {
     try {
         var raw = localStorage.getItem(CFG_KEY);
         // Нормальный конфиг весит килобайты. Отсекаем заведомо раздутый/подменённый
         // localStorage до JSON.parse (тот же лимит, что и при импорте файла) — чтобы
         // огромная строка не била по старту разбором/памятью. Свыше лимита — дефолты.
-        if (raw && raw.length <= 256 * 1024) return mergeCfg(safeParse(raw));
+        if (raw && raw.length <= 256 * 1024) { cfgLoadedFrom = "local"; return mergeCfg(safeParse(raw)); }
     } catch (e) {}
     // localStorage пуст (новая машина / переустановка / крупный апдейт VS Code почистил
-    // хранилище). Если компаньон-расширение прокинуло базовый конфиг из settings.json
-    // (window.__MLBG_SEED__ — едет через Settings Sync), берём его как отправную
-    // точку: вид «переезжает» на новую машину сам. mergeCfg санитизирует чужой объект.
+    // хранилище). Сначала — резерв на диске от Moon Core: это наш же последний конфиг, поэтому
+    // проходит через mergeCfg напрямую и своё согласие на сетевые картинки сохраняет.
+    var disk = diskCfg();
+    if (disk) { try { var c = mergeCfg(disk); cfgLoadedFrom = "disk"; return c; } catch (e) {} }
+    // Дальше — базовый конфиг из settings.json (window.__MLBG_SEED__ — едет через Settings
+    // Sync): вид «переезжает» на новую машину сам. mergeCfg санитизирует чужой объект.
     var seed = seedConfig();
-    if (seed) { try { return mergeCfg(seed); } catch (e) {} }
+    if (seed) { try { var c2 = mergeCfg(seed); cfgLoadedFrom = "seed"; return c2; } catch (e) {} }
+    cfgLoadedFrom = "defaults";
     return clone(DEFAULTS);
+}
+
+// ===== Резерв конфига на диске (Moon Core) =====
+// localStorage окна VS Code иногда очищается целиком (крупное обновление, переустановка), и
+// вместе с ним пропадали все наборы и настройки. Через Moon Core у модуля есть свой файл
+// данных на диске (<globalStorage Moon Core>/modules/mlbg.json): окно читает его синхронно
+// при старте, а пишет через мост. Сюда с задержкой уходит копия конфига после каждой правки.
+// Без Moon Core — ничего не делаем (ручной экспорт в файл по-прежнему работает).
+var DISK_SAVE_MS = 2000;           // ползунок двигают десятки раз в секунду — пишем после паузы
+var DISK_MAX = 256 * 1024;         // тот же лимит, что у localStorage и импорта
+var _disk = { timer: null, lastOk: 0, lastErr: "", pending: false };
+// Конфиг из файла данных модуля: объект или null. Файл на диске может быть подменён — поэтому
+// только объект разумного размера, дальше его чистит mergeCfg.
+function diskCfg() {
+    try {
+        if (!_viaMoonCore) return null;
+        var m = mooncoreModule();
+        var d = (m && typeof m.data === "function") ? m.data() : null;
+        var c = d && d.cfg;
+        if (!c || typeof c !== "object" || Array.isArray(c)) return null;
+        if (JSON.stringify(c).length > DISK_MAX) return null;
+        return c;
+    } catch (e) { return null; }
+}
+function scheduleDiskSave() {
+    try { if (typeof scheduleSyncPush === "function") scheduleSyncPush(); } catch (e) {} // Settings Sync (looks.js)
+    if (!_viaMoonCore) return;
+    _disk.pending = true;
+    if (_disk.timer) clearTimeout(_disk.timer);
+    _disk.timer = setTimeout(diskSaveNow, DISK_SAVE_MS);
+}
+function diskSaveNow() {
+    _disk.timer = null;
+    var m = mooncoreModule();
+    if (!m || typeof m.saveData !== "function") return;
+    var text;
+    try { text = JSON.stringify(cfg); } catch (e) { logErr("резерв конфига", e); return; }
+    if (text.length > DISK_MAX) { _disk.lastErr = "конфиг больше 256 КБ"; return; }
+    m.saveData({ v: 1, app: APP_VERSION, t: Date.now(), cfg: JSON.parse(text), daily: dailyCopies(text) }).then(function (r) {
+        _disk.pending = false;
+        if (r && r.ok) { _disk.lastOk = Date.now(); _disk.lastErr = ""; }
+        else { _disk.lastErr = String((r && r.error) || "нет ответа"); logErr("резерв конфига", _disk.lastErr); }
+    }, function (e) { _disk.lastErr = String(e); logErr("резерв конфига", e); });
+}
+// Ежедневные копии: по одной на день, последние 14 (как у cpp-docs-panel). Лежат в том же
+// файле данных модуля. Новая копия дня заменяет старую того же дня только при отличии.
+var DAILY_KEEP = 14;
+function dailyList() {
+    try {
+        var m = mooncoreModule(), d = (m && typeof m.data === "function") ? m.data() : null;
+        var a = d && Array.isArray(d.daily) ? d.daily : [];
+        return a.filter(function (x) { return x && typeof x.day === "string" && x.cfg && typeof x.cfg === "object"; }).slice(0, DAILY_KEEP);
+    } catch (e) { return []; }
+}
+function dailyCopies(text) {
+    var now = new Date();
+    var day = now.getFullYear() + "-" + ("0" + (now.getMonth() + 1)).slice(-2) + "-" + ("0" + now.getDate()).slice(-2);
+    var list = dailyList().filter(function (x) { return x.day !== day; });
+    list.unshift({ day: day, cfg: JSON.parse(text) });
+    return list.slice(0, DAILY_KEEP);
+}
+// Строка для диагностики.
+function diskBackupInfo() {
+    if (!_viaMoonCore) return "нет (нужен Moon Core)";
+    var from = cfgLoadedFrom === "disk" ? " · при старте восстановлен из резерва" : "";
+    if (_disk.lastErr) return "ошибка: " + _disk.lastErr + from;
+    if (_disk.lastOk) {
+        var d = new Date(_disk.lastOk);
+        return "сохранён в " + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + from;
+    }
+    return (_disk.pending ? "сохраняется" : "есть") + from;
 }
 // Базовый конфиг из settings.json, проброшенный компаньоном как глобал window.__MLBG_SEED__
 // (см. extension/extension.js). Возвращает объект или null. Мягко — глобала может не быть
@@ -656,7 +763,8 @@ function seedConfig() {
     return null;
 }
 function saveCfg() {
-    try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {}
+    try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) { logErr("сохранение конфига", e); }
+    try { scheduleDiskSave(); } catch (e) {}
     // Единая точка сохранения конфига — здесь же отмечаем изменение для истории Undo/Redo
     // (scheduleHistory определён в io.js; поднят по области IIFE). При старте (loadCfg) не
     // зовётся, поэтому лишнего шага истории на загрузке нет.

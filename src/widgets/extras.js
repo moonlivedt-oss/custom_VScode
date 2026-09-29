@@ -136,13 +136,16 @@ function paintStats() {
 }
 
 function syncWidgets() {
-    try { ensureClock(); } catch (e) {}
-    try { ensurePomodoro(); } catch (e) {}
-    try { ensureParticles(); } catch (e) {}
-    try { ensureCursorTrail(); } catch (e) {} // шлейф курсора (создать/убрать canvas под настройку)
-    try { ensurePet(); } catch (e) {}         // питомец-компаньон (создать/убрать canvas под настройку)
-    try { screensaverSync(); } catch (e) {}   // убрать витрину сразу, если её выключили в панели
-    try { ensureStats(); } catch (e) {}       // виджет статистики сессии в статусбаре
-    try { syncFocusClass(); } catch (e) {} // отразить вкл/выкл эффекта фокуса без ожидания тика
-    try { perfSync(); } catch (e) {}       // запустить/остановить авто-бюджет FPS под текущие настройки
+    // Виджеты живут в <body>; до его появления (ранний запуск в <head> через Moon Core)
+    // делать нечего — heal повторит вызов после DOMContentLoaded.
+    if (!document.body) return;
+    try { ensureClock(); } catch (e) { logErr("виджеты: ensureClock", e); }
+    try { ensurePomodoro(); } catch (e) { logErr("виджеты: ensurePomodoro", e); }
+    try { ensureParticles(); } catch (e) { logErr("виджеты: ensureParticles", e); }
+    try { ensureCursorTrail(); } catch (e) { logErr("виджеты: ensureCursorTrail", e); } // шлейф курсора (создать/убрать canvas под настройку)
+    try { ensurePet(); } catch (e) { logErr("виджеты: ensurePet", e); }         // питомец-компаньон (создать/убрать canvas под настройку)
+    try { screensaverSync(); } catch (e) { logErr("виджеты: screensaverSync", e); }   // убрать витрину сразу, если её выключили в панели
+    try { ensureStats(); } catch (e) { logErr("виджеты: ensureStats", e); }       // виджет статистики сессии в статусбаре
+    try { syncFocusClass(); } catch (e) { logErr("виджеты: syncFocusClass", e); } // отразить вкл/выкл эффекта фокуса без ожидания тика
+    try { perfSync(); } catch (e) { logErr("виджеты: perfSync", e); }       // запустить/остановить авто-бюджет FPS под текущие настройки
 }

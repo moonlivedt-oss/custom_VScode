@@ -12,18 +12,20 @@
 function mlbgEnv() {
     try {
         var e = (typeof window !== "undefined") ? window.__MLBG_ENV__ : null;
+        // Через Moon Core пролога с глобалом нет: компаньон присылает ту же среду событием
+        // "env" по мосту ядра, помощник модуля хранит последнее значение.
+        if ((!e || typeof e !== "object") && _viaMoonCore) {
+            var m = mooncoreModule();
+            e = (m && typeof m.get === "function") ? m.get("env") : null;
+        }
         if (!e || typeof e !== "object") return null;
-        var loader = (e.loader === "custom-ui-style" || e.loader === "custom-css") ? e.loader : null;
+        var loader = (e.loader === "custom-ui-style" || e.loader === "custom-css" || e.loader === "moon-core") ? e.loader : null;
         return {
             loader: loader,
             version: (typeof e.version === "string") ? e.version.replace(/[^0-9a-z.\-]/gi, "").slice(0, 24) : "",
             vscode: (typeof e.vscode === "string") ? e.vscode.replace(/[^0-9a-z.\-]/gi, "").slice(0, 24) : "",
             transparent: e.transparent === true,   // окно создано прозрачным (опции Electron заданы)
-            script: (typeof e.script === "string") ? e.script.slice(0, 512) : "",
-            // Адрес файла живых данных. Пускаем только локальные схемы: этот URL уходит в
-            // src подключаемого <script>, и сетевой адрес отсюда означал бы, что подменённый
-            // пролог заставил редактор исполнять чужой код.
-            live: (typeof e.live === "string" && /^(?:file|vscode-file|vscode-resource|https?):\/\//i.test(e.live) && !isRemoteUrl(e.live)) ? e.live.slice(0, 1024) : ""
+            script: (typeof e.script === "string") ? e.script.slice(0, 512) : ""
         };
     } catch (e) { return null; }
 }
@@ -36,9 +38,15 @@ function _cusMarker() {
     } catch (e) { return false; }
 }
 // Что за загрузчик: { id, title, version, sure }. sure=false — определено косвенно.
+var MOONCORE_TITLE = "Moon Core";
 function loaderKind() {
+    // Встроены ядром Moon Core — это известно точно по тегу скрипта, компаньон не нужен.
+    if (_viaMoonCore) {
+        var core = (typeof window !== "undefined" && window.__MOONCORE__) || {};
+        return { id: "moon-core", sure: true, version: (typeof core.version === "string") ? core.version.replace(/[^0-9a-z.\-]/gi, "").slice(0, 24) : "", title: MOONCORE_TITLE };
+    }
     var e = mlbgEnv();
-    if (e && e.loader) {
+    if (e && e.loader && e.loader !== "moon-core") {
         return {
             id: e.loader, sure: true, version: e.version,
             title: e.loader === "custom-ui-style" ? "Custom UI Style" : "Custom CSS and JS (be5invis)"

@@ -40,6 +40,9 @@ async function openFixture(page, seed) {
 }
 
 test.describe("Визуальные регрессии", () => {
+    // Знакомство с панелью (tour.js) затемняет экран при первом открытии — в тестах не нужно.
+    test.beforeEach(async ({ page }) => { await page.addInitScript(() => { window.__MLBG_NO_TOUR__ = true; }); });
+
     test.beforeEach(async ({ page }) => {
         await page.setViewportSize({ width: 1280, height: 800 });
     });
@@ -60,8 +63,8 @@ test.describe("Визуальные регрессии", () => {
         await expect(panel).toHaveScreenshot("panel-sets.png");
     });
 
-    test("панель: вкладка «Вид» с эффектами", async ({ page }) => {
-        await openFixture(page, { lang: "ru", enabled: true, perfGuard: false, mode: "0", ui: { tab: 1 } });
+    test("панель: вкладка «Эффекты»", async ({ page }) => {
+        await openFixture(page, { lang: "ru", enabled: true, perfGuard: false, mode: "0", ui: { tab: 3, simple: false } });
         await page.locator("#moonlight-bg-switcher").click();
         const panel = page.locator("#moonlight-bg-panel");
         await expect(panel).toBeVisible();

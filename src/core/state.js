@@ -102,6 +102,22 @@ function activeIndex() {
     if (isNaN(i) || i < 0 || i >= SETS.length) i = 0;
     return i;
 }
+// Почему сейчас показан именно этот набор: то же дерево приоритетов, что в activeIndex, но
+// с причиной. Для строки «Сейчас работает» на вкладке «Авто-смена».
+// -> { idx, why: "workspace"|"remote"|"branch"|"lang"|"random"|"time"|"slide"|"manual", key }
+function activeRule() {
+    var r = { idx: activeIndex(), why: "manual", key: "" };
+    try {
+        if (workspaceIndex() !== null) { r.why = "workspace"; r.key = workspaceName() || ""; return r; }
+        if (remoteIndex() !== null) { r.why = "remote"; r.key = (typeof liveStr === "function" && liveStr("remote")) || ""; return r; }
+        if (branchIndex() !== null) { r.why = "branch"; r.key = (typeof gitBranch === "function" && gitBranch()) || ""; return r; }
+        if (langIndex() !== null) { r.why = "lang"; r.key = (typeof editorFileExt === "function" && editorFileExt()) || ""; return r; }
+        if (cfg.mode === "random") { r.why = "random"; return r; }
+        if (cfg.autoTime && cfg.autoTime.on) { r.why = "time"; return r; }
+        if (cfg.slideshow && cfg.slideshow.on) { r.why = "slide"; return r; }
+    } catch (e) {}
+    return r;
+}
 // яркость активного набора (своя или базовая)
 function getOp() {
     var idx = activeIndex(), o = cfg.setOp[idx] || {};
@@ -126,9 +142,31 @@ function getAccent() {
     var idx = activeIndex();
     var o = cfg.setAccent && cfg.setAccent[idx];
     if (isColor(o)) return o;
+    // Своя картинка в редакторе (выбрана пользователем) — акцент из неё, пока его не меняли
+    // руками: «родной» акцент набора к чужой картинке не подходит. Пока проба не готова —
+    // запасной путь ниже; когда готова, probeImage сам пересоберёт стиль.
+    try {
+        if (typeof hasUserImg === "function" && hasUserImg(idx, "editor")) {
+            var st = probeImage(zoneUrl(idx, "editor"));
+            if (st && st.ok && st.accent) return accentForContrast(st.accent, accentContrastRef(), 3);
+        }
+    } catch (e) {}
     var s = SETS[idx] && SETS[idx].accent;
     if (isColor(s)) return s;
     return safeColor(cfg.accent, DEFAULTS.accent);
+}
+// Цвет курсора/выделения терминала: пока пользователь его не менял (равен дефолту),
+// он следует за акцентом набора — терминал в цвет фона без настройки.
+function effTermColor(key) {
+    var v = cfg.term && cfg.term[key];
+    if (!isColor(v) || v === DEFAULTS.term[key]) return getAccent();
+    return v;
+}
+// Точка фокуса картинки зоны набора ("x% y%") или "" — тогда позиция по умолчанию.
+function setPosFor(idx, zone) {
+    var o = cfg.setPos && cfg.setPos[idx];
+    var v = o && o[zone];
+    return isPosStr(v) ? v : "";
 }
 function setAccentValue(v) {
     var idx = activeIndex();
@@ -148,8 +186,8 @@ function imgUrl(rel) {
     // раньше пустой путь склеивался с базой в адрес ПАПКИ плагина: браузер честно пытался
     // загрузить её как картинку, получал ошибку, и чип набора помечался красным «не грузится».
     if (!rel) return "";
-    if (isAbsUrl(rel)) return imgAllowed(rel) ? rel : "";
-    return imgBase() + rel;
+    if (isAbsUrl(rel)) return imgAllowed(rel) ? appFileUrl(rel) : "";
+    return appFileUrl(imgBase() + rel);
 }
 // Путь картинки зоны набора: пользовательское переопределение (cfg.setImg[idx][zone])
 // или «родная» картинка из SETS. zone — ключ SETS: "editor" | "sidebar" | "panel".

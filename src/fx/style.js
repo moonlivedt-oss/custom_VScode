@@ -7,6 +7,14 @@
 // набора, тема), по-прежнему пересобирает лист — иначе новые правила просто не появятся.
 // Пересборка идёт по ревизии: bumpStyle() отмечает изменение, ensureStyle собирает CSS,
 // только когда ревизия сдвинулась или наш <style> пропал (VS Code перестроил DOM).
+// Сменился акцент — событие окну: соседние скрипты (окно «Документация C++») перекрашиваются
+// сразу, не дожидаясь своего таймера. Только при реальной смене цвета.
+var _lastAnnounced = "";
+function announceAccent(ac) {
+    if (ac === _lastAnnounced) return;
+    _lastAnnounced = ac;
+    setTimeout(function () { try { window.dispatchEvent(new CustomEvent("mlbg-accent", { detail: { accent: ac } })); } catch (e) {} }, 0);
+}
 function editorOpFactor() {
     // Множители прозрачности редактора, зависящие не от ползунка: авто-дим под светлую
     // картинку и режим чтения. Повторяет логику buildCSS, чтобы переменная совпадала с ней.
@@ -53,7 +61,7 @@ function ensureVars() {
             st.setProperty(k, v[k]);
             _varsApplied[k] = v[k];
         }
-    } catch (e) {}
+    } catch (e) { logErr("CSS-переменные", e); }
 }
 
 var STYLE_ID = "moonlight-custom-bg";
@@ -85,12 +93,13 @@ function ensureStyle() {
                 _buildErrLogged = true;
                 try { console.error("[MoonLight custom-bg] Сборка CSS упала — включён безопасный режим (видна только кнопка BG). Проверьте правки в src/ или откройте панель → Система → «Сбросить к дефолту».", buildErr); } catch (e2) {}
             }
+            logErr("сборка CSS (безопасный режим)", buildErr);
             css = safeFallbackCSS();
         }
         if (!el) { el = document.createElement("style"); el.id = STYLE_ID; document.head.appendChild(el); }
         if (el.textContent !== css) el.textContent = css;
         _appliedRev = _styleRev;
-    } catch (e) {}
+    } catch (e) { logErr("вставка стиля", e); }
 }
 function apply() { saveCfg(); bumpStyle(); ensureStyle(); updateLabel(); syncWidgets(); }
 // «Живое» применение БЕЗ записи в localStorage — для непрерывных изменений во время

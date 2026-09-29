@@ -15,13 +15,55 @@
 // Пусто -> при инлайн-внедрении укажи путь ОДИН раз в панели («Папка плагина», cfg.imgBase):
 // он сохранится в localStorage конкретной машины, а не в коде.
 var IMG_FALLBACK = "";
+
+// ===== Moon Core =====
+// Плагин может быть встроен ядром Moon Core как модуль "mlbg": тогда тег скрипта помечен
+// data-mooncore-module, а ядро выдаёт помощника с адресом папки ресурсов (base) и каналом к
+// расширению-компаньону. currentScript есть только пока скрипт выполняется синхронно —
+// поэтому признак снимаем сразу при загрузке.
+var MOONCORE_ID = "mlbg";
+var _viaMoonCore = (function () {
+    try {
+        var s = /** @type {HTMLScriptElement} */ (document.currentScript);
+        return !!(s && s.getAttribute && s.getAttribute("data-mooncore-module") === MOONCORE_ID);
+    } catch (e) { return false; }
+})();
+// Помощник модуля от Moon Core или null (ядра нет / модуль не встроен им).
+function mooncoreModule() {
+    try {
+        var mc = (typeof window !== "undefined") ? window.__MOONCORE__ : null;
+        var m = (mc && typeof mc.module === "function") ? mc.module(MOONCORE_ID) : null;
+        return (m && typeof m === "object") ? m : null;
+    } catch (e) { return null; }
+}
+// Запрос к компаньону через Moon Core: Promise<result>. Нет Moon Core/компаньона — reject с
+// понятной причиной (UI покажет её тостом).
+/** @returns {Promise<any>} */
+function mlbgRpc(method, body) {
+    var m = mooncoreModule();
+    if (!m || typeof m.rpc !== "function") return Promise.reject(new Error("нужен Moon Core и компаньон-расширение"));
+    return m.rpc(method, body || null).then(function (r) {
+        if (r && r.ok) return r.result;
+        throw new Error(String((r && r.error) || "расширение не ответило"));
+    });
+}
+// Папка ресурсов от Moon Core: только локальные схемы и со слэшем на конце.
+function mooncoreBase() {
+    var m = mooncoreModule();
+    var b = (m && typeof m.base === "string") ? m.base : "";
+    if (!/^(?:vscode-file|file):\/\//i.test(b)) return "";
+    return /\/$/.test(b) ? b : b + "/";
+}
+
 var IMG = (function () {
     try {
         var src = (/** @type {HTMLScriptElement} */ (document.currentScript) || {}).src || "";
         var i = src.lastIndexOf("/");
         if (i >= 0) return src.slice(0, i + 1); // .../vscode-bg/custom-bg.js -> .../vscode-bg/
     } catch (e) {}
-    return IMG_FALLBACK; // адрес скрипта неизвестен (инлайн-внедрение) — берём заданный путь
+    // Инлайн-внедрение: адрес скрипта неизвестен. Moon Core знает папку модуля точно;
+    // иначе — заданный путь (а поверх него «Папка плагина» из панели, см. imgBase).
+    return mooncoreBase() || IMG_FALLBACK;
 })();
 
 // Эффективная база для ОТНОСИТЕЛЬНЫХ путей картинок. Приоритет — путь, заданный

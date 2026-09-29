@@ -1,3 +1,33 @@
+// ===== Журнал ошибок =====
+// Раньше ошибки в самолечении, виджетах и сборке стиля глотались пустым catch: когда что-то
+// ломалось, узнать об этом было нельзя. Теперь каждая РАЗНАЯ ошибка один раз уходит в консоль
+// DevTools и (через Moon Core) в журнал «Moon Core» в Output, а последние лежат в errLog для
+// «Системы → Диагностики». Повторы только считаются: самолечение крутится раз в 3 с, и одна
+// и та же поломка иначе забила бы журнал.
+var ERR_MAX = 50;          // разных ошибок за сессию (дальше — только счёт)
+var ERR_KEEP = 20;         // сколько последних держим для диагностики
+var errLog = [];           // [{ where, msg, t, n }]
+var _errByKey = {}, _errTotal = 0;
+function logErr(where, e) {
+    try {
+        var w = String(where || "").slice(0, 80);
+        var msg = String((e && e.message) || e).slice(0, 300);
+        var key = w + "|" + msg;
+        _errTotal++;
+        if (_errByKey[key]) { _errByKey[key].n++; return; }
+        if (errLog.length + 1 > ERR_KEEP) errLog.shift();
+        if (Object.keys(_errByKey).length >= ERR_MAX) return;
+        var rec = { where: w, msg: msg, t: Date.now(), n: 1 };
+        _errByKey[key] = rec;
+        errLog.push(rec);
+        try { console.warn("[MoonLight custom-bg] " + w + ":", e); } catch (e2) {}
+        var m = (typeof mooncoreModule === "function") ? mooncoreModule() : null;
+        if (m && typeof m.log === "function") m.log(w, e);
+    } catch (e3) {}
+}
+// Сколько ошибок всего (с повторами) — для диагностики.
+function errTotal() { return _errTotal; }
+
 // ===== Общие утилиты и санитизация значений =====
 // Всё внешнее (localStorage, импортированный файл, код «Поделиться», настройка компаньона)
 // проходит через эти проверки, прежде чем попасть в конфиг или в CSS: значение принимается,
@@ -64,6 +94,17 @@ function imgAllowed(u) {
 // одинарную кавычку, обратный слэш или перевод строки (напр. C:\Users\O'Brien\…),
 // он вырвется из url('...') и сломает — или подменит — CSS. Экранируем спецсимволы
 // по правилам CSS-строк (\ и ' — через escape, переводы строк убираем).
+// VS Code отклоняет в окне любой запрос file:// (в журнале: «Refused to load resource ... from
+// file: protocol») и отдаёт локальные файлы только как vscode-file://vscode-app/<путь>. Поэтому
+// картинки из диалога выбора (компаньон отдаёт file:///), библиотека и «Папка плагина» в виде
+// file:/// в настоящем VS Code не грузились. Меняем только схему; вне оболочки (стенд, тесты
+// по http) адрес не трогаем.
+function appFileUrl(u) {
+    if (typeof u !== "string") return u;
+    var m = /^file:\/\/(?:localhost)?\/(.*)$/i.exec(u);
+    if (!m || typeof location === "undefined" || !location || location.protocol !== "vscode-file:") return u;
+    return "vscode-file://vscode-app/" + m[1];
+}
 function cssUrl(u) {
     var s = String(u).replace(/[\r\n]/g, "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     return "url('" + s + "')";

@@ -116,7 +116,7 @@ function buildFavorites(favBox, panelBody, nav) {
                     node.addEventListener("mouseenter", pOn); node.addEventListener("mouseleave", pOff);
                     var cb = node.querySelector ? node.querySelector("input") : null;
                     if (cb) {
-                        cb.addEventListener("change", function () { previewFxCancel(); try { refreshPanel(); } catch (e) {} });
+                        cb.addEventListener("change", function () { previewFxCancel(); if (!fxAffectsPanel(o[0])) { try { refreshPanel(); } catch (e) {} } }); // иначе makeCheck уже пересобрал
                         cb.addEventListener("focus", pOn); cb.addEventListener("blur", pOff);
                     }
                     grid.appendChild(node);

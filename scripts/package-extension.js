@@ -2,15 +2,13 @@
 // ============================================================
 //  Сборка .vsix: расширение + сам плагин внутри одного пакета.
 //
-//  Зачем. Сейчас установка — четыре ручных шага: клонировать репозиторий, поставить загрузчик,
-//  прописать путь к custom-bg.js в settings.json, перезапустить редактор. При этом компаньон
-//  уже умеет прописывать путь сам — не хватало только того, чтобы плагин и картинки ехали
-//  вместе с ним. Пакет решает это целиком: расширение ставится одним кликом, находит внутри
-//  себя custom-bg.js и assets/, прописывает импорт и предлагает включить загрузчик.
+//  Зачем. Плагин и картинки едут вместе с компаньоном: расширение ставится одним кликом, а
+//  Moon Core находит внутри пакета custom-bg.min.js и assets/ по объявлению модуля mlbg
+//  (extension/package.json -> moonCore.modules) и встраивает фон сам.
 //
 //  Что делает скрипт:
-//    1. собирает свежий custom-bg.js из src/ (артефакт не берётся «как лежит»);
-//    2. копирует его и assets/ внутрь extension/ — там их ждёт resolveScript();
+//    1. собирает свежие custom-bg.js и custom-bg.min.js из src/ (артефакт не берётся «как лежит»);
+//    2. копирует сжатую сборку, assets/ (без значков — они уже в сборке) и сборку Moon Core внутрь extension/;
 //    3. зовёт @vscode/vsce package;
 //    4. убирает копии, чтобы рабочее дерево осталось чистым.
 //
@@ -25,7 +23,24 @@ var cp = require("child_process");
 var ROOT = path.join(__dirname, "..");
 var EXT = path.join(ROOT, "extension");
 var DIST = path.join(ROOT, "dist");
-var COPIED = [path.join(EXT, "custom-bg.js"), path.join(EXT, "assets"), path.join(EXT, "LICENSE")];
+// Имя без .vsix: vsce выкидывает вложенные .vsix из пакета. Компаньон переименует файл перед установкой.
+var MOON_CORE_VSIX = path.join(EXT, "moon-core.bin");
+var COPIED = [path.join(EXT, "custom-bg.min.js"), path.join(EXT, "assets"), path.join(EXT, "LICENSE"), MOON_CORE_VSIX];
+// Значки панели (assets/ui) уже вшиты в сборку data-URI (scripts/embed-icons.js -> src/ui/icons.js):
+// копировать их в пакет ещё раз незачем.
+var SKIP_ASSETS = ["ui"];
+
+// Ядро Moon Core едет внутри пакета: без него фон не встроится, а ставить второе расширение
+// руками человеку не нужно — компаньон поставит его сам при первом запуске. Берём самую свежую
+// сборку из соседнего репозитория (../moon-core/dist) или путь из MOON_CORE_VSIX.
+function findMoonCoreVsix() {
+    if (process.env.MOON_CORE_VSIX) return fs.existsSync(process.env.MOON_CORE_VSIX) ? process.env.MOON_CORE_VSIX : null;
+    var dir = path.join(ROOT, "..", "moon-core", "dist");
+    var list = [];
+    try { list = fs.readdirSync(dir).filter(function (n) { return /^moon-core-[\d.]+\.vsix$/.test(n); }); } catch (e) { return null; }
+    list.sort(function (a, b) { return fs.statSync(path.join(dir, b)).mtimeMs - fs.statSync(path.join(dir, a)).mtimeMs; });
+    return list.length ? path.join(dir, list[0]) : null;
+}
 
 // shell:true нужен только для npx (на Windows это .cmd и напрямую не запускается). Для node
 // его включать нельзя: путь с пробелами (Program Files) оболочка разрежет по первому пробелу.
@@ -36,9 +51,10 @@ function run(cmd, args, opts) {
     if (r.error) throw r.error;
     if (r.status !== 0) throw new Error(cmd + " вышел с кодом " + r.status);
 }
-function copyDir(from, to) {
+function copyDir(from, to, skip) {
     fs.mkdirSync(to, { recursive: true });
     fs.readdirSync(from).forEach(function (name) {
+        if (skip && skip.indexOf(name) !== -1) return;
         var src = path.join(from, name), dst = path.join(to, name);
         if (fs.statSync(src).isDirectory()) copyDir(src, dst);
         else fs.copyFileSync(src, dst);
@@ -58,11 +74,14 @@ function main() {
     console.log("Сборка артефакта...");
     run(process.execPath, [path.join(ROOT, "build.js")]);
 
-    // 2. Плагин и картинки — внутрь расширения. resolveScript() в extension.js ищет
-    //    custom-bg.js сначала рядом с собой, поэтому установленный пакет самодостаточен.
-    console.log("Копирование custom-bg.js и assets/ в extension/...");
-    fs.copyFileSync(path.join(ROOT, "custom-bg.js"), path.join(EXT, "custom-bg.js"));
-    copyDir(path.join(ROOT, "assets"), path.join(EXT, "assets"));
+    // 2. Плагин и картинки — внутрь расширения. Moon Core находит их по объявлению модуля
+    //    (extension/package.json -> moonCore.modules), поэтому установленный пакет самодостаточен.
+    console.log("Копирование custom-bg.min.js и assets/ в extension/...");
+    fs.copyFileSync(path.join(ROOT, "custom-bg.min.js"), path.join(EXT, "custom-bg.min.js"));
+    copyDir(path.join(ROOT, "assets"), path.join(EXT, "assets"), SKIP_ASSETS);
+    var mcv = findMoonCoreVsix();
+    if (mcv) { fs.copyFileSync(mcv, MOON_CORE_VSIX); console.log("Moon Core внутрь пакета: " + path.relative(ROOT, mcv)); }
+    else console.warn("ВНИМАНИЕ: сборка Moon Core не найдена (../moon-core/dist/moon-core-*.vsix или MOON_CORE_VSIX) — пакет без ядра, его придётся ставить отдельно.");
     // Лицензию тоже кладём в пакет: маркетплейс показывает её отдельной вкладкой, а vsce
     // без неё предупреждает. Держим одну копию — корневую, сюда она попадает при упаковке.
     fs.copyFileSync(path.join(ROOT, "LICENSE"), path.join(EXT, "LICENSE"));

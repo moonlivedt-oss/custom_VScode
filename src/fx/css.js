@@ -58,6 +58,7 @@ function buildCSS() {
     var ac = safeColor(getAccent(), DEFAULTS.accent);
     var acRGB = accentRGB();
     var rootVar = ":root { --mlbg-accent: " + ac + "; --mlbg-accent-rgb: " + acRGB + "; }";
+    try { announceAccent(ac); } catch (e) {} // соседям (окно «Документация C++») — сразу
     // Мастер-выключатель: фон и эффекты выключены — отдаём только переменную акцента и
     // стили кнопки/фокуса. Никаких фоновых картинок, стекла, фильтров — «ванильный» VS Code,
     // но кнопка BG и панель остаются рабочими, чтобы включить обратно.
@@ -85,7 +86,9 @@ function buildCSS() {
         // прошлой сессии — показываем его, чтобы первый кадр был не пустым. Как только
         // придёт настоящая картинка, probeImage дёрнет пересборку и превью сменится.
         if (!st.resolved && st.thumb) return cssUrl(st.thumb) + " " + position + " / " + fit + " no-repeat";
-        return cssUrl(url) + " " + position + " / " + fit + " no-repeat";
+        // Огромная картинка (4K+ на экране поменьше) — уменьшенная копия: меньше памяти и
+        // быстрее перерисовка. Копию делает проба (st.small), пока её нет — оригинал.
+        return cssUrl(st.small || url) + " " + position + " / " + fit + " no-repeat";
     }
     // Вырез из мастер-картинки. crop = [x, y, w, h] в процентах исходника.
     // Формула стандартная для background: масштаб 100/w, позиция x/(100-w) — так в окно
@@ -108,6 +111,7 @@ function buildCSS() {
         if (isProc(idx, zone)) return procBg(idx, zone);
         if (isGrad(idx, zone)) return gradFor(idx, zone);
         var cr = cropFor(idx, zone), u = zoneUrl(idx, zone);
+        position = setPosFor(idx, zone) || position; // точка фокуса, выбранная кликом по превью
         // Адаптивный скрим идёт ПЕРВЫМИ слоями фона — поверх картинки.
         return adaptiveLayers(u, cr, light) + (cr ? cropBg(u, cr) : zoneBg(u, fitZone, position));
     }
@@ -237,8 +241,8 @@ function buildCSS() {
     // (защита от подмены cfg в обход панели): шрифт из белого списка, цвета строго #rrggbb.
     var t = cfg.term;
     var tf = safeFont(t.font);
-    var tcur = safeColor(t.cursorColor, DEFAULTS.term.cursorColor);
-    var tsel = safeColor(t.selColor, DEFAULTS.term.selColor);
+    var tcur = safeColor(effTermColor("cursorColor"), DEFAULTS.term.cursorColor); // дефолт -> акцент набора
+    var tsel = safeColor(effTermColor("selColor"), DEFAULTS.term.selColor);
     var tw = clampNum(t.weight, 400, 800, 400);
     var tglow = clampNum(t.glow, 0, 6, 2);
     var tcw = clampNum(t.cursorSize, 0, 2.5, 1);   // ширина курсора (scaleX)

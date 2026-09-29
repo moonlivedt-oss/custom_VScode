@@ -19,7 +19,7 @@ const http = require("http");
 
 const ROOT = path.resolve(__dirname, "..");
 const OUT = path.join(ROOT, "docs", "screenshots");
-const TABS = ["sets", "view", "terminal", "system", "data"]; // вкладки по индексам 0..4
+const TABS = ["sets", "view", "effects", "data"]; // вкладки простого режима (он по умолчанию) по порядку
 // Язык + набор для акцента: RU — набор 4 (Хрустальное озеро, голубой), EN — набор 0 (Алые кроны, розовый).
 const LANGS = [
     { code: "ru", mode: "4" },
@@ -65,7 +65,8 @@ function startServer() {
             await ctx.addInitScript((seed) => {
                 try { localStorage.setItem("moonlight-bg-onboarded", "1"); } catch (e) {}
                 try { window.__MLBG_SEED__ = seed; } catch (e) {}
-            }, { lang: L.code, mode: L.mode, enabled: true, perfGuard: false });
+                try { window.__MLBG_NO_TOUR__ = true; } catch (e) {} // знакомство затемнило бы снимок
+            }, { lang: L.code, mode: L.mode, enabled: true, perfGuard: false, ui: { news: "2026-09-27" } });
             const page = await ctx.newPage();
             await page.goto(base, { waitUntil: "networkidle" });
             const btn = page.locator("#moonlight-bg-switcher");
@@ -88,7 +89,7 @@ function startServer() {
             }
             await ctx.close();
         }
-        console.log("\nГотово: 10 скриншотов в docs/screenshots/.");
+        console.log("\nГотово: " + (LANGS.length * TABS.length) + " скриншотов в docs/screenshots/.");
     } finally {
         await browser.close();
         srv.close();

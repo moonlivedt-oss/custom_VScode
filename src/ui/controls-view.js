@@ -65,6 +65,126 @@ function makeOpSlider(key, label) {
         def: DEFAULTS.baseOp[key]
     });
 }
+// Пресеты фильтров картинки — одним выбором для всех зон: «Как есть / Мягко / Чётко /
+// Приглушённо». Ползунки по зонам (полный режим) остаются для тонкой правки.
+var IMG_LOOKS = {
+    none:  { brightness: 1.0,  saturate: 1.0,  blur: 0 },
+    soft:  { brightness: 0.95, saturate: 0.85, blur: 2 },
+    crisp: { brightness: 1.05, saturate: 1.15, blur: 0 },
+    muted: { brightness: 0.8,  saturate: 0.6,  blur: 1 }
+};
+function currentImgLook() {
+    var e = cfg.imgfx && cfg.imgfx.editor; if (!e) return "";
+    for (var k in IMG_LOOKS) {
+        var L = IMG_LOOKS[k], same = true;
+        ["editor", "side", "panel"].forEach(function (z) {
+            var f = cfg.imgfx[z]; if (!f || Math.abs(f.brightness - L.brightness) > 1e-6 || Math.abs(f.saturate - L.saturate) > 1e-6 || Math.abs(f.blur - L.blur) > 1e-6) same = false;
+        });
+        if (same) return k;
+    }
+    return "";
+}
+function makeImgLook() {
+    return makeSeg("Картинка", [["none", "Как есть"], ["soft", "Мягко"], ["crisp", "Чётко"], ["muted", "Приглушённо"]],
+        currentImgLook, function (v) {
+            var L = IMG_LOOKS[v]; if (!L) return;
+            if (!cfg.imgfx) cfg.imgfx = clone(DEFAULTS.imgfx);
+            ["editor", "side", "panel"].forEach(function (z) { cfg.imgfx[z] = { brightness: L.brightness, saturate: L.saturate, blur: L.blur }; });
+            apply(); if (!panelSimple()) refreshPanel(); // ползунки по зонам — пересинхронизировать
+        }, INFO.img_look);
+}
+
+// Одна «Яркость фона»: ползунок двигает все три зоны на одну и ту же величину (разница между
+// зонами сохраняется). «По зонам» раскрывает прежние три ползунка — для тонкой настройки.
+var _opZonesOpen = false;
+function makeOpMaster() {
+    var box = el("div", null);
+    var zones = el("div", null); zones.hidden = !_opZonesOpen;
+    var zoneSliders = [];
+    var master = makeSlider({
+        label: "Яркость фона", min: 0, max: 0.6, step: 0.01, dec: 2, labelW: 132,
+        get: function () { return getOp().editor; },
+        onInput: function (v) {
+            var o = getOp(), d = v - o.editor;
+            setOpValue("editor", v);
+            setOpValue("side", Math.max(0, Math.min(0.6, Math.round((o.side + d) * 100) / 100)));
+            setOpValue("panel", Math.max(0, Math.min(0.6, Math.round((o.panel + d) * 100) / 100)));
+            zoneSliders.forEach(function (s) { try { s._refresh(); } catch (e) {} });
+        },
+        info: INFO.op_editor, def: DEFAULTS.baseOp.editor
+    });
+    box.appendChild(master);
+    [["editor", "Редактор"], ["side", "Сайдбар"], ["panel", "Панель"]].forEach(function (o) {
+        var s = makeOpSlider(o[0], o[1]); zoneSliders.push(s); zones.appendChild(s);
+    });
+    var tg = el("div", "display:inline-block; margin:2px 2px 4px; font-size:11px; cursor:pointer; color:var(--mlbg-accent);", (_opZonesOpen ? "\u25BE " : "\u25B8 ") + t("по зонам"));
+    tg.addEventListener("click", function () {
+        _opZonesOpen = !_opZonesOpen; zones.hidden = !_opZonesOpen;
+        tg.textContent = (_opZonesOpen ? "\u25BE " : "\u25B8 ") + t("по зонам");
+        try { master._refresh(); } catch (e) {}
+    });
+    keyActivate(tg, t("Яркость по зонам"));
+    box.appendChild(tg); box.appendChild(zones);
+    // Правка отдельной зоны — пересинхронизировать общий ползунок (он показывает редактор).
+    zones.addEventListener("input", function () { try { master._refresh(); } catch (e) {} });
+    return box;
+}
+
+// Точка фокуса: клик по превью картинки — какая её часть видна в зоне (background-position).
+// Понятнее ползунков «X/Y». Своя для каждой зоны набора; «по центру» — сброс.
+var _focusZone = "editor";
+function makeFocusPoint() {
+    var box = el("div", null);
+    var idx = activeIndex();
+    if (isGrad(idx, "editor") && isGrad(idx, "sidebar")) return box; // градиент — точки нет
+    box.appendChild(el("div", "margin:10px 2px 4px; font-size:11px; font-weight:700; color:var(--mlp-head);", t("Точка фокуса")));
+    var zsel = makeSeg("", [["editor", "Редактор"], ["sidebar", "Сайдбар"], ["panel", "Панель"]],
+        function () { return _focusZone; }, function (v) { _focusZone = v; paint(); });
+    box.appendChild(zsel);
+    var pv = el("div", null); pv.className = "mlp-focus";
+    var dot = el("span", null); dot.className = "mlp-focus-dot"; pv.appendChild(dot);
+    var hint = el("div", "padding:4px 2px 0; font-size:11px; color:var(--mlp-faint);", t("Кликни по картинке — эта точка останется в кадре."));
+    function cur() { return setPosFor(idx, _focusZone) || (_focusZone === "editor" ? "50% 50%" : (_focusZone === "sidebar" ? "50% 100%" : "100% 100%")); }
+    function paint() {
+        // Сама картинка (или её уменьшенная копия), а не мини-превью 96x64 карточек — иначе
+        // растянутое превью было пиксельным. Рамка повторяет пропорции кадра (высота до 150px),
+        // поэтому клик по точке превью = та же точка картинки.
+        var u = zoneUrl(idx, _focusZone);
+        onImage(u, function (st) {
+            if (!st || !st.ok) { pv.style.backgroundImage = "none"; return; }
+            var src = st.small || u;
+            if (st.thumb) pv.style.backgroundImage = cssUrl(st.thumb); // пока грузится полная — хоть что-то
+            var im = new Image();
+            im.onload = function () {
+                var k = im.naturalWidth && im.naturalHeight ? im.naturalWidth / im.naturalHeight : 1.6;
+                pv.style.aspectRatio = String(k);
+                pv.style.width = "min(100%, " + Math.round(150 * k) + "px)";
+                pv.style.backgroundImage = cssUrl(src);
+            };
+            im.src = src;
+        });
+        var p = cur().split(" ");
+        // Точка у края (100%) не вылезает за рамку превью.
+        dot.style.left = "clamp(7px, " + p[0] + ", calc(100% - 7px))";
+        dot.style.top = "clamp(7px, " + p[1] + ", calc(100% - 7px))";
+    }
+    pv.addEventListener("click", function (e) {
+        var r = pv.getBoundingClientRect();
+        var x = Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * 100);
+        var y = Math.round(Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) * 100);
+        if (!cfg.setPos) cfg.setPos = {};
+        if (!cfg.setPos[idx]) cfg.setPos[idx] = {};
+        cfg.setPos[idx][_focusZone] = x + "% " + y + "%";
+        paint(); apply();
+    });
+    var reset = el("span", "margin-left:8px; cursor:pointer; color:var(--mlbg-accent);", t("по центру"));
+    reset.addEventListener("click", function () { if (cfg.setPos && cfg.setPos[idx]) delete cfg.setPos[idx][_focusZone]; paint(); apply(); });
+    keyActivate(reset, t("Сбросить точку фокуса"));
+    hint.appendChild(reset);
+    box.appendChild(pv); box.appendChild(hint);
+    paint();
+    return box;
+}
 function makeAccentColor() {
     var wrap = el("div", ST.row);
     wrap.appendChild(el("span", mutedLabel(92), t("Акцент")));
@@ -118,18 +238,24 @@ var CB_SAFE = ["#e69f00", "#56b4e9", "#009e73", "#f0e442", "#0072b2", "#d55e00",
 function makeAccentSafeUI() {
     var box = el("div", null);
     var head = el("div", ST.row);
-    head.appendChild(el("span", mutedLabel(92, true), t("Безопасные акценты")));
+    head.appendChild(el("span", mutedLabel(92, true), t("Палитры")));
     var d = infoDot(INFO.accent_safe); if (d) head.appendChild(d);
     box.appendChild(head);
-    var row = el("div", "display:flex; flex-wrap:wrap; gap:5px; padding:2px 3px 4px;");
-    CB_SAFE.forEach(function (hex) {
-        var sw = el("div", "width:20px; height:20px; border-radius:5px; cursor:pointer; background:" + hex + "; border:1px solid rgba(205,214,244,0.25);");
-        sw.title = hex;
-        sw.addEventListener("click", function () { setAccentValue(hex); apply(); refreshPanel(); });
-        keyActivate(sw, t("Акцент") + " " + hex);
-        row.appendChild(sw);
-    });
-    box.appendChild(row);
+    // Палитры акцента: из картинки набора (когда проба готова), Catppuccin и безопасные Окабэ-Ито.
+    var pick = function (hex) { setAccentValue(hex); apply(); refreshPanel(); };
+    var sw = makeSwatches([["Набор", []], ["Catppuccin", SWATCH_CATPPUCCIN], ["Безопасные", CB_SAFE]], getAccent(), pick);
+    box.appendChild(sw);
+    try {
+        if (!isGrad(activeIndex(), "editor")) {
+            onImage(zoneUrl(activeIndex(), "editor"), function (st) {
+                if (!st || !st.ok) return;
+                var cols = [].concat(st.accent ? [st.accent] : [], st.palette || []).map(function (c) { return accentForContrast(c, accentContrastRef(), 3); });
+                if (!cols.length) return;
+                var fresh = makeSwatches([["Набор", cols]], getAccent(), pick);
+                if (fresh.firstChild && sw.parentNode) sw.insertBefore(fresh.firstChild, sw.firstChild);
+            });
+        }
+    } catch (e) {}
     // строка контраста: акцент против тёмной подложки набора
     var cr = 1; try { cr = contrastRatio(getAccent(), accentContrastRef()); } catch (e) {}
     var lvl = cr >= 7 ? "AAA" : cr >= 4.5 ? "AA" : cr >= 3 ? t("AA (крупный)") : t("низкий");

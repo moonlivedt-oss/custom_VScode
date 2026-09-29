@@ -7,28 +7,24 @@
 //
 //  Расширение живёт в хосте расширений, где всё это есть точно: git через API расширения
 //  vscode.git, ошибки через languages.getDiagnostics, язык файла через document.languageId.
-//  Отдавать эти данные в окно напрямую нельзя, поэтому используем тот же канал, которым
-//  плагин и так грузится: маленький JS-файл, выставляющий window.__MLBG_LIVE__. Рантайм
-//  переподключает его на своём цикле самолечения (раз в 3 секунды) — отдельный таймер не нужен.
+//  В окно данные уходят событием "live" по мосту Moon Core (scope "window" — только окну
+//  этого хоста, у каждого окна VS Code своя ветка). Раньше это был JS-файл в globalStorage,
+//  который рантайм подключал через <script src>; оболочка VS Code такие скрипты блокирует.
 //
-//  Файл переписывается ТОЛЬКО когда данные реально изменились: подписки дают события часто
-//  (диагностика меняется на каждый набранный символ), а запись на диск — нет.
+//  Событие уходит ТОЛЬКО когда данные реально изменились: подписки дают события часто
+//  (диагностика меняется на каждый набранный символ), а отправка — нет.
 // ============================================================
 "use strict";
 const vscode = require("vscode");
-const fs = require("fs");
 const path = require("path");
 
-const WRITE_DEBOUNCE_MS = 400; // события сыплются пачками — пишем после паузы
+const SEND_DEBOUNCE_MS = 400; // события сыплются пачками — отправляем после паузы
 
 let timer = null;
 let lastJson = "";
+let lastData = null;
 let rev = 0;
-
-function liveFilePath(context) {
-    const dir = (context.globalStorageUri && context.globalStorageUri.fsPath) || context.globalStoragePath;
-    return path.join(dir, "mlbg-live.js");
-}
+let sink = null;               // куда отдавать данные: (data) => void
 
 // Репозиторий, к которому относится активный файл (или первый открытый). Git-расширение
 // поставляется с редактором, но может быть выключено — тогда просто нет данных о ветке.
@@ -92,32 +88,36 @@ function collect() {
     };
 }
 
-// Записать текущее состояние, если оно отличается от прошлого. rev растёт только при
+// Отправить текущее состояние, если оно отличается от прошлого. rev растёт только при
 // реальном изменении — рантайм по нему понимает, что данные свежие.
-function writeNow(context) {
+function sendNow() {
     let data;
     try { data = collect(); } catch (e) { return; }
     const json = JSON.stringify(data);
     if (json === lastJson) return;
     lastJson = json;
     rev++;
-    const body = "window.__MLBG_LIVE__ = " + JSON.stringify(Object.assign({ rev, t: Date.now() }, data)) + ";\n";
-    try {
-        const p = liveFilePath(context);
-        fs.mkdirSync(path.dirname(p), { recursive: true });
-        fs.writeFileSync(p, body, "utf8");
-    } catch (e) { /* нет прав на запись — живые данные просто не появятся */ }
+    lastData = Object.assign({ rev, t: Date.now() }, data);
+    if (sink) { try { sink(lastData); } catch (e) { /* мост недоступен — пришлём при следующем изменении */ } }
 }
 
-function schedule(context) {
+// Повторить последнее состояние (Moon Core переподключился и мог его не знать).
+function resend() {
+    if (lastData && sink) { try { sink(lastData); } catch (e) {} }
+    else sendNow();
+}
+
+function schedule() {
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => { timer = null; writeNow(context); }, WRITE_DEBOUNCE_MS);
+    timer = setTimeout(() => { timer = null; sendNow(); }, SEND_DEBOUNCE_MS);
 }
 
-// Подписки на всё, от чего зависит картинка. Возвращает disposable-массив для subscriptions.
-function watch(context) {
+// Подписки на всё, от чего зависит картинка. publish(data) получает каждое новое состояние.
+// Возвращает disposable-массив для subscriptions.
+function watch(publish) {
+    sink = publish;
     const subs = [];
-    const bump = () => schedule(context);
+    const bump = () => schedule();
     try {
         subs.push(vscode.window.onDidChangeActiveTextEditor(bump));
         subs.push(vscode.languages.onDidChangeDiagnostics(bump));
@@ -141,15 +141,9 @@ function watch(context) {
             else ext.activate().then(hook, () => {});
         }
     } catch (e) {}
-    writeNow(context); // первый снимок сразу, чтобы данные были уже к первому циклу рантайма
+    sendNow(); // первый снимок сразу
+    subs.push({ dispose: () => { if (timer) clearTimeout(timer); timer = null; sink = null; } });
     return subs;
 }
 
-function cleanup(context) {
-    try {
-        const p = liveFilePath(context);
-        if (fs.existsSync(p)) fs.unlinkSync(p);
-    } catch (e) {}
-}
-
-module.exports = { liveFilePath, watch, cleanup, collect };
+module.exports = { watch, resend, collect };

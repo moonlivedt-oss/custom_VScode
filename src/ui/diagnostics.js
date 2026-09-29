@@ -35,7 +35,7 @@ function diagnostics() {
     add("Папка картинок", (base || "(путь не определён)") + (cfg.imgBase ? "  [задана вручную]" : "  [авто]"));
     add("Сетевые картинки", cfg.allowRemoteImages ? t("разрешены") : t("выключены"));
     var styleFound = !!document.getElementById(STYLE_ID);
-    add("Стиль в DOM", styleFound ? t("найден (custom-css активен)") : t("НЕ найден"));
+    add("Стиль в DOM", styleFound ? t("найден (скрипт активен)") : t("НЕ найден"));
     if (!styleFound) bad++;
     add("Кнопка BG", document.getElementById(SB_ID) ? t("найдена") : t("нет (статусбар ещё не готов?)"));
     ["editor", "sidebar", "panel"].forEach(function (z, i) {
@@ -93,6 +93,15 @@ function diagnostics() {
         if (rd && !rd.off) add("Читаемость кода", rd.ratio.toFixed(1) + ":1  " + t("худший участок") + " " + rd.worstRatio.toFixed(1) + ":1" + (rd.ok ? "" : "  " + t("(ниже 4.5 — фон мешает читать)")));
     }
     // Подсказка, если картинки набора не грузятся — почти всегда виноват путь.
+    // Ошибки рантайма (logErr в util.js): раньше они глотались молча.
+    if (typeof errTotal === "function") {
+        add("Ошибки рантайма", errTotal() ? errLog.length + " " + t("разных") + ", " + t("всего") + " " + errTotal() : t("нет"));
+        errLog.slice(-5).forEach(function (r) {
+            lines.push("  " + r.where + ": " + r.msg + (r.n > 1 ? "  (x" + r.n + ")" : ""));
+        });
+    }
+    // Резерв конфига на диске (Moon Core): переживает очистку localStorage.
+    if (typeof diskBackupInfo === "function") add("Резерв конфига на диске", t(diskBackupInfo()));
     if (bad && styleFound) lines.push("", "Похоже, картинки набора не находятся. Проверь «Папка плагина» ниже: путь должен вести к папке с assets/. После правки фон появляется сразу.");
     return { lines: lines, ok: bad === 0, text: t("MoonLight custom-bg — диагностика") + "\n" + lines.join("\n") };
 }

@@ -1,7 +1,7 @@
-// ===== Подсказки «?»: тексты + всплывающий попап =====
+// ===== Пояснения к настройкам: тексты + всплывающий попап =====
 // INFO — русские тексты пояснений по ключам (op_*, fx_*, fxp_*, term_*, img_* и отдельные).
 // INFO_EN — их английские версии с ТЕМИ ЖЕ ключами (синхронность гарантирована ключом, а не
-// ручным повтором строки). infoDot(text) строит кружок «?», а перевод делает в одной точке
+// ручным повтором строки). infoDot(text) ставит невидимую метку пояснения, а перевод делает в одной точке
 // (infoText): в английском режиме подменяет русский текст на английский. Так переводятся и
 // подсказки контролов (из INFO), и подписи секций (литералы из panel.js — через общий словарь).
 
@@ -37,6 +37,9 @@ var INFO = {
     screensaver: "Витрина при простое: если не трогать мышь и клавиатуру заданное число минут, поверх редактора плавно появляются крупные часы, дата и имя активного набора на тёмном акцентном фоне. Любое действие (движение мыши, клик, клавиша) сразу возвращает редактор; первая клавиша при этом гасится, чтобы не попасть в текст. Не показывается, когда окно свёрнуто.",
     screensaver_min: "Сколько минут без ввода до появления витрины.",
     autotime_on: "Переключать набор по времени суток: днём — дневной набор, ночью — ночной (границы дня задаются ниже). Не работает в режиме «случайно»; при включении отменяет слайдшоу.",
+    sync: "Вид (набор, эффекты, акценты) сам переезжает на другие твои машины через встроенный Settings Sync VS Code — ничего копировать не нужно. Пути, папки и своя библиотека остаются свои на каждой машине. Нужны Moon Core и компаньон-расширение, а в VS Code — включённый Settings Sync.",
+    img_look: "Готовый вид картинки для всех зон: «Мягко» — чуть размыта и спокойнее, «Чётко» — ярче и насыщеннее, «Приглушённо» — темнее и почти без цвета, код читается лучше всего. Тонкая настройка по зонам — в полном режиме.",
+    hotkeys: "Горячие клавиши Ctrl+Alt+… (наборы, панель, режим чтения, отмена). Выключи, если ими не пользуешься: сочетания перестанут перехватываться (важно для раскладок с AltGr), а их подписи и справка исчезнут из панели. Всё то же доступно мышью: кнопки в шапке панели, колесо и правый клик по кнопке BG.",
     enabled: "Главный выключатель: убирает весь фон и эффекты (получается обычный VS Code), но все настройки сохраняются и вернутся при повторном включении. Горячая клавиша — Ctrl+Alt+0.",
     op_editor: "Насколько ярко фоновая картинка проступает за кодом редактора. Ниже — код читается легче, выше — фон заметнее.",
     op_side: "Насколько ярко проступает фон сайдбара (проводник, поиск и пр.).",
@@ -149,6 +152,9 @@ var INFO_EN = {
     screensaver: "Idle showcase: if you don’t touch the mouse or keyboard for the set number of minutes, a large clock, date and the active set name fade in over the editor on a dark accent background. Any action (mouse move, click, key) brings the editor back at once; the first key is swallowed so it won’t land in your text. Not shown while the window is minimized.",
     screensaver_min: "How many minutes without input before the showcase appears.",
     autotime_on: "Switch the set by time of day: the day set by day, the night set by night (day bounds set below). Doesn’t run in “random” mode; turning it on cancels the slideshow.",
+    sync: "Your look (set, effects, accents) moves to your other machines by itself via the built-in VS Code Settings Sync — nothing to copy. Paths, folders and your own library stay per machine. Needs Moon Core and the companion extension, and Settings Sync turned on in VS Code.",
+    img_look: "A ready-made picture look for all zones: “Soft” — slightly blurred and calmer, “Crisp” — brighter and more saturated, “Muted” — darker and nearly colorless, the best for reading code. Per-zone fine-tuning is in the full mode.",
+    hotkeys: "Ctrl+Alt+… hotkeys (sets, panel, reading mode, undo). Turn off if you don't use them: the combos stop being intercepted (matters for AltGr layouts), and their hints and reference disappear from the panel. Everything stays reachable by mouse: panel header buttons, scroll and right-click on the BG button.",
     enabled: "Master switch: removes all background and effects (plain VS Code), but every setting is kept and returns when you switch it back on. Hotkey — Ctrl+Alt+0.",
     op_editor: "How brightly the background image shows through behind editor code. Lower — code reads easier, higher — the background is more visible.",
     op_side: "How brightly the sidebar background shows through (explorer, search, etc.).",
@@ -303,16 +309,44 @@ function showInfo(anchor, text) {
     _infoPop = pop; _infoAnchor = anchor;
     setTimeout(function () { document.addEventListener("mousedown", _infoOutside, true); }, 0);
 }
-// Кружок «?» рядом с настройкой. null, если текста нет (тогда просто ничего не добавляем).
-// Текст переводится в одной точке (infoText) — и подсказки контролов, и подписи секций.
+// Пояснение к настройке. Раньше это был кружок «?» у каждой строки — десятки значков в панели.
+// Теперь — невидимая метка: пояснение всплывает при наведении на саму строку (с короткой
+// задержкой) или при фокусе с клавиатуры. Подключает wireInfoHovers, когда панель собрана.
+// null, если текста нет (тогда вызывающий ничего не добавляет).
 function infoDot(text) {
     if (!text) return null;
-    text = infoText(text);
-    var d = el("span",
-        "flex:0 0 auto; width:15px; height:15px; line-height:15px; text-align:center; border-radius:50%;" +
-        "font-size:10px; font-weight:700; cursor:help; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.16);" +
-        "border:1px solid rgba(var(--mlbg-accent-rgb),0.4); user-select:none;", "?");
-    d.addEventListener("click", function (e) { e.stopPropagation(); e.preventDefault(); showInfo(d, text); });
-    keyActivate(d, t("Пояснение"));
+    var d = el("span", "display:none;");
+    d.className = "mlp-i";
+    d._info = infoText(text); // перевод подписи — в одной точке (infoText)
     return d;
+}
+// Доступность: у поля без подписи (цвет, имя набора, seed, код образа) скринридер слышал
+// только «поле ввода». Даём имя из подписи строки (первый span) или из placeholder.
+function labelInputs(root) {
+    var list = root.querySelectorAll ? root.querySelectorAll("input, select, textarea") : [];
+    for (var i = 0; i < list.length; i++) {
+        var n = list[i];
+        if (n.getAttribute("aria-label") || (n.closest && n.closest("label"))) continue;
+        var row = n.parentNode, lab = row && row.querySelector ? row.querySelector("span") : null;
+        var name = (lab && lab.textContent || "").trim() || n.getAttribute("placeholder") || "";
+        if (n.type === "color" && name) name += " — " + t("цвет");
+        if (name) n.setAttribute("aria-label", name);
+    }
+}
+// Навесить всплывающие пояснения на строки с меткой .mlp-i внутри root.
+function wireInfoHovers(root) {
+    var marks = root.querySelectorAll ? root.querySelectorAll(".mlp-i") : [];
+    for (var i = 0; i < marks.length; i++) (function (m) {
+        var host = m.parentNode; if (!host || host._infoWired) return;
+        host._infoWired = true;
+        host.classList.add("mlp-has-i");
+        var timer = 0;
+        function show() { if (timer) clearTimeout(timer); timer = setTimeout(function () { timer = 0; if (_infoAnchor !== host) showInfo(host, m._info); }, 650); }
+        function hide() { if (timer) { clearTimeout(timer); timer = 0; } if (_infoAnchor === host) hideInfo(); }
+        host.addEventListener("mouseenter", show);
+        host.addEventListener("mouseleave", hide);
+        host.addEventListener("focusin", show);
+        host.addEventListener("focusout", hide);
+        try { host.setAttribute("aria-description", m._info); } catch (e) {}
+    })(marks[i]);
 }

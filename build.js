@@ -35,6 +35,8 @@ const FILES = [
     "src/fx/style.js",       // CSS-переменные, инъекция <style>, троттлинг применения
     "src/fx/shader.js",        // шейдерные наборы: живой фон на WebGL
     "src/ui/dom.js",           // базовые DOM-хелперы и общие фрагменты стилей
+    "src/ui/icons.js",         // значки панели (генерирует scripts/embed-icons.js)
+    "src/ui/panel-css.js",     // таблица стилей панели: окно, вкладки, секции, свитчи, сегменты
     "src/ui/info.js",          // тексты подсказок «?» и их попап
     "src/ui/controls.js",      // базовые фабрики контролов и сворачиваемые секции
     "src/ui/controls-sets.js", // контролы вкладки «Набор»
@@ -50,6 +52,7 @@ const FILES = [
     "src/ui/panel-menu.js",    // настройка состава меню и «Избранное»
     "src/ui/panel-tabs.js",    // наполнение вкладок панели секциями
     "src/ui/panel.js",         // каркас панели «Фон и дизайн»
+    "src/ui/tour.js",          // знакомство с панелью в 3 шага
     "src/widgets/extras.js",   // виджеты статусбара: часы, помидор, статистика сессии
     "src/widgets/particles.js",// частицы и шлейф курсора
     "src/widgets/perf.js",     // бюджет производительности (FPS, батарея)
@@ -64,6 +67,17 @@ const BANNER =
     "//  Исходники: src/**   |   Пересборка: node build.js\n" +
     "//  Грузится через vscode_custom_css.imports (be5invis.vscode-custom-css).\n" +
     "// ============================================================\n";
+
+// Защита от двойного запуска. Внедрить плагин могут сразу два пути: загрузчик (custom-css /
+// custom-ui-style) и Moon Core (модуль mlbg). Второй экземпляр завёл бы вторую панель, второй
+// <style> и вторые таймеры, поэтому работает только тот, кто запустился первым.
+// Живёт в обёртке, а не в src/: смоук гоняет исходники без IIFE, где return недопустим.
+const GUARD =
+    "    if (window.__MLBG_RUNNING__) {\n" +
+    "        try { console.warn(\"[MoonLight custom-bg] уже запущен (\" + window.__MLBG_RUNNING__ + \"), второй экземпляр пропущен\"); } catch (e) {}\n" +
+    "        return;\n" +
+    "    }\n" +
+    "    window.__MLBG_RUNNING__ = (document.currentScript && document.currentScript.getAttribute && document.currentScript.getAttribute(\"data-mooncore-module\")) ? \"moon-core\" : \"loader\";\n\n";
 
 function indent(code) {
     // Сдвигаем модуль на 4 пробела внутрь IIFE. Многострочных строковых литералов
@@ -95,7 +109,7 @@ function build(write) {
         process.exit(1);
     }
     const body = FILES.map(readModule).join("\n");
-    const out = BANNER + "(function () {\n    \"use strict\";\n\n" + body + "\n})();\n";
+    const out = BANNER + "(function () {\n    \"use strict\";\n\n" + GUARD + body + "\n})();\n";
     if (write === false) return out;
     fs.writeFileSync(OUT, out, "utf8");
     // Buffer.byteLength, а не out.length: в комментариях кириллица (UTF-8 — 2 байта на
@@ -145,9 +159,11 @@ function buildMin() {
 // Список модулей нужен и смоук-тесту (test/smoke.js), чтобы собирать их в том же порядке.
 // Экспортируем FILES/build/minify; собираем только при прямом запуске `node build.js`,
 // а не при require из теста (иначе тест перезаписывал бы custom-bg.js как побочный эффект).
-// `node build.js --min` дополнительно пишет минифицированный custom-bg.min.js.
+// Сжатая custom-bg.min.js пишется ВСЕГДА: её встраивает Moon Core (mooncore-module.json), и
+// после правки src/ одного `node build.js` должно хватать, чтобы ядро подхватило новую сборку.
+// Флаг --min оставлен для совместимости со старыми командами.
 module.exports = { FILES: FILES, build: build, minify: minify, buildMin: buildMin };
 if (require.main === module) {
     build();
-    if (process.argv.indexOf("--min") >= 0) buildMin();
+    buildMin();
 }

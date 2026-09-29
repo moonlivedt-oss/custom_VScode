@@ -49,7 +49,7 @@ function makePresetsUI() {
     // список сохранённых пресетов: клик по строке — применить, «×» — удалить
     var presets = loadPresets(), names = Object.keys(presets);
     if (!names.length) {
-        box.appendChild(el("div", "padding:6px 3px 2px; color:var(--mlp-faint,#6c7086); font-size:11px;", t("Пресетов пока нет — сохрани текущий вид под именем.")));
+        box.appendChild(emptyState("Пресетов пока нет — сохрани текущий вид под именем."));
     } else {
         var list = el("div", "display:flex; flex-direction:column; gap:4px; margin-top:6px;");
         names.forEach(function (name) {
@@ -236,27 +236,54 @@ var SHARE_KEEP = ["ui", "imgBase", "workspaceSets", "autoWorkspace", "ambientBra
 // UTF-8-безопасный base64 (в именах наборов бывает кириллица — «сырой» btoa на ней падает).
 function b64enc(s) { try { return btoa(unescape(encodeURIComponent(s))); } catch (e) { return ""; } }
 function b64dec(s) { try { return decodeURIComponent(escape(atob(s))); } catch (e) { return ""; } }
-function shareEncode() {
+// Снимок образа (SHARE_KEYS) — общий для кода «Поделиться» и профилей вида Moon Core.
+function lookSnapshot() {
     var o = {};
-    for (var i = 0; i < SHARE_KEYS.length; i++) { var k = SHARE_KEYS[i]; if (k in cfg) o[k] = cfg[k]; }
-    return b64enc(JSON.stringify(o));
+    for (var i = 0; i < SHARE_KEYS.length; i++) { var k = SHARE_KEYS[i]; if (k in cfg) o[k] = JSON.parse(JSON.stringify(cfg[k])); }
+    return o;
 }
+function shareEncode() { return b64enc(JSON.stringify(lookSnapshot())); }
 function shareDecode(code) {
     var json = b64dec(String(code).trim()); if (!json) return null;
     try { var o = safeParse(json); return (o && typeof o === "object") ? o : null; } catch (e) { return null; }
 }
-function applyShareCode(code) {
-    var o = shareDecode(code);
-    if (!o) { toast(t("Код не распознан"), false); return false; }
+// Применить образ из объекта (SHARE_KEYS): всё через mergeCfg, машинно-зависимое (SHARE_KEEP)
+// остаётся своим. Текущий конфиг уходит в резерв — применение можно откатить.
+function applyLook(o) {
+    if (!o || typeof o !== "object") return false;
     backupCfg(); // текущее -> резерв (применение чужого кода можно откатить)
     var keep = {}; for (var i = 0; i < SHARE_KEEP.length; i++) keep[SHARE_KEEP[i]] = cfg[SHARE_KEEP[i]];
-    cfg = mergeCfg(o); // санитизация всего содержимого кода
+    cfg = mergeCfg(o); // санитизация всего содержимого
     for (var j = 0; j < SHARE_KEEP.length; j++) cfg[SHARE_KEEP[j]] = keep[SHARE_KEEP[j]]; // вернуть машинно-зависимое (в т.ч. genSets)
     syncGenSets(); // хвост SETS под сохранённые ген-наборы (genSets вернулись из keep); заодно зажмёт mode на чужой ген-индекс
     sessionRandomIndex = null;
-    apply(); refreshPanel();
+    apply();
+    try { if (document.getElementById(PANEL_ID)) refreshPanel(); } catch (e) { logErr("панель после образа", e); }
+    return true;
+}
+function applyShareCode(code) {
+    var o = shareDecode(code);
+    if (!o) { toast(t("Код не распознан"), false); return false; }
+    applyLook(o);
     toast(t("Образ применён из кода"));
     return true;
+}
+
+// ===== Профили вида Moon Core =====
+// Профиль Moon Core (раскладка интерфейса, скрытые элементы, настройки VS Code) может нести
+// и образ фона: при сохранении профиля ядро берёт lookSnapshot(), при применении — отдаёт его
+// обратно. Так «Только код» для markdown может заодно включать спокойный фон, а профиль по
+// ветке — свой набор. Без Moon Core ничего не делает.
+function registerMoonCoreProfile() {
+    if (!_viaMoonCore) return false;
+    var m = mooncoreModule();
+    if (!m || typeof m.profile !== "function") return false;
+    return m.profile({
+        save: function () { return lookSnapshot(); },
+        apply: function (o, name) {
+            if (applyLook(o)) { try { toast(t("Фон из профиля") + (name ? " «" + name + "»" : "")); } catch (e) {} }
+        }
+    });
 }
 
 // Секция «Поделиться»: копировать код текущего образа + поле для чужого кода и «Применить».
@@ -288,15 +315,43 @@ function makeShareUI() {
 // через Settings Sync. Мост: компаньон-расширение читает объект-настройку moonlightBg.config
 // из settings.json (а он синхронизируется) и прокидывает его сюда как window.__MLBG_SEED__.
 // На новой машине с пустым localStorage этот seed становится отправным конфигом (см. loadCfg).
-// Здесь — две ручные операции: скопировать текущий вид как строку для settings.json и
-// подтянуть синхронизированный образ на эту машину поверх текущего.
-function copyConfigForSettings() {
-    // Готовая строка для settings.json: ключ + компактный объект конфига. allowRemoteImages и
-    // машинно-зависимые пути тоже попадут — это осознанный «полный образ» для своих машин.
-    var snippet = '"moonlightBg.config": ' + JSON.stringify(cfg);
-    var okc = copyText(snippet);
-    toast(okc ? t("Скопировано для settings.json") : t("Не удалось скопировать"), okc);
+// Синхронизация между машинами без копирования строк: компаньон хранит образ в своём
+// globalState с setKeysForSync — его переносит встроенный Settings Sync VS Code. После
+// каждой правки (с паузой) образ уходит в компаньон; при старте более новый образ с другой
+// машины применяется. Машинно-зависимое (SHARE_KEEP: пути, папки, библиотека) не едет.
+var SYNC_T_KEY = "moonlight-bg-sync-t", _syncTimer = 0;
+function syncSnapshot() {
+    var o = JSON.parse(JSON.stringify(cfg));
+    SHARE_KEEP.forEach(function (k) { delete o[k]; });
+    return o;
 }
+function scheduleSyncPush() {
+    if (!cfg.ui || !cfg.ui.sync || !_viaMoonCore) return;
+    if (_syncTimer) clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(function () {
+        _syncTimer = 0;
+        var tNow = Date.now();
+        mlbgRpc("syncSet", { t: tNow, cfg: syncSnapshot() }).then(function () {
+            try { localStorage.setItem(SYNC_T_KEY, String(tNow)); } catch (e) {}
+        }, function (e) { logErr("синхронизация", e); });
+    }, 3000);
+}
+function syncPull(quiet) {
+    return mlbgRpc("syncGet").then(function (r) {
+        if (!r || !r.cfg || typeof r.t !== "number") { if (!quiet) toast(t("На других машинах ещё нет синхронизированного вида")); return; }
+        var mine = 0; try { mine = Number(localStorage.getItem(SYNC_T_KEY)) || 0; } catch (e) {}
+        if (r.t <= mine) { if (!quiet) toast(t("Здесь уже самый свежий вид")); return; }
+        var keep = {}; SHARE_KEEP.forEach(function (k) { keep[k] = cfg[k]; });
+        cfg = mergeCfg(r.cfg);
+        SHARE_KEEP.forEach(function (k) { cfg[k] = keep[k]; });
+        try { localStorage.setItem(SYNC_T_KEY, String(r.t)); } catch (e) {}
+        syncGenSets(); sessionRandomIndex = null;
+        _histSuppress++; try { apply(); } finally { _histSuppress--; }
+        if (document.getElementById(PANEL_ID)) refreshPanel();
+        toast(t("Вид подтянут с другой машины"));
+    });
+}
+// Прежний способ — база в settings.json («moonlightBg.config»): если она есть, её можно загрузить.
 function applySeed() {
     var o = seedConfig();
     if (!o) { toast(t("Базовый конфиг из settings.json не найден (нужно расширение-компаньон)"), false); return; }
@@ -310,12 +365,20 @@ function applySeed() {
 }
 function makeSyncUI() {
     var box = el("div", null);
-    var copyB = makeIoBtn("Скопировать для settings.json");
-    copyB.style.marginBottom = "6px";
-    copyB.addEventListener("click", copyConfigForSettings);
-    box.appendChild(copyB);
-    var loadB = makeIoBtn("Загрузить базу из settings.json");
-    loadB.addEventListener("click", applySeed);
-    box.appendChild(loadB);
+    box.appendChild(makeToggle(function () { return !!cfg.ui.sync; }, function (v) {
+        cfg.ui.sync = v; saveCfg();
+        if (v) { scheduleSyncPush(); toast(t("Вид будет переезжать на другие машины через Settings Sync")); }
+    }, "Синхронизировать между машинами", INFO.sync));
+    if (cfg.ui.sync) {
+        var pull = makeIoBtn("Подтянуть вид с другой машины");
+        pull.addEventListener("click", function () { syncPull(false).then(null, function (e) { toast(t("Не удалось: ") + e.message, false); }); });
+        box.appendChild(pull);
+    }
+    if (seedConfig()) {
+        var loadB = makeIoBtn("Загрузить базу из settings.json");
+        loadB.style.marginTop = "6px";
+        loadB.addEventListener("click", applySeed);
+        box.appendChild(loadB);
+    }
     return box;
 }

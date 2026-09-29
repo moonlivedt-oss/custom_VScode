@@ -1,0 +1,7 @@
+{
+  "id": "mlbg",
+  "name": "MoonLight BG",
+  "version": "20.0.0",
+  "script": "custom-bg.min.js",
+  "assets": "."
+}

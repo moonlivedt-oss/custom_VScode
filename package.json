@@ -16,6 +16,7 @@
     "build": "node build.js",
     "build:min": "node build.js --min",
     "build:themes": "node build-themes.js",
+    "icons": "node scripts/embed-icons.js",
     "test": "node test/smoke.js",
     "test:e2e": "node build.js && playwright test",
     "screenshots": "node build.js && node scripts/screenshots.js",

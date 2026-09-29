@@ -1,7 +1,7 @@
 {
   "name": "moonlight-custom-bg-setup",
-  "displayName": "MoonLight custom-bg (авто-настройка)",
-  "description": "Живой фон и панель оформления для VS Code: наборы по зонам, движок читаемости, шейдерные фоны, 37 тем. Ставит и настраивает всё сам.",
+  "displayName": "MoonLight custom-bg",
+  "description": "Живой фон и панель оформления для VS Code: наборы по зонам, движок читаемости, шейдерные фоны, 37 тем. Встраивается через Moon Core (модуль mlbg).",
   "author": "moonlivedt (MoonLightDeath) <moonlivedt@gmail.com>",
   "version": "20.0.0",
   "publisher": "moonlivedt",
@@ -23,11 +23,11 @@
     "commands": [
       {
         "command": "moonlightBg.setup",
-        "title": "MoonLight BG: прописать импорт в настройки"
+        "title": "MoonLight BG: подключить через Moon Core"
       },
       {
         "command": "moonlightBg.remove",
-        "title": "MoonLight BG: убрать импорт из настроек"
+        "title": "MoonLight BG: убрать старые импорты (Custom CSS / Custom UI Style)"
       },
       {
         "command": "moonlightBg.webInfo",
@@ -266,5 +266,16 @@
     "color": "#1e1e2e",
     "theme": "dark"
   },
-  "qna": false
+  "qna": false,
+  "moonCore": {
+    "modules": [
+      {
+        "id": "mlbg",
+        "name": "MoonLight BG",
+        "version": "20.0.0",
+        "script": "custom-bg.min.js",
+        "assets": "."
+      }
+    ]
+  }
 }

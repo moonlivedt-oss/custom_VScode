@@ -20,9 +20,8 @@ interface Window {
         vscode?: string;
         transparent?: boolean;
         script?: string;
-        live?: string;
     } | null;
-    /** Живые данные от компаньона: ветка, ошибки, язык файла, папка (см. extension/live.js). */
+    /** Живые данные вручную/в тестах; от компаньона они приходят событием "live" Moon Core (см. src/core/live.js). */
     __MLBG_LIVE__?: {
         rev?: number;
         branch?: string;
@@ -38,6 +37,7 @@ interface Window {
     __MLBG_LIBRARY__?: string[] | null;
     /** Ставится только тестовой фикстурой: разрешает открыть мост window.__mlbgTest. */
     __MLBG_TEST_HOOKS__?: boolean;
+    __MLBG_NO_TOUR__?: boolean;
     /** Узкий мост для интеграционного теста; в реальном воркбенче не создаётся. */
     __mlbgTest?: {
         setBlur(v: number): void;
@@ -46,8 +46,35 @@ interface Window {
         loader(): unknown;
         live(): { branch: string, source: string };
     };
+    /** Флаг защиты от двойного запуска (ставит обёртка сборки, см. build.js GUARD). */
+    __MLBG_RUNNING__?: string;
+    /** Рантайм Moon Core: помощник модуля, если плагин встроен ядром (см. src/core/sets.js). */
+    __MOONCORE__?: {
+        version?: string;
+        module?(id: string): MoonCoreModule | null;
+    };
     /** Префиксный AudioContext: в Electron есть, в типах — нет. */
     webkitAudioContext?: typeof AudioContext;
+}
+
+/** Помощник модуля Moon Core (window.__MOONCORE__.module("mlbg")). */
+interface MoonCoreModule {
+    id: string;
+    name: string;
+    version: string;
+    /** Адрес папки ресурсов модуля, со слэшем на конце. */
+    base: string;
+    on(event: string, fn: (data: any) => void): () => void;
+    get(event: string): any;
+    rpc(method: string, body?: unknown): Promise<{ ok: boolean, result?: unknown, error?: string }>;
+    log(where: string, err?: unknown): void;
+    connected(): boolean;
+    /** Файл данных модуля: синхронно при старте. */
+    data(): Record<string, any> | null;
+    /** Сохранить файл данных модуля (через мост, пишет хост). */
+    saveData(obj: object): Promise<{ ok: boolean, error?: string }>;
+    /** Часть модуля в профилях вида Moon Core. */
+    profile(hooks: { save(): object, apply(obj: any, name: string): void }): boolean;
 }
 
 interface Navigator {

@@ -9,7 +9,7 @@
 // Тумблеры и слайдеры панели различались только источником cfg и колбэком, а разметка/
 // стиль/hover/«?» повторялись в каждом. Свели к двум фабрикам: makeToggle и makeSlider.
 
-// Строка-тумблер: hover-подсветка + чекбокс + подпись + «?».
+// Строка-тумблер: hover-подсветка + чекбокс + подпись + пояснение (всплывает при наведении).
 // get() -> текущее булево; onChange(checked) -> применить изменение.
 function makeToggle(get, onChange, label, info) {
     var row = el("label", ST.toggleRow);
@@ -23,7 +23,7 @@ function makeToggle(get, onChange, label, info) {
     return row;
 }
 
-// Слайдер: метка + ползунок + значение + «?». opts:
+// Слайдер: метка + ползунок + значение + пояснение. opts:
 //   label, min, max, step, dec (знаков после запятой), get()->число, onInput(v)->записать,
 //   info, labelW (ширина метки, 92), valW (ширина значения, 34), ellipsis (обрезать метку, true),
 //   def (значение по умолчанию для сброса двойным кликом; число ИЛИ функция ()->число для
@@ -52,7 +52,12 @@ function makeSlider(opts) {
     }
     // Отражает состояние «изменено»: цвет значения + видимость кнопки сброса. Сравнение
     // с допуском (float), чтобы 0.32 против 0.32 не считалось изменением из-за представления.
+    // Заливка трека до значения (CSS читает --p, см. panel-css.js).
+    function fill() {
+        try { var mn = Number(opts.min), mx = Number(opts.max), v = Number(sl.value); sl.style.setProperty("--p", (mx > mn ? (v - mn) / (mx - mn) * 100 : 0) + "%"); } catch (e) {}
+    }
     function syncChanged() {
+        fill();
         if (!reset) return;
         var changed = Math.abs(Number(opts.get()) - Number(defVal())) > 1e-9;
         reset.hidden = !changed;
@@ -117,20 +122,22 @@ function makeObjSlider(obj, key, label, min, max, step, dec, info, def) {
 // не аппендим — отдаём открепленный body, чтобы .appendChild вызывающих был безвреден. В режиме
 // «Настроить» скрытая секция показывается ПРИГЛУШЁННОЙ с кнопкой «показать» — чтобы скрытие было
 // обратимым прямо на месте (а не только через менеджер). Сам менеджер «Настройка меню» скрыть нельзя.
-function collapsible(parent, title, info) {
+// rule (необязателен) — {num, on}: номер правила по старшинству и включено ли оно (вкладка
+// «Авто-смена»); показываются в заголовке секции.
+function collapsible(parent, title, info, rule) {
     try { if (typeof panelAllSections !== "undefined" && panelAllSections && panelAllSections.push) panelAllSections.push({ title: title, label: t(title), parent: parent }); } catch (e) {}
     var canHide = title !== "Настройка меню";
     var editing = (typeof panelEditMenu !== "undefined" && panelEditMenu);
     var isHidden = !!(canHide && cfg.ui && cfg.ui.hidden && cfg.ui.hidden[title]);
     if (isHidden && !editing) return el("div", null); // скрыта и не настраиваем — не строим
     var collapsed = !!(cfg.ui.collapsed && cfg.ui.collapsed[title]);
-    var wrap = el("div", "margin-top:8px;");
-    if (isHidden) wrap.style.opacity = "0.55"; // «скрыто, но показано для настройки»
-    var head = el("div", "display:flex; align-items:center; gap:7px; padding:5px 7px; cursor:pointer; border-radius:7px; background:rgba(var(--mlbg-accent-rgb),0.08);");
-    var chev = el("span", "flex:0 0 auto; width:10px; text-align:center; color:var(--mlbg-accent); font-size:9px; transition:transform 0.15s;", "▶");
-    chev.style.transform = collapsed ? "rotate(0deg)" : "rotate(90deg)";
+    var wrap = el("div", null); wrap.className = "mlp-sec" + (collapsed ? "" : " open") + (isHidden ? " hid" : ""); // hid — «скрыто, но показано для настройки»
+    var head = el("div", null); head.className = "mlp-sec-h";
+    var chev = el("span", null, "▶"); chev.className = "mlp-chev";
     head.appendChild(chev);
-    head.appendChild(el("div", "flex:1 1 auto; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--mlp-head,#bac2de);", t(title)));
+    if (rule && rule.num) { var rn = el("span", null, String(rule.num)); rn.className = "mlp-rule-n" + (rule.on ? " on" : ""); head.appendChild(rn); }
+    var ttl = el("div", null, t(title)); ttl.className = "mlp-sec-t"; head.appendChild(ttl);
+    if (rule) { var rs = el("span", null, rule.on ? t("вкл") : t("выкл")); rs.className = "mlp-rule-s" + (rule.on ? " on" : ""); head.appendChild(rs); }
     var idot = infoDot(info); if (idot) head.appendChild(idot); // перевод подписи секции — внутри infoDot (infoText)
     // Режим «Настроить»: звезда «в избранное» + обратимая кнопка «скрыть/показать» в шапке.
     if (canHide && editing) {
@@ -159,18 +166,16 @@ function collapsible(parent, title, info) {
         keyActivate(hideB, (isHidden ? t("Показать секцию") : t("Скрыть секцию")) + ": " + t(title));
         head.appendChild(hideB);
     }
-    var body = el("div", "padding:6px 3px 2px;");
+    var body = el("div", null); body.className = "mlp-sec-b";
     body.style.display = collapsed ? "none" : "block";
     // Единая смена состояния секции (используется и кликом, и разворотом из поиска по панели).
     function setOpen(show) {
         body.style.display = show ? "block" : "none";
-        chev.style.transform = show ? "rotate(90deg)" : "rotate(0deg)";
+        wrap.classList.toggle("open", !!show);
         head.setAttribute("aria-expanded", show ? "true" : "false");
         if (!cfg.ui.collapsed) cfg.ui.collapsed = {};
         cfg.ui.collapsed[title] = !show; saveCfg();
     }
-    head.addEventListener("mouseenter", function () { head.style.background = "rgba(var(--mlbg-accent-rgb),0.16)"; });
-    head.addEventListener("mouseleave", function () { head.style.background = "rgba(var(--mlbg-accent-rgb),0.08)"; });
     head.addEventListener("click", function () { setOpen(body.style.display === "none"); });
     keyActivate(head, t(title));
     head.setAttribute("aria-expanded", collapsed ? "false" : "true");

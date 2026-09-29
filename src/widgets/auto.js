@@ -48,8 +48,16 @@ function libraryTick() {
     if (Date.now() - libSlide.last < period) return;
     libSlide.last = Date.now();
     sessionLibIndex++;
-    // Смена картинки библиотеки — не шаг истории Undo (как тик слайдшоу).
-    _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
+    // Смена картинки — только когда следующая уже загружена и разобрана: иначе fade показывал
+    // пустую подложку, пока большой файл декодируется. Смена — не шаг истории Undo.
+    var nowUrl = libraryEditorUrl();
+    onImage(nowUrl, function () {
+        if (libraryEditorUrl() !== nowUrl) return; // пока ждали, успели сменить
+        var go = function () { _histSuppress++; try { applyFade(); } finally { _histSuppress--; } };
+        try { var im = new Image(); im.src = nowUrl; if (im.decode) im.decode().then(go, go); else go(); } catch (e) { go(); }
+    });
+    // Следующую картинку — заранее (и её пробу: метрики и уменьшенная копия будут готовы).
+    try { var all = libraryAll(); var nx = imgUrl(all[(sessionLibIndex + 1) % all.length]); preloadOne(nx); probeImage(nx); } catch (e) {}
 }
 
 // ===== Скринсейвер / витрина при простое (cfg.screensaver) =====
@@ -158,7 +166,7 @@ function timeTick() {
     if (cfg.mode === ws) return; // уже нужный набор
     // Авто-смена по времени — не шаг истории Undo (сдвигаем базу через _histSuppress).
     cfg.mode = ws; _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
-    if (document.getElementById(PANEL_ID)) refreshPanel();
+    if (document.getElementById(PANEL_ID)) refreshPanelSoon();
 }
 
 function slideTick() {
@@ -176,5 +184,5 @@ function slideTick() {
     // Тик слайдшоу — не шаг истории Undo (сдвигаем базу через _histSuppress).
     _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
     preloadNext();                                          // подготовить следующий заранее
-    if (document.getElementById(PANEL_ID)) refreshPanel(); // подсветить активный чип в открытой панели
+    if (document.getElementById(PANEL_ID)) refreshPanelSoon(); // подсветить активный чип в открытой панели
 }
