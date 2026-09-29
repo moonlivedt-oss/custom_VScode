@@ -3,5 +3,27 @@
   "name": "MoonLight BG",
   "version": "20.0.0",
   "script": "custom-bg.min.js",
-  "assets": "."
+  "assets": ".",
+  "commands": [
+    {
+      "id": "next",
+      "title": "Фон: следующий набор"
+    },
+    {
+      "id": "prev",
+      "title": "Фон: предыдущий набор"
+    },
+    {
+      "id": "panel",
+      "title": "Фон: открыть панель «Фон и дизайн»"
+    },
+    {
+      "id": "quick",
+      "title": "Фон: быстрый переключатель"
+    },
+    {
+      "id": "toggle",
+      "title": "Фон: включить / выключить"
+    }
+  ]
 }

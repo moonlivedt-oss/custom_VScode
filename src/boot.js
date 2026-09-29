@@ -2,6 +2,7 @@
 // Самолечение (интервал + observer) регистрируем ДО виджетов и всё оборачиваем в try,
 // чтобы ошибка любого виджета не убивала возврат кнопки BG после перестройки DOM.
 function heal() {
+    if (_mlbgStopped) return;                      // модуль выключен в Moon Core — ничего не возвращаем
     try { if (!_themeWatched) _themeWatched = watchTheme(); } catch (e) { logErr("самолечение: watchTheme", e); }
     try { ensureStyle(); } catch (e) { logErr("самолечение: ensureStyle", e); }
     try { ensureStatusBar(); } catch (e) { logErr("самолечение: ensureStatusBar", e); }
@@ -15,6 +16,7 @@ function heal() {
     // Шейдерный фон: холст живёт внутри части «редактор», а VS Code пересоздаёт её
     // при смене раскладки/групп — поэтому проверяем и возвращаем его в том же цикле heal.
     try { ensureShader(); } catch (e) { logErr("самолечение: ensureShader", e); }
+    try { shareLook(null); } catch (e) {}          // набор — соседям через общую шину Moon Core
     syncWidgets();
 }
 // ===== Реакция на ошибки в коде (fx.errorReact) =====
@@ -51,10 +53,12 @@ function watchTheme() {
     if (!wb) return false;
     _lastThemeKind = themeKind();
     try {
-        new MutationObserver(function () {
+        var _themeMo = new MutationObserver(function () {
             var k = themeKind();
             if (k !== _lastThemeKind) { _lastThemeKind = k; bumpStyle(); ensureStyle(); }
-        }).observe(wb, { attributes: true, attributeFilter: ["class"] });
+        });
+        _themeMo.observe(wb, { attributes: true, attributeFilter: ["class"] });
+        trackOff(function () { _themeMo.disconnect(); });
     } catch (e) { return false; }
     return true;
 }
@@ -62,8 +66,9 @@ function watchTheme() {
 // а полное самолечение (пересборка CSS + виджеты) — раз в 3 секунды. Раньше это были два
 // отдельных setInterval (1с и 3с) с дублирующимися вызовами.
 var _tick = 0;
-setInterval(function () {
+var _tickTimer = setInterval(function () {
     try {
+        if (_mlbgStopped) return;
         // Окно скрыто/свёрнуто/на другом мониторе — статусбар и часы никто не видит,
         // а слайдшоу считает по Date.now и само наверстает при возврате. Пропускаем
         // всю ежесекундную работу (querySelector + запись в DOM) ради CPU/батареи.
@@ -78,7 +83,8 @@ setInterval(function () {
         if (_tick % 3 === 0) heal();                         // самолечение раз в 3с
     } catch (e) { logErr("секундный тикер", e); }
 }, 1000);
-window.addEventListener("resize", function () { try { resizeParticles(); } catch (e) {} try { resizeTrail(); } catch (e) {} try { shaderResize(); } catch (e) {} });
+trackOff(function () { clearInterval(_tickTimer); });
+onGlobal(window, "resize", function () { try { resizeParticles(); } catch (e) {} try { resizeTrail(); } catch (e) {} try { shaderResize(); } catch (e) {} });
 
 // Через Moon Core среда (прозрачность окна и пр.) приходит по мосту уже после старта —
 // пересобираем стиль, когда она пришла или поменялась.
@@ -91,6 +97,9 @@ if (_viaMoonCore) {
 // Живые данные (ветка, ошибки, язык файла): сразу прогоняем самолечение — фон по ветке или
 // языку переключится без ожидания трёхсекундного цикла.
 liveSubscribe(heal);
+// Новое API Moon Core: выключение модуля без перезагрузки, команды фона в палитре ядра.
+try { registerMoonCoreLifecycle(); } catch (e) { logErr("жизненный цикл Moon Core", e); }
+try { registerMoonCoreCommands(); } catch (e) { logErr("команды Moon Core", e); }
 // Образ фона — часть профилей вида Moon Core (сохраняется и применяется вместе с ними).
 try { registerMoonCoreProfile(); } catch (e) { logErr("профили Moon Core", e); }
 // Резерв конфига на диске: при старте сверяем его с текущим конфигом и дописываем, если
@@ -158,7 +167,7 @@ function onHotkey(e) {
         else if (e.code === "KeyY") { e.preventDefault(); try { redo(); } catch (er) {} } // повторить отменённое
     } catch (err) {}
 }
-document.addEventListener("keydown", onHotkey, true);
+onGlobal(document, "keydown", onHotkey, true);
 
 // ===== Приглушение фона при печати (fx.dimOnType) =====
 // Monaco держит фокус ввода в скрытом <textarea class="inputarea"> и шлёт по нему
@@ -189,7 +198,7 @@ function onEditorType(e) {
         }, 1400);
     } catch (err) {}
 }
-document.addEventListener("input", onEditorType, true);
+onGlobal(document, "input", onEditorType, true);
 
 // ===== Курсорные эффекты: параллакс фона (fx.parallax) + спотлайт (fx.spotlight) =====
 // Один обработчик mousemove на оба эффекта (меньше слушателей, один rAF-кадр на оба).
@@ -232,10 +241,10 @@ function onMouseFx(e) {
         } catch (er) {}
     });
 }
-document.addEventListener("mousemove", onMouseFx, true);
+onGlobal(document, "mousemove", onMouseFx, true);
 // Прочая активность (клик/колесо/тач) тоже сбрасывает простой скринсейвера (клавиши — в onHotkey).
 ["mousedown", "wheel", "touchstart"].forEach(function (ev) {
-    try { document.addEventListener(ev, function () { try { screensaverBump(); } catch (e) {} }, true); } catch (e) {}
+    onGlobal(document, ev, function () { try { screensaverBump(); } catch (e) {} }, true);
 });
 
 // ===== Индикатор git-ветки (ambientBranch) =====
@@ -272,18 +281,18 @@ function ensureBranchStrip() {
 function setUnfocused(on) {
     try { if (document.body && document.body.classList) document.body.classList[on ? "add" : "remove"]("mlbg-unfocused"); } catch (e) {}
 }
-window.addEventListener("blur", function () { setUnfocused(true); });
-window.addEventListener("focus", function () { setUnfocused(false); });
+onGlobal(window, "blur", function () { setUnfocused(true); });
+onGlobal(window, "focus", function () { setUnfocused(false); });
 
 // Возврат окна из скрытого/свёрнутого состояния — сразу лечим всё (стиль, статусбар,
 // виджеты, частицы) и обновляем время/слайдшоу, не дожидаясь следующего тика.
-document.addEventListener("visibilitychange", function () {
+onGlobal(document, "visibilitychange", function () {
     if (!document.hidden) { try { heal(); tickClock(); tickPomo(); timeTick(); slideTick(); libraryTick(); screensaverTick(); } catch (e) {} }
 });
 // Смена системной «уменьшить движение» — пересобираем стиль и виджеты (частицы вкл/выкл).
 try {
     var _rm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
-    if (_rm && _rm.addEventListener) _rm.addEventListener("change", heal);
+    if (_rm && _rm.addEventListener) onGlobal(_rm, "change", heal);
 } catch (e) {}
 // Коалесцируем всплески мутаций DOM в один heal за кадр: если VS Code за раз
 // перестроит несколько узлов, не дёргаем тяжёлый heal на каждый — только раз.
@@ -291,7 +300,7 @@ try {
 var _healRaf = 0;
 function healSoon() {
     if (_healRaf) return;
-    _healRaf = requestAnimationFrame(function () { _healRaf = 0; heal(); });
+    _healRaf = requestAnimationFrame(function () { _healRaf = 0; if (!_mlbgStopped) heal(); });
 }
 // Наблюдаем childList самого <head>: если VS Code выбросит наш <style> (STYLE_ID),
 // список детей head изменится — и heal тут же вернёт стиль, не дожидаясь 3-сек тикера.
@@ -299,14 +308,16 @@ function healSoon() {
 // (почти никогда), а удаление <style> ВНУТРИ head он не ловил. Без subtree — дёшево:
 // у head немного детей, они меняются редко (никакой реакции на набор текста в редакторе).
 try {
-    new MutationObserver(healSoon).observe(document.head || document.documentElement, { childList: true });
+    var _headMo = new MutationObserver(healSoon);
+    _headMo.observe(document.head || document.documentElement, { childList: true });
+    trackOff(function () { _headMo.disconnect(); if (_healRaf) { cancelAnimationFrame(_healRaf); _healRaf = 0; } });
 } catch (e) {}
 heal();
 // Через Moon Core скрипт исполняется в <head>, когда <body> ещё нет: стиль уже встал, а
 // виджеты (холсты частиц, шлейфа, питомца) ждут body. Не ждём трёхсекундного тикера —
 // повторяем самолечение, как только документ разобран.
 if (!document.body) {
-    try { document.addEventListener("DOMContentLoaded", function () { heal(); }, { once: true }); } catch (e) {}
+    onGlobal(document, "DOMContentLoaded", function () { heal(); }, { once: true });
 }
 
 // ===== Мост для интеграционного теста =====
@@ -358,7 +369,7 @@ try {
     }
 } catch (e) { _bc = null; }
 try {
-    window.addEventListener("storage", function (e) {
+    onGlobal(window, "storage", function (e) {
         if (!e || e.key !== CFG_KEY) return;
         if (_bc) return;          // BroadcastChannel уже доставил — второй раз не перерисовываем
         _applyExternalCfg();

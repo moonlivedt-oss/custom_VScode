@@ -1755,6 +1755,41 @@
     //
     // Данных может не быть вовсе: нет Moon Core или компаньона, git выключен, окно без папки.
     // Поэтому живые данные — это ПРЕДПОЧТЕНИЕ, а не требование: где их нет, работает скрейпинг DOM.
+    //
+    // Второй источник — события VS Code самого Moon Core (mc.vscode.on: editor, git, diagnostics):
+    // они есть и без компаньона. Компаньон, если он установлен, важнее (у него то же самое плюс
+    // поле rev), события Moon Core — запасной путь, собранный в тот же вид.
+    var _vsLive = null;          // живые данные из событий VS Code Moon Core
+    var _vsLiveSubs = [];        // кому сообщить о новых данных (liveSubscribe)
+    var _vsLiveOn = false;
+    function _vsLivePatch(patch) {
+        var next = {}, k;
+        if (_vsLive) for (k in _vsLive) next[k] = _vsLive[k];
+        for (k in patch) next[k] = patch[k];
+        if (_vsLive && JSON.stringify(next) === JSON.stringify(_vsLive)) return;
+        _vsLive = next;
+        for (var i = 0; i < _vsLiveSubs.length; i++) { try { _vsLiveSubs[i](); } catch (e) { logErr("живые данные", e); } }
+    }
+    // Подписаться на события VS Code Moon Core (один раз). false — Moon Core нет или он старый.
+    function vsLiveWatch() {
+        if (_vsLiveOn) return true;
+        if (!_viaMoonCore) return false;
+        var m = mooncoreModule();
+        var v = m && m.vscode;
+        if (!v || typeof v.on !== "function") return false;
+        _vsLiveOn = true;
+        v.on("editor", function (d) { _vsLivePatch({ languageId: d ? String(d.lang || "") : "", fileExt: d ? String(d.ext || "") : "" }); });
+        v.on("git", function (d) {
+            if (!d) return;
+            _vsLivePatch({ branch: String(d.branch || ""), dirty: d.changes > 0, remote: String(d.remote || ""), folder: String(d.folder || "") });
+        });
+        v.on("diagnostics", function (d) {
+            if (!d) return;
+            var e = typeof d.totalErrors === "number" ? d.totalErrors : d.errors, w = typeof d.totalWarnings === "number" ? d.totalWarnings : d.warnings;
+            _vsLivePatch({ errors: e, warnings: w });
+        });
+        return true;
+    }
 
     // Сырые данные: глобал (тесты, ручная подстановка) или последнее событие "live" от компаньона.
     function _liveRaw() {
@@ -1762,7 +1797,8 @@
         if (d && typeof d === "object") return d;
         if (!_viaMoonCore) return null;
         var m = mooncoreModule();
-        return (m && typeof m.get === "function") ? m.get("live") : null;
+        var c = (m && typeof m.get === "function") ? m.get("live") : null;
+        return (c && typeof c === "object") ? c : _vsLive;
     }
 
     // Санитизация: данные приходят снаружи, а значения уходят в UI и в ключи конфига.
@@ -1793,6 +1829,8 @@
         var m = mooncoreModule();
         if (!m || typeof m.on !== "function") return false;
         m.on("live", function () { try { fn(); } catch (e) { logErr("живые данные", e); } });
+        _vsLiveSubs.push(fn);
+        vsLiveWatch();
         return true;
     }
 
@@ -1810,9 +1848,122 @@
     }
     // Откуда пришло значение — показываем в диагностике, чтобы было видно, работает ли мостик.
     function liveSource() {
+        var m = _viaMoonCore ? mooncoreModule() : null;
+        var c = (m && typeof m.get === "function") ? m.get("live") : null;
+        if (c && typeof c === "object") return "хост расширений";
+        if (_vsLive) return "события VS Code (Moon Core)";
         if (mlbgLive()) return "хост расширений";
         if (!_viaMoonCore) return "DOM (без Moon Core)";
         return "DOM (данные от компаньона ещё не пришли)";
+    }
+
+    // ===================== src/core/mooncore-api.js =====================
+    // ===== Новое API Moon Core: жизненный цикл, общая шина, команды =====
+    // Всё здесь — только под Moon Core и только если ядро это умеет (старое ядро без
+    // mc.onDispose / mc.share / mc.commands просто ничего не получает — фон работает как раньше).
+    //
+    // Жизненный цикл. Moon Core умеет выключить модуль без перезагрузки окна и снова включить его
+    // (тот же файл выполняется заново). Поэтому всё глобальное, что заводит фон — подписки на
+    // окно и документ, секундный тикер, наблюдатели, циклы анимации, свои элементы и классы, —
+    // должно сниматься в mlbgStop(). Подписки заводятся через onGlobal / trackOff.
+
+    var _mlbgStopped = false;
+    var _mlbgOff = [];            // функции снятия глобальных подписок и таймеров
+
+    // addEventListener, который снимется при выключении модуля.
+    function onGlobal(target, ev, fn, opt) {
+        try {
+            target.addEventListener(ev, fn, opt);
+            _mlbgOff.push(function () { try { target.removeEventListener(ev, fn, opt); } catch (e) {} });
+        } catch (e) {}
+    }
+    function trackOff(fn) { if (typeof fn === "function") _mlbgOff.push(fn); }
+
+    // Всё, что фон кладёт в DOM по id (стиль, кнопка статусбара, панель, виджеты, холсты).
+    function mlbgOwnIds() {
+        return [STYLE_ID, SB_ID, PANEL_ID, PANEL_CSS_ID, QUICK_ID, QMENU_ID, TOUR_ID, BRANCH_ID,
+            "mlbg-clock", "mlbg-pomo", "mlbg-stats", "mlbg-particles", "mlbg-cursor-trail", "mlbg-pet", "mlbg-shader", "mlbg-screensaver"];
+    }
+
+    // Полная остановка: Moon Core выключил модуль (или перезапускает его). Настройки не трогаем —
+    // включат снова, и фон встанет как был.
+    function mlbgStop() {
+        if (_mlbgStopped) return;
+        _mlbgStopped = true;
+        var off = _mlbgOff.splice(0);
+        for (var i = off.length - 1; i >= 0; i--) { try { off[i](); } catch (e) {} }
+        [part, trail, perf, pet, shd].forEach(function (o) {
+            try { if (o && o.raf) { cancelAnimationFrame(o.raf); o.raf = 0; } } catch (e) {}
+        });
+        mlbgOwnIds().forEach(function (id) {
+            try { var n = document.getElementById(id); if (n) n.remove(); } catch (e) {}
+        });
+        try {
+            var cl = document.body && document.body.classList;
+            if (cl) Array.prototype.slice.call(cl).forEach(function (c) { if (/^mlbg-/.test(c)) cl.remove(c); });
+        } catch (e) {}
+        // CSS-переменные фона на <html> (buildVars): без них чужие стили с var(--mlbg-*) вернутся к своим значениям.
+        try {
+            var st = document.documentElement.style, names = [];
+            for (var j = 0; j < st.length; j++) if (/^--mlbg-/.test(st[j])) names.push(st[j]);
+            names.forEach(function (n) { st.removeProperty(n); });
+        } catch (e) {}
+        try { if (_bc) { _bc.close(); _bc = null; } } catch (e) {}
+        try { shareValue("mlbg.accent", undefined); shareValue("mlbg.set", undefined); } catch (e) {}
+        try { delete window.__MLBG_RUNNING__; } catch (e) { window.__MLBG_RUNNING__ = undefined; }
+    }
+
+    // ---- общая шина модулей: акцент и набор для соседей (окно «Документация C++») ----
+    function shareValue(key, value) {
+        if (!_viaMoonCore) return false;
+        var m = mooncoreModule();
+        if (!m || typeof m.share !== "function") return false;
+        try { return m.share(key, value); } catch (e) { return false; }
+    }
+    var _sharedSet = "";
+    function shareLook(accentHex) {
+        if (typeof accentHex === "string" && /^#[0-9a-f]{6}$/i.test(accentHex)) shareValue("mlbg.accent", { hex: accentHex, rgb: hexToRgbArr(accentHex) });
+        try {
+            var idx = activeIndex(), sig = idx + "|" + (setName(idx) || "");
+            // Запоминаем только принятое: до появления шины (или без неё) попробуем снова в следующий раз.
+            if (sig !== _sharedSet && shareValue("mlbg.set", { index: idx, name: String(setName(idx) || "") })) _sharedSet = sig;
+        } catch (e) {}
+    }
+
+    // ---- команды фона в «Moon Core: Команды модулей» ----
+    // Объявлены и в манифесте модуля (mooncore-module.json): ядро знает их ещё до запуска окна.
+    var MLBG_COMMANDS = [
+        { id: "next", title: "Фон: следующий набор" },
+        { id: "prev", title: "Фон: предыдущий набор" },
+        { id: "panel", title: "Фон: открыть панель «Фон и дизайн»" },
+        { id: "quick", title: "Фон: быстрый переключатель" },
+        { id: "toggle", title: "Фон: включить / выключить" }
+    ];
+    function mlbgCommand(id) {
+        if (id === "next") cycleSet(1);
+        else if (id === "prev") cycleSet(-1);
+        else if (id === "panel") { if (!document.getElementById(PANEL_ID)) togglePanel({ stopPropagation: function () {} }); }
+        else if (id === "quick") openQuick();
+        else if (id === "toggle") { cfg.enabled = !cfg.enabled; apply(); try { toast(cfg.enabled ? t("Фон включён") : t("Фон выключен")); } catch (e) {} }
+    }
+    function registerMoonCoreCommands() {
+        if (!_viaMoonCore) return false;
+        var m = mooncoreModule();
+        if (!m || !m.commands || typeof m.commands.on !== "function") return false;
+        try { m.commands.register(MLBG_COMMANDS); } catch (e) {}
+        MLBG_COMMANDS.forEach(function (c) {
+            m.commands.on(c.id, function () { try { mlbgCommand(c.id); } catch (e) { logErr("команда " + c.id, e); } });
+        });
+        return true;
+    }
+
+    // Подключиться к жизненному циклу Moon Core: выключение модуля — mlbgStop.
+    function registerMoonCoreLifecycle() {
+        if (!_viaMoonCore) return false;
+        var m = mooncoreModule();
+        if (!m || typeof m.onDispose !== "function") return false;
+        m.onDispose(mlbgStop);
+        return true;
     }
 
     // ===================== src/core/i18n.js =====================
@@ -4032,6 +4183,8 @@
     function announceAccent(ac) {
         if (ac === _lastAnnounced) return;
         _lastAnnounced = ac;
+        // Общая шина Moon Core — договорённость с проверкой формата; событие окна — для старых соседей.
+        try { shareLook(ac); } catch (e) {}
         setTimeout(function () { try { window.dispatchEvent(new CustomEvent("mlbg-accent", { detail: { accent: ac } })); } catch (e) {} }, 0);
     }
     function editorOpFactor() {
@@ -10142,6 +10295,7 @@
     // Самолечение (интервал + observer) регистрируем ДО виджетов и всё оборачиваем в try,
     // чтобы ошибка любого виджета не убивала возврат кнопки BG после перестройки DOM.
     function heal() {
+        if (_mlbgStopped) return;                      // модуль выключен в Moon Core — ничего не возвращаем
         try { if (!_themeWatched) _themeWatched = watchTheme(); } catch (e) { logErr("самолечение: watchTheme", e); }
         try { ensureStyle(); } catch (e) { logErr("самолечение: ensureStyle", e); }
         try { ensureStatusBar(); } catch (e) { logErr("самолечение: ensureStatusBar", e); }
@@ -10155,6 +10309,7 @@
         // Шейдерный фон: холст живёт внутри части «редактор», а VS Code пересоздаёт её
         // при смене раскладки/групп — поэтому проверяем и возвращаем его в том же цикле heal.
         try { ensureShader(); } catch (e) { logErr("самолечение: ensureShader", e); }
+        try { shareLook(null); } catch (e) {}          // набор — соседям через общую шину Moon Core
         syncWidgets();
     }
     // ===== Реакция на ошибки в коде (fx.errorReact) =====
@@ -10191,10 +10346,12 @@
         if (!wb) return false;
         _lastThemeKind = themeKind();
         try {
-            new MutationObserver(function () {
+            var _themeMo = new MutationObserver(function () {
                 var k = themeKind();
                 if (k !== _lastThemeKind) { _lastThemeKind = k; bumpStyle(); ensureStyle(); }
-            }).observe(wb, { attributes: true, attributeFilter: ["class"] });
+            });
+            _themeMo.observe(wb, { attributes: true, attributeFilter: ["class"] });
+            trackOff(function () { _themeMo.disconnect(); });
         } catch (e) { return false; }
         return true;
     }
@@ -10202,8 +10359,9 @@
     // а полное самолечение (пересборка CSS + виджеты) — раз в 3 секунды. Раньше это были два
     // отдельных setInterval (1с и 3с) с дублирующимися вызовами.
     var _tick = 0;
-    setInterval(function () {
+    var _tickTimer = setInterval(function () {
         try {
+            if (_mlbgStopped) return;
             // Окно скрыто/свёрнуто/на другом мониторе — статусбар и часы никто не видит,
             // а слайдшоу считает по Date.now и само наверстает при возврате. Пропускаем
             // всю ежесекундную работу (querySelector + запись в DOM) ради CPU/батареи.
@@ -10218,7 +10376,8 @@
             if (_tick % 3 === 0) heal();                         // самолечение раз в 3с
         } catch (e) { logErr("секундный тикер", e); }
     }, 1000);
-    window.addEventListener("resize", function () { try { resizeParticles(); } catch (e) {} try { resizeTrail(); } catch (e) {} try { shaderResize(); } catch (e) {} });
+    trackOff(function () { clearInterval(_tickTimer); });
+    onGlobal(window, "resize", function () { try { resizeParticles(); } catch (e) {} try { resizeTrail(); } catch (e) {} try { shaderResize(); } catch (e) {} });
 
     // Через Moon Core среда (прозрачность окна и пр.) приходит по мосту уже после старта —
     // пересобираем стиль, когда она пришла или поменялась.
@@ -10231,6 +10390,9 @@
     // Живые данные (ветка, ошибки, язык файла): сразу прогоняем самолечение — фон по ветке или
     // языку переключится без ожидания трёхсекундного цикла.
     liveSubscribe(heal);
+    // Новое API Moon Core: выключение модуля без перезагрузки, команды фона в палитре ядра.
+    try { registerMoonCoreLifecycle(); } catch (e) { logErr("жизненный цикл Moon Core", e); }
+    try { registerMoonCoreCommands(); } catch (e) { logErr("команды Moon Core", e); }
     // Образ фона — часть профилей вида Moon Core (сохраняется и применяется вместе с ними).
     try { registerMoonCoreProfile(); } catch (e) { logErr("профили Moon Core", e); }
     // Резерв конфига на диске: при старте сверяем его с текущим конфигом и дописываем, если
@@ -10298,7 +10460,7 @@
             else if (e.code === "KeyY") { e.preventDefault(); try { redo(); } catch (er) {} } // повторить отменённое
         } catch (err) {}
     }
-    document.addEventListener("keydown", onHotkey, true);
+    onGlobal(document, "keydown", onHotkey, true);
 
     // ===== Приглушение фона при печати (fx.dimOnType) =====
     // Monaco держит фокус ввода в скрытом <textarea class="inputarea"> и шлёт по нему
@@ -10329,7 +10491,7 @@
             }, 1400);
         } catch (err) {}
     }
-    document.addEventListener("input", onEditorType, true);
+    onGlobal(document, "input", onEditorType, true);
 
     // ===== Курсорные эффекты: параллакс фона (fx.parallax) + спотлайт (fx.spotlight) =====
     // Один обработчик mousemove на оба эффекта (меньше слушателей, один rAF-кадр на оба).
@@ -10372,10 +10534,10 @@
             } catch (er) {}
         });
     }
-    document.addEventListener("mousemove", onMouseFx, true);
+    onGlobal(document, "mousemove", onMouseFx, true);
     // Прочая активность (клик/колесо/тач) тоже сбрасывает простой скринсейвера (клавиши — в onHotkey).
     ["mousedown", "wheel", "touchstart"].forEach(function (ev) {
-        try { document.addEventListener(ev, function () { try { screensaverBump(); } catch (e) {} }, true); } catch (e) {}
+        onGlobal(document, ev, function () { try { screensaverBump(); } catch (e) {} }, true);
     });
 
     // ===== Индикатор git-ветки (ambientBranch) =====
@@ -10412,18 +10574,18 @@
     function setUnfocused(on) {
         try { if (document.body && document.body.classList) document.body.classList[on ? "add" : "remove"]("mlbg-unfocused"); } catch (e) {}
     }
-    window.addEventListener("blur", function () { setUnfocused(true); });
-    window.addEventListener("focus", function () { setUnfocused(false); });
+    onGlobal(window, "blur", function () { setUnfocused(true); });
+    onGlobal(window, "focus", function () { setUnfocused(false); });
 
     // Возврат окна из скрытого/свёрнутого состояния — сразу лечим всё (стиль, статусбар,
     // виджеты, частицы) и обновляем время/слайдшоу, не дожидаясь следующего тика.
-    document.addEventListener("visibilitychange", function () {
+    onGlobal(document, "visibilitychange", function () {
         if (!document.hidden) { try { heal(); tickClock(); tickPomo(); timeTick(); slideTick(); libraryTick(); screensaverTick(); } catch (e) {} }
     });
     // Смена системной «уменьшить движение» — пересобираем стиль и виджеты (частицы вкл/выкл).
     try {
         var _rm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
-        if (_rm && _rm.addEventListener) _rm.addEventListener("change", heal);
+        if (_rm && _rm.addEventListener) onGlobal(_rm, "change", heal);
     } catch (e) {}
     // Коалесцируем всплески мутаций DOM в один heal за кадр: если VS Code за раз
     // перестроит несколько узлов, не дёргаем тяжёлый heal на каждый — только раз.
@@ -10431,7 +10593,7 @@
     var _healRaf = 0;
     function healSoon() {
         if (_healRaf) return;
-        _healRaf = requestAnimationFrame(function () { _healRaf = 0; heal(); });
+        _healRaf = requestAnimationFrame(function () { _healRaf = 0; if (!_mlbgStopped) heal(); });
     }
     // Наблюдаем childList самого <head>: если VS Code выбросит наш <style> (STYLE_ID),
     // список детей head изменится — и heal тут же вернёт стиль, не дожидаясь 3-сек тикера.
@@ -10439,14 +10601,16 @@
     // (почти никогда), а удаление <style> ВНУТРИ head он не ловил. Без subtree — дёшево:
     // у head немного детей, они меняются редко (никакой реакции на набор текста в редакторе).
     try {
-        new MutationObserver(healSoon).observe(document.head || document.documentElement, { childList: true });
+        var _headMo = new MutationObserver(healSoon);
+        _headMo.observe(document.head || document.documentElement, { childList: true });
+        trackOff(function () { _headMo.disconnect(); if (_healRaf) { cancelAnimationFrame(_healRaf); _healRaf = 0; } });
     } catch (e) {}
     heal();
     // Через Moon Core скрипт исполняется в <head>, когда <body> ещё нет: стиль уже встал, а
     // виджеты (холсты частиц, шлейфа, питомца) ждут body. Не ждём трёхсекундного тикера —
     // повторяем самолечение, как только документ разобран.
     if (!document.body) {
-        try { document.addEventListener("DOMContentLoaded", function () { heal(); }, { once: true }); } catch (e) {}
+        onGlobal(document, "DOMContentLoaded", function () { heal(); }, { once: true });
     }
 
     // ===== Мост для интеграционного теста =====
@@ -10498,7 +10662,7 @@
         }
     } catch (e) { _bc = null; }
     try {
-        window.addEventListener("storage", function (e) {
+        onGlobal(window, "storage", function (e) {
             if (!e || e.key !== CFG_KEY) return;
             if (_bc) return;          // BroadcastChannel уже доставил — второй раз не перерисовываем
             _applyExternalCfg();

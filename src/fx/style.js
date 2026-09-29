@@ -13,6 +13,8 @@ var _lastAnnounced = "";
 function announceAccent(ac) {
     if (ac === _lastAnnounced) return;
     _lastAnnounced = ac;
+    // Общая шина Moon Core — договорённость с проверкой формата; событие окна — для старых соседей.
+    try { shareLook(ac); } catch (e) {}
     setTimeout(function () { try { window.dispatchEvent(new CustomEvent("mlbg-accent", { detail: { accent: ac } })); } catch (e) {} }, 0);
 }
 function editorOpFactor() {

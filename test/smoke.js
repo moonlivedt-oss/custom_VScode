@@ -1662,5 +1662,83 @@ sandbox.cfg.workspaceSets = {}; sandbox.cfg.remoteSets = {}; sandbox.cfg.branchS
 sandbox.window.__MLBG_LIVE__ = null;
 
 // ============================================================
+//  Новое API Moon Core: живые данные из событий VS Code, общая шина, команды, выключение.
+//  Идёт последним: mlbgStop в конце останавливает фон в песочнице.
+// ============================================================
+console.log("\n-- новое API Moon Core --");
+(function () {
+    var vsH = {}, shared = {}, cmdOn = {}, disposers = [];
+    /** @type {any[]} */
+    var cmdReg = [];
+    sandbox.window.__MLBG_LIVE__ = null;
+    sandbox.window.__MOONCORE__ = { version: "0.2.0", module: function () {
+        return {
+            base: "vscode-file://vscode-app/x/",
+            get: function () { return undefined; },                 // компаньона нет
+            on: function (ev, fn) { if (ev === "command") cmdOn.fn = fn; return function () {}; },
+            log: function () {},
+            vscode: { on: function (kind, fn) { vsH[kind] = fn; return function () {}; } },
+            share: function (k, v) { shared[k] = v; return true; },
+            commands: { register: function (list) { cmdReg = list; return list.length; }, on: function (id, fn) { cmdOn[id] = fn; return function () {}; } },
+            onDispose: function (fn) { disposers.push(fn); }
+        };
+    } };
+    sandbox._viaMoonCore = true;
+    var hits = 0;
+    ok(sandbox.liveSubscribe(function () { hits++; }) === true, "события VS Code: подписка через Moon Core");
+    ok(typeof vsH.editor === "function" && typeof vsH.git === "function" && typeof vsH.diagnostics === "function", "события VS Code: editor, git, diagnostics");
+    vsH.editor({ file: "main.RS", lang: "Rust", ext: "rs" });
+    vsH.git({ branch: "feature/vs", changes: 2, remote: "acme/tool", folder: "проект" });
+    vsH.diagnostics({ errors: 1, warnings: 0, totalErrors: 5, totalWarnings: 3 });
+    var lv2 = sandbox.mlbgLive();
+    ok(lv2 && lv2.branch === "feature/vs" && lv2.dirty === true && lv2.remote === "acme/tool" && lv2.folder === "проект", "без компаньона: ветка, изменения, репозиторий и папка — из событий Moon Core");
+    ok(lv2.languageId === "rust" && lv2.fileExt === "rs", "язык и расширение файла — из события editor");
+    ok(lv2.errors === 5 && lv2.warnings === 3, "ошибки — по всему проекту, как у компаньона");
+    ok(hits === 3, "каждое новое событие сразу запускает самолечение (" + hits + ")");
+    vsH.git({ branch: "feature/vs", changes: 2, remote: "acme/tool", folder: "проект" });
+    ok(hits === 3, "то же значение повторно не будит самолечение");
+    ok(sandbox.gitBranch() === "feature/vs" && sandbox.problemsCount() === 5, "ветка и ошибки берутся из событий, а не из статусбара");
+    ok(sandbox.liveSource() === "события VS Code (Moon Core)", "liveSource: видно, что данные от Moon Core");
+    sandbox.window.__MLBG_LIVE__ = { branch: "companion" };
+    ok(sandbox.gitBranch() === "companion", "ручной/компаньонский источник важнее событий Moon Core");
+    sandbox.window.__MLBG_LIVE__ = null;
+
+    sandbox.shareLook("#89b4fa");
+    ok(shared["mlbg.accent"] && shared["mlbg.accent"].hex === "#89b4fa" && shared["mlbg.accent"].rgb.join(",") === "137,180,250", "общая шина: акцент фона с rgb");
+    ok(shared["mlbg.set"] && typeof shared["mlbg.set"].index === "number", "общая шина: текущий набор");
+
+    ok(sandbox.registerMoonCoreCommands() === true && cmdReg.length === sandbox.MLBG_COMMANDS.length, "команды фона объявлены в Moon Core");
+    var mod = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "mooncore-module.json"), "utf8"));
+    ok(JSON.stringify((mod.commands || []).map(function (c) { return c.id; })) === JSON.stringify(sandbox.MLBG_COMMANDS.map(function (c) { return c.id; })),
+       "команды фона в манифесте модуля совпадают с рантаймом");
+    var mode0 = sandbox.cfg.mode;
+    sandbox.cfg.mode = "0";
+    cmdOn.next();
+    ok(sandbox.cfg.mode === "1", "команда «следующий набор» из палитры Moon Core работает");
+    cmdOn.prev();
+    ok(sandbox.cfg.mode === "0", "команда «предыдущий набор»");
+    sandbox.cfg.mode = mode0;
+
+    ok(sandbox.registerMoonCoreLifecycle() === true && disposers.length === 1, "выключение модуля: уборка зарегистрирована в Moon Core");
+    var offs = sandbox._mlbgOff.length;
+    ok(offs >= 10, "глобальные подписки, тикер и наблюдатели снимаемые (" + offs + ")");
+    sandbox.window.__MLBG_RUNNING__ = "moon-core";
+    // Заглушка документа не хранит элементы — ловим, что именно фон убирает по id.
+    var removedIds = [], gid = sandbox.document.getElementById;
+    sandbox.document.getElementById = function (id) { return { remove: function () { removedIds.push(id); } }; };
+    disposers[0]();
+    sandbox.document.getElementById = gid;
+    ok(sandbox._mlbgStopped === true && sandbox._mlbgOff.length === 0, "выключение: всё снято");
+    ok(sandbox.window.__MLBG_RUNNING__ === undefined, "выключение: метка запуска снята — повторное включение запустит фон заново");
+    ok([sandbox.STYLE_ID, sandbox.SB_ID, sandbox.PANEL_ID, "mlbg-particles", "mlbg-pet", "mlbg-shader"].every(function (id) { return removedIds.indexOf(id) !== -1; }),
+       "выключение: стиль, кнопка статусбара, панель и холсты виджетов убраны");
+    var made = 0, mk = sandbox.document.createElement;
+    sandbox.document.createElement = function (tag) { made++; return mk(tag); };
+    sandbox.heal();
+    sandbox.document.createElement = mk;
+    ok(made === 0, "после выключения самолечение ничего не создаёт заново");
+})();
+
+// ============================================================
 console.log("\nИтог: " + passed + " ok, " + failed + " fail.");
 process.exit(failed ? 1 : 0);

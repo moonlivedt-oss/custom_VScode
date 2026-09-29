@@ -75,6 +75,19 @@ interface MoonCoreModule {
     saveData(obj: object): Promise<{ ok: boolean, error?: string }>;
     /** Часть модуля в профилях вида Moon Core. */
     profile(hooks: { save(): object, apply(obj: any, name: string): void }): boolean;
+    // ---- новое API Moon Core (у старого ядра этих полей нет — проверяй перед вызовом) ----
+    /** Уборка модуля: выключение без перезагрузки окна и горячая перезагрузка. */
+    onDispose?(fn: () => void): void;
+    /** События VS Code своего окна (editor, git, diagnostics...). */
+    vscode?: { on?(kind: string, fn: (data: any) => void): () => void };
+    /** Общая шина модулей окна. */
+    share?(key: string, value: unknown): boolean;
+    shared?(key: string, fn: (value: any, from: string) => void): () => void;
+    /** Команды модуля в «Moon Core: Команды модулей». */
+    commands?: {
+        register(list: { id: string, title: string, langs?: string[], context?: boolean }[]): number;
+        on(id: string, fn: (ctx: any) => void): () => void;
+    };
 }
 
 interface Navigator {
