@@ -659,21 +659,28 @@ function mergeForeign(p) {
     c.allowRemoteImages = false;
     return c;
 }
-// Откуда взялся конфиг при старте: "local" | "disk" | "seed" | "defaults" (для диагностики).
+// Откуда взялся конфиг при старте: "local" | "install" | "disk" | "seed" | "defaults" (для диагностики).
 var cfgLoadedFrom = "defaults";
 function loadCfg() {
-    try {
-        var raw = localStorage.getItem(CFG_KEY);
-        // Нормальный конфиг весит килобайты. Отсекаем заведомо раздутый/подменённый
-        // localStorage до JSON.parse (тот же лимит, что и при импорте файла) — чтобы
-        // огромная строка не била по старту разбором/памятью. Свыше лимита — дефолты.
-        if (raw && raw.length <= 256 * 1024) { cfgLoadedFrom = "local"; return mergeCfg(safeParse(raw)); }
-    } catch (e) {}
-    // localStorage пуст (новая машина / переустановка / крупный апдейт VS Code почистил
-    // хранилище). Сначала — резерв на диске от Moon Core: это наш же последний конфиг, поэтому
-    // проходит через mergeCfg напрямую и своё согласие на сетевые картинки сохраняет.
-    var disk = diskCfg();
-    if (disk) { try { var c = mergeCfg(disk); cfgLoadedFrom = "disk"; return c; } catch (e) {} }
+    // localStorage, а поверх него — вид от установщика; localStorage пуст (новая машина /
+    // переустановка / крупный апдейт VS Code почистил хранилище) — резерв на диске от Moon Core:
+    // это наш же последний конфиг, поэтому проходит через mergeCfg напрямую и своё согласие на
+    // сетевые картинки сохраняет. Источник общий с _appendGenSets (startupSource).
+    var src = startupSource();
+    if (src) {
+        try {
+            var c = mergeCfg(src.cfg);
+            cfgLoadedFrom = src.from;
+            if (src.install) {
+                markInstall(src.install.id);
+                if (src.from === "install") {   // прежний конфиг — в резерв (кнопка «Восстановить»), новый — сразу в localStorage
+                    try { var old = localStorage.getItem(CFG_KEY); if (old) localStorage.setItem(BACKUP_KEY, old); } catch (e) {}
+                    try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch (e) {}
+                }
+            }
+            return c;
+        } catch (e) {}
+    }
     // Дальше — базовый конфиг из settings.json (window.__MLBG_SEED__ — едет через Settings
     // Sync): вид «переезжает» на новую машину сам. mergeCfg санитизирует чужой объект.
     var seed = seedConfig();
@@ -704,6 +711,67 @@ function diskCfg() {
         return c;
     } catch (e) { return null; }
 }
+// ===== Вид от установщика (moon-bundle) =====
+// Установщик кладёт образ в тот же файл данных модуля, но с меткой install: { id, force }.
+// Без метки файл — просто резерв: он берётся, только когда localStorage пуст. С меткой force
+// образ применяется и поверх уже настроенного — иначе на машине, где фон хоть раз запускался,
+// присланный вид молча проигрывал localStorage. Метка одноразовая: принятый id помним в
+// localStorage, а следующая запись резерва (diskSaveNow) её уже не несёт.
+// Функции зовутся и из sets.js ДО инициализации переменных этого файла — поэтому лимиты
+// здесь литералами, а не через DISK_MAX.
+function installKey() { return CFG_KEY + "-install"; }
+// Непринятый образ установщика: { id, force, cfg } или null.
+function pendingInstall() {
+    try {
+        if (!_viaMoonCore) return null;
+        var m = mooncoreModule();
+        var d = (m && typeof m.data === "function") ? m.data() : null;
+        var ins = d && d.install;
+        if (!ins || typeof ins !== "object" || !ins.id) return null;
+        if (String(ins.id) === String(localStorage.getItem(installKey()) || "")) return null;
+        var c = d.cfg;
+        if (!c || typeof c !== "object" || Array.isArray(c) || JSON.stringify(c).length > 256 * 1024) return null;
+        return { id: String(ins.id), force: ins.force === true, cfg: c };
+    } catch (e) { return null; }
+}
+function markInstall(id) { try { localStorage.setItem(installKey(), String(id)); } catch (e) {} }
+// Ключи образа поверх своего конфига: чего в образе нет (папки, меню — машинно-зависимое),
+// остаётся своим.
+function overlayCfg(base, add) {
+    var o = {}, k;
+    if (base && typeof base === "object") for (k in base) if (Object.prototype.hasOwnProperty.call(base, k)) o[k] = base[k];
+    for (k in add) if (Object.prototype.hasOwnProperty.call(add, k)) o[k] = add[k];
+    return o;
+}
+// С какого объекта стартовать (до санитизации): { from, cfg, install } или null.
+function startupSource() {
+    var local = null;
+    try {
+        var raw = localStorage.getItem(CFG_KEY);
+        // Нормальный конфиг весит килобайты. Заведомо раздутый/подменённый localStorage
+        // отсекаем до JSON.parse (тот же лимит, что и при импорте файла).
+        if (raw && raw.length <= 256 * 1024) local = safeParse(raw);
+    } catch (e) {}
+    var ins = pendingInstall();
+    if (ins && (ins.force || !local)) return { from: "install", cfg: overlayCfg(local, ins.cfg), install: ins };
+    if (local) return { from: "local", cfg: local, install: ins };
+    var disk = diskCfg();
+    return disk ? { from: "disk", cfg: disk, install: null } : null;
+}
+// Установщик отработал, пока VS Code был открыт: образ лёг на диск, а окно вот-вот затёрло бы
+// его своим резервом. Перед записью резерва принимаем образ.
+function takeInstallLive() {
+    var ins = pendingInstall();
+    if (!ins) return;
+    markInstall(ins.id);
+    if (!ins.force) return;
+    backupCfg();
+    cfg = mergeCfg(overlayCfg(JSON.parse(JSON.stringify(cfg)), ins.cfg));
+    try { syncGenSets(); } catch (e) {}
+    try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {}
+    cfgLoadedFrom = "install";
+    try { apply(); } catch (e) { logErr("вид от установщика", e); }
+}
 function scheduleDiskSave() {
     try { if (typeof scheduleSyncPush === "function") scheduleSyncPush(); } catch (e) {} // Settings Sync (looks.js)
     if (!_viaMoonCore) return;
@@ -715,6 +783,7 @@ function diskSaveNow() {
     _disk.timer = null;
     var m = mooncoreModule();
     if (!m || typeof m.saveData !== "function") return;
+    try { takeInstallLive(); } catch (e) { logErr("вид от установщика", e); }
     var text;
     try { text = JSON.stringify(cfg); } catch (e) { logErr("резерв конфига", e); return; }
     if (text.length > DISK_MAX) { _disk.lastErr = "конфиг больше 256 КБ"; return; }
@@ -744,7 +813,8 @@ function dailyCopies(text) {
 // Строка для диагностики.
 function diskBackupInfo() {
     if (!_viaMoonCore) return "нет (нужен Moon Core)";
-    var from = cfgLoadedFrom === "disk" ? " · при старте восстановлен из резерва" : "";
+    var from = cfgLoadedFrom === "disk" ? " · при старте восстановлен из резерва" :
+        cfgLoadedFrom === "install" ? " · применён вид из установщика" : "";
     if (_disk.lastErr) return "ошибка: " + _disk.lastErr + from;
     if (_disk.lastOk) {
         var d = new Date(_disk.lastOk);

@@ -298,9 +298,9 @@ var SETS_DROPPED = (function () {
 var GEN_BASE = SETS.length;
 (function _appendGenSets() {
     try {
-        var raw = localStorage.getItem(CFG_KEY);
-        if (!raw || raw.length > 256 * 1024) return;
-        var p = safeParse(raw);
+        // Тот же источник, что возьмёт loadCfg: localStorage, вид от установщика или резерв на диске.
+        var src = startupSource();
+        var p = src && src.cfg;
         var us = (p && typeof p === "object") ? sanitizeUserSets(p.genSets) : [];
         for (var i = 0; i < us.length; i++) SETS.push(us[i]);
     } catch (e) {}

@@ -1538,6 +1538,31 @@ if (lsKeep !== null) sandbox.localStorage.setItem(sandbox.CFG_KEY, lsKeep);
 sandbox.diskSaveNow();
 ok(mcSaved.length === 1 && mcSaved[0].v === 1 && mcSaved[0].cfg && mcSaved[0].cfg.mode === sandbox.cfg.mode, "резерв: копия текущего конфига уходит в файл данных");
 ok(sandbox.diskBackupInfo().indexOf("сохранён") === 0, "резерв: диагностика показывает время сохранения");
+// Вид от установщика (moon-bundle): метка install применяет образ поверх localStorage один раз.
+(function () {
+    var lsBefore = sandbox.localStorage.getItem(sandbox.CFG_KEY), cfgBefore = JSON.stringify(sandbox.cfg);
+    var bkBefore = sandbox.localStorage.getItem(sandbox.BACKUP_KEY);
+    mcData = { v: 1, seed: true, install: { id: "111", force: true }, cfg: { mode: "7", accent: "#abcdef" } };
+    var inst = sandbox.loadCfg();
+    ok(inst.mode === "7" && inst.accent === "#abcdef" && sandbox.cfgLoadedFrom === "install", "установщик: образ с force применяется поверх localStorage");
+    ok(sandbox.localStorage.getItem(sandbox.BACKUP_KEY) === lsBefore, "установщик: прежний конфиг ушёл в резерв «Восстановить»");
+    ok(JSON.parse(sandbox.localStorage.getItem(sandbox.CFG_KEY)).mode === "7", "установщик: новый конфиг сразу записан в localStorage");
+    sandbox.loadCfg();
+    ok(sandbox.cfgLoadedFrom === "local", "установщик: метка одноразовая - следующий старт берёт localStorage");
+    mcData = { v: 1, seed: true, install: { id: "222", force: false }, cfg: { mode: "9" } };
+    var soft = sandbox.loadCfg();
+    ok(soft.mode === "7" && sandbox.cfgLoadedFrom === "local", "установщик: без force настроенный конфиг не трогается");
+    mcData = { v: 1, install: { id: "333", force: true }, cfg: { mode: "5", genSets: [] } };
+    var n0 = mcSaved.length;
+    sandbox.diskSaveNow();
+    var last = mcSaved[mcSaved.length - 1];
+    ok(sandbox.cfg.mode === "5" && mcSaved.length === n0 + 1 && last.cfg.mode === "5" && !last.install,
+       "установщик: образ, пришедший при открытом окне, принимается до записи резерва (и метка не переписывается)");
+    mcData = null;
+    if (lsBefore !== null) sandbox.localStorage.setItem(sandbox.CFG_KEY, lsBefore); else sandbox.localStorage.removeItem(sandbox.CFG_KEY);
+    if (bkBefore !== null) sandbox.localStorage.setItem(sandbox.BACKUP_KEY, bkBefore); else sandbox.localStorage.removeItem(sandbox.BACKUP_KEY);
+    sandbox.cfg = sandbox.mergeCfg(JSON.parse(cfgBefore));
+})();
 // Образ фона как часть профиля вида Moon Core.
 var mcHooks = /** @type {any} */ (null);
 var mcModObj = sandbox.window.__MOONCORE__.module();
