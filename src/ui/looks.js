@@ -70,10 +70,9 @@ function makePresetsUI() {
                 var cur = loadPresets(); if (!(name in cur)) return;
                 var keepUi = cfg.ui;                // пресет меняет дизайн, не трогая положение панели
                 backupCfg();                        // прежний вид -> резерв (можно откатить применение пресета)
-                cfg = mergeForeign(cur[name]); cfg.ui = keepUi; // сетевые картинки не включаем из пресета
-                syncGenSets();                      // ген-наборы пресета -> в список сразу
-                if (typeof cur[name].mode === "string" && /^\d+$/.test(cur[name].mode) && parseInt(cur[name].mode, 10) < SETS.length) cfg.mode = cur[name].mode;
-                sessionRandomIndex = null;          // random переберётся под новый конфиг
+                var next = candidateCfg(cur[name], true); // сетевые картинки не включаем из пресета
+                next.ui = keepUi;
+                commitCfg(next);                    // ген-наборы пресета -> в список сразу, random заново
                 apply(); refreshPanel();
                 toast(t("Пресет «") + name + t("» применён"));
             });
@@ -107,8 +106,7 @@ function applyProfile(id) {
             for (var kk in patch[k]) if (patch[k].hasOwnProperty(kk)) raw[k][kk] = patch[k][kk]; // слить по полям
         } else raw[k] = patch[k];
     }
-    cfg = mergeCfg(raw);               // санитизация после наложения (в т.ч. clamp яркостей/сил)
-    syncGenSets();                     // ген-наборы текущего конфига остаются в хвосте SETS
+    commitCfg(candidateCfg(raw));      // санитизация после наложения (в т.ч. clamp яркостей/сил)
     apply(); refreshPanel();
     toast(t("Профиль применён: ") + t(p.name));
 }
@@ -211,10 +209,10 @@ function makeProfilesUI() {
 // (импорт/сброс/пресет). Текущий cfg при этом сам уходит в резерв — поэтому «Восстановить»
 // работает как переключатель между «до» и «после» (нажал не туда — нажми ещё раз).
 function restoreBackup() {
-    var b = readBackup();
-    if (!b) { toast(t("Резерва нет"), false); return; }
+    var raw = readBackupRaw();
+    if (!raw) { toast(t("Резерва нет"), false); return; }
     backupCfg();                 // текущее -> резерв (обратный откат тем же действием)
-    cfg = b; syncGenSets(); sessionRandomIndex = null; // хвост SETS под ген-наборы восстановленного конфига
+    commitCfg(candidateCfg(raw)); // ссылки на ген-наборы резерва проверяются по его же наборам
     apply(); refreshPanel();
     toast(t("Восстановлены прежние настройки"));
 }
@@ -247,25 +245,26 @@ function shareDecode(code) {
     var json = b64dec(String(code).trim()); if (!json) return null;
     try { var o = safeParse(json); return (o && typeof o === "object") ? o : null; } catch (e) { return null; }
 }
-// Применить образ из объекта (SHARE_KEYS): всё через mergeCfg, машинно-зависимое (SHARE_KEEP)
-// остаётся своим. Текущий конфиг уходит в резерв — применение можно откатить.
+// Кандидат образа: содержимое из o (SHARE_KEYS), машинно-зависимое (SHARE_KEEP, в т.ч. свои
+// ген-наборы) — своё. Санитизация через mergeCfg; SETS не трогается.
+function lookCandidate(o) { return candidateCfg(withKept(o, SHARE_KEEP)); }
+// Применить образ из объекта: текущий конфиг уходит в резерв — применение можно откатить.
 function applyLook(o) {
     if (!o || typeof o !== "object") return false;
     backupCfg(); // текущее -> резерв (применение чужого кода можно откатить)
-    var keep = {}; for (var i = 0; i < SHARE_KEEP.length; i++) keep[SHARE_KEEP[i]] = cfg[SHARE_KEEP[i]];
-    cfg = mergeCfg(o); // санитизация всего содержимого
-    for (var j = 0; j < SHARE_KEEP.length; j++) cfg[SHARE_KEEP[j]] = keep[SHARE_KEEP[j]]; // вернуть машинно-зависимое (в т.ч. genSets)
-    syncGenSets(); // хвост SETS под сохранённые ген-наборы (genSets вернулись из keep); заодно зажмёт mode на чужой ген-индекс
-    sessionRandomIndex = null;
+    commitCfg(lookCandidate(o));
     apply();
     try { if (document.getElementById(PANEL_ID)) refreshPanel(); } catch (e) { logErr("панель после образа", e); }
     return true;
 }
+// Чужой код сначала показываем: что изменится, с примеркой; применяем по кнопке.
 function applyShareCode(code) {
     var o = shareDecode(code);
     if (!o) { toast(t("Код не распознан"), false); return false; }
-    applyLook(o);
-    toast(t("Образ применён из кода"));
+    confirmLook(t("Образ из кода"), lookCandidate(o), function () {
+        applyLook(o);
+        toast(t("Образ применён из кода"));
+    });
     return true;
 }
 
@@ -325,8 +324,18 @@ function syncSnapshot() {
     SHARE_KEEP.forEach(function (k) { delete o[k]; });
     return o;
 }
+// Первое подтягивание при старте ещё не прошло — отправка ждёт его. Иначе правка первых секунд
+// (смена набора по времени суток, резерв) ушла бы раньше с новым временем, и подтягивание решило
+// бы, что здесь уже самый свежий вид, затерев вид с другой машины.
+var _syncReady = true, _syncWaiting = false;
+function syncHoldUntilPull() { _syncReady = false; }
+function syncRelease() {
+    _syncReady = true;
+    if (_syncWaiting) { _syncWaiting = false; scheduleSyncPush(); }
+}
 function scheduleSyncPush() {
     if (!cfg.ui || !cfg.ui.sync || !_viaMoonCore) return;
+    if (!_syncReady) { _syncWaiting = true; return; }
     if (_syncTimer) clearTimeout(_syncTimer);
     _syncTimer = setTimeout(function () {
         _syncTimer = 0;
@@ -341,12 +350,10 @@ function syncPull(quiet) {
         if (!r || !r.cfg || typeof r.t !== "number") { if (!quiet) toast(t("На других машинах ещё нет синхронизированного вида")); return; }
         var mine = 0; try { mine = Number(localStorage.getItem(SYNC_T_KEY)) || 0; } catch (e) {}
         if (r.t <= mine) { if (!quiet) toast(t("Здесь уже самый свежий вид")); return; }
-        var keep = {}; SHARE_KEEP.forEach(function (k) { keep[k] = cfg[k]; });
-        cfg = mergeCfg(r.cfg);
-        SHARE_KEEP.forEach(function (k) { cfg[k] = keep[k]; });
+        commitCfg(candidateCfg(withKept(r.cfg, SHARE_KEEP)));
         try { localStorage.setItem(SYNC_T_KEY, String(r.t)); } catch (e) {}
-        syncGenSets(); sessionRandomIndex = null;
-        _histSuppress++; try { apply(); } finally { _histSuppress--; }
+        // Подтянутый вид — не своя правка: обратно с новым временем его не отправляем.
+        autoChange(apply);
         if (document.getElementById(PANEL_ID)) refreshPanel();
         toast(t("Вид подтянут с другой машины"));
     });
@@ -355,13 +362,12 @@ function syncPull(quiet) {
 function applySeed() {
     var o = seedConfig();
     if (!o) { toast(t("Базовый конфиг из settings.json не найден (нужно расширение-компаньон)"), false); return; }
-    backupCfg(); // текущее -> резерв (загрузку базы можно откатить)
-    var keep = {}; for (var i = 0; i < SHARE_KEEP.length; i++) keep[SHARE_KEEP[i]] = cfg[SHARE_KEEP[i]];
-    cfg = mergeCfg(o);
-    for (var j = 0; j < SHARE_KEEP.length; j++) cfg[SHARE_KEEP[j]] = keep[SHARE_KEEP[j]]; // машинно-зависимое оставляем своё
-    syncGenSets(); sessionRandomIndex = null;
-    apply(); refreshPanel();
-    toast(t("Загружено из settings.json"));
+    confirmLook(t("База из settings.json"), candidateCfg(withKept(o, SHARE_KEEP)), function () {
+        backupCfg(); // текущее -> резерв (загрузку базы можно откатить)
+        commitCfg(candidateCfg(withKept(o, SHARE_KEEP))); // машинно-зависимое оставляем своё
+        apply(); refreshPanel();
+        toast(t("Загружено из settings.json"));
+    });
 }
 function makeSyncUI() {
     var box = el("div", null);

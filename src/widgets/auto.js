@@ -53,7 +53,7 @@ function libraryTick() {
     var nowUrl = libraryEditorUrl();
     onImage(nowUrl, function () {
         if (libraryEditorUrl() !== nowUrl) return; // пока ждали, успели сменить
-        var go = function () { _histSuppress++; try { applyFade(); } finally { _histSuppress--; } };
+        var go = function () { autoChange(applyFade); };
         try { var im = new Image(); im.src = nowUrl; if (im.decode) im.decode().then(go, go); else go(); } catch (e) { go(); }
     });
     // Следующую картинку — заранее (и её пробу: метрики и уменьшенная копия будут готовы).
@@ -139,8 +139,39 @@ function sunTimes(lat, lon, date) {
         return (r === null || s === null) ? null : { rise: r, set: s };
     } catch (e) { return null; }
 }
-function isDaytime() {
-    var at = cfg.autoTime || {}, now = new Date();
+// Границы дня в дробных часах местного времени: { from, to } — по рассвету/закату или по часам.
+function dayBounds(now) {
+    var at = cfg.autoTime || {};
+    if (at.mode === "sun") {
+        var st = sunTimes(typeof at.lat === "number" ? at.lat : 0, typeof at.lon === "number" ? at.lon : 0, now);
+        if (st && st.rise !== st.set) return { from: st.rise, to: st.set };
+    }
+    var f = (typeof at.from === "number") ? at.from : 8, t = (typeof at.to === "number") ? at.to : 20;
+    return { from: f, to: t };
+}
+// Часть суток: "morning" | "day" | "evening" | "night". Утро — первые edge часов дня, вечер —
+// последние edge часов. Если день короче двух edge, утро и вечер делят его пополам.
+function dayPart(now) {
+    now = now || new Date();
+    if (!isDaytime(now)) return "night";
+    var b = dayBounds(now), at = cfg.autoTime || {};
+    var len = ((b.to - b.from) % 24 + 24) % 24; if (len === 0) return "day"; // «всегда день»
+    var edge = Math.min(typeof at.edge === "number" ? at.edge : 2, len / 2);
+    var hf = now.getHours() + now.getMinutes() / 60;
+    var since = ((hf - b.from) % 24 + 24) % 24;          // сколько часов прошло с начала дня
+    if (since < edge) return "morning";
+    if (since >= len - edge) return "evening";
+    return "day";
+}
+// Набор для текущей части суток: утро/вечер, если заданы, иначе дневной; ночью — ночной.
+function timeSetFor(part) {
+    var at = cfg.autoTime || {};
+    if (part === "night") return at.night;
+    if ((part === "morning" || part === "evening") && typeof at[part] === "number" && at[part] >= 0) return at[part];
+    return at.day;
+}
+function isDaytime(nowArg) {
+    var at = cfg.autoTime || {}, now = nowArg || new Date();
     // Режим «рассвет/закат»: сравниваем текущий момент с вычисленными восходом/закатом.
     if (at.mode === "sun") {
         var st = sunTimes(typeof at.lat === "number" ? at.lat : 0, typeof at.lon === "number" ? at.lon : 0, now);
@@ -160,12 +191,12 @@ function isDaytime() {
 function timeTick() {
     if (!cfg.autoTime || !cfg.autoTime.on || SETS.length < 1) return;
     if (cfg.mode === "random") return; // ручной «случайно» не перебиваем
-    var want = isDaytime() ? cfg.autoTime.day : cfg.autoTime.night;
+    var want = timeSetFor(dayPart());
     if (typeof want !== "number" || want < 0 || want >= SETS.length) return;
     var ws = String(want);
     if (cfg.mode === ws) return; // уже нужный набор
     // Авто-смена по времени — не шаг истории Undo (сдвигаем базу через _histSuppress).
-    cfg.mode = ws; _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
+    cfg.mode = ws; autoChange(applyFade);
     if (document.getElementById(PANEL_ID)) refreshPanelSoon();
 }
 
@@ -181,8 +212,8 @@ function slideTick() {
     // повтора), а не превращаем mode в фиксированный. Иначе слайдшоу молча гасило random.
     if (cfg.mode === "random") sessionRandomIndex = pickRandom();
     else cfg.mode = String((activeIndex() + 1) % SETS.length); // следующий набор по кругу
-    // Тик слайдшоу — не шаг истории Undo (сдвигаем базу через _histSuppress).
-    _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
+    // Тик слайдшоу — не шаг истории Undo и не повод для Settings Sync (autoChange).
+    autoChange(applyFade);
     preloadNext();                                          // подготовить следующий заранее
     if (document.getElementById(PANEL_ID)) refreshPanelSoon(); // подсветить активный чип в открытой панели
 }

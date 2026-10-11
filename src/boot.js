@@ -112,8 +112,9 @@ try {
 // Папка-источник фона (cfg.libraryDir): при старте перечитываем её через компаньона, чтобы
 // новые картинки в папке подхватились без повторного выбора. Нет Moon Core — тихо пропускаем.
 if (cfg.libraryDir && _viaMoonCore) {
-    setTimeout(function () {
+    later(function () {
         mlbgRpc("listFolder", { dir: cfg.libraryDir }).then(function (r) {
+            if (_mlbgStopped) return;
             if (!r || !Array.isArray(r.images) || !r.images.length) return;
             if (JSON.stringify(r.images) === JSON.stringify(cfg.library)) return;
             cfg.library = r.images.slice(0, 64); saveCfg(); apply();
@@ -121,8 +122,14 @@ if (cfg.libraryDir && _viaMoonCore) {
     }, 5000);
 }
 
-// Синхронизация между машинами: при старте подтянуть более новый вид (тихо).
-if (cfg.ui && cfg.ui.sync && _viaMoonCore) setTimeout(function () { syncPull(true).then(null, function () {}); }, 4000);
+// Синхронизация между машинами: при старте подтянуть более новый вид (тихо). До конца этого
+// подтягивания своя отправка придержана (syncHoldUntilPull) — иначе правка первых секунд ушла
+// бы с новым временем и затёрла бы вид с другой машины. Мост может не ответить — страховка 15 с.
+if (cfg.ui && cfg.ui.sync && _viaMoonCore) {
+    syncHoldUntilPull();
+    later(syncRelease, 15000);
+    later(function () { syncPull(true).then(syncRelease, syncRelease); }, 4000);
+}
 
 // ===== Горячие клавиши =====
 // Переключение набора без открытия панели и быстрый вызов панели. Коды клавиш (e.code)
@@ -388,7 +395,7 @@ try {
     try { _seen = !!localStorage.getItem(ONBOARD_KEY); } catch (e) {}
     if (!_seen) {
         try { localStorage.setItem(ONBOARD_KEY, "1"); } catch (e) {}
-        setTimeout(function () {
+        later(function () {
             try {
                 if (document.hidden) return;
                 // Открываем панель сразу на «Профили»: готовые профили — лучший старт,
@@ -402,10 +409,10 @@ try {
                         togglePanel({ stopPropagation: function () {} });
                     }
                 } catch (e2) {}
-                toast(t("MoonLight BG: открой панель кнопкой BG в статусбаре. Быстрый старт — «Данные → Профили»; колесо над кнопкой листает наборы, правый клик — быстрые действия."));
+                toast(t("MoonLight BG: открой панель кнопкой BG в статусбаре. Быстрый старт — «Эффекты → Стили»; колесо над кнопкой листает наборы, правый клик — быстрые действия."));
             } catch (e) {}
         }, 4000);
     }
 } catch (e) {}
 
-console.log("[MoonLight custom-bg] " + APP_VERSION + " installed (v20: adaptive readability scrim, OKLab palette, CSS-variable pipeline, dual loader + true transparency, workbench selector health, WebGL shader sets, master-frame sets, quick switcher Ctrl+Alt+P, cross-window sync), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "loader:", (typeof loaderKind === "function" ? loaderKind().id : "?"), "lang:", uiLang(), "theme:", themeKind());
+console.log("[MoonLight custom-bg] " + APP_VERSION + " started, enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "loader:", (typeof loaderKind === "function" ? loaderKind().id : "?"), "images:", IMG || "(не задано)", "lang:", uiLang(), "theme:", themeKind());

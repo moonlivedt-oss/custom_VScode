@@ -69,6 +69,17 @@ function counts() {
     return { errors, warnings };
 }
 
+// Набор из настроек проекта (.vscode/settings.json -> moonlightBg.projectSet). Берём только
+// значение уровня рабочей области: глобальная настройка «набор для любого проекта» смысла не
+// имеет, для этого есть обычный выбор набора в панели.
+function projectSet() {
+    try {
+        const info = vscode.workspace.getConfiguration("moonlightBg").inspect("projectSet");
+        const v = info && (info.workspaceFolderValue !== undefined ? info.workspaceFolderValue : info.workspaceValue);
+        return typeof v === "string" ? v.trim().slice(0, 60) : "";
+    } catch (e) { return ""; }
+}
+
 function collect() {
     const repo = gitRepo();
     const ed = vscode.window.activeTextEditor;
@@ -84,6 +95,7 @@ function collect() {
         languageId: (doc && doc.languageId) || "",
         fileExt: doc && doc.fileName ? (path.extname(doc.fileName).replace(".", "").toLowerCase() || "") : "",
         folder: (folder && folder.name) || "",
+        projectSet: projectSet(),
         vscode: vscode.version
     };
 }
@@ -123,6 +135,7 @@ function watch(publish) {
         subs.push(vscode.languages.onDidChangeDiagnostics(bump));
         subs.push(vscode.workspace.onDidChangeWorkspaceFolders(bump));
         subs.push(vscode.workspace.onDidSaveTextDocument(bump));
+        subs.push(vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration("moonlightBg.projectSet")) bump(); }));
     } catch (e) { /* часть API может отсутствовать в форке — не критично */ }
     // Git-расширение активируется само, но позже нас: дожидаемся и подписываемся на смену ветки.
     try {
@@ -146,4 +159,4 @@ function watch(publish) {
     return subs;
 }
 
-module.exports = { watch, resend, collect };
+module.exports = { watch, resend, collect, projectSet };

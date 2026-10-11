@@ -540,11 +540,17 @@ function makeAutoTimeToggle() {
         "Включить", INFO.autotime_on
     );
 }
-// Выпадающий список наборов (для выбора дневного/ночного). which — "day" | "night".
-function makeSetPicker(which, label) {
+// Выпадающий список наборов. which — "day" | "night" | "morning" | "evening"; у утра и вечера
+// есть пункт «как днём» (-1): это время отдаётся дневному набору.
+function makeSetPicker(which, label, info) {
     var wrap = el("div", ST.row);
     wrap.appendChild(el("span", mutedLabel(92), t(label)));
     var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
+    if (which === "morning" || which === "evening") {
+        var none = el("option", null, "— " + t("как днём")); none.value = "-1";
+        if (!cfg.autoTime || !(cfg.autoTime[which] >= 0)) none.selected = true;
+        sel.appendChild(none);
+    }
     for (var i = 0; i < SETS.length; i++) {
         var o = el("option", null, i + " · " + setName(i)); o.value = String(i);
         if (cfg.autoTime && cfg.autoTime[which] === i) o.selected = true;
@@ -556,5 +562,48 @@ function makeSetPicker(which, label) {
         if (cfg.autoTime.on) { try { timeTick(); } catch (e) {} }
     });
     wrap.appendChild(sel);
+    if (info) { var d = infoDot(info); if (d) wrap.appendChild(d); }
     return wrap;
+}
+// Какая сейчас часть суток — чтобы было видно, какой из четырёх наборов должен гореть.
+function makeDayPartNow() {
+    var P = { morning: "Сейчас: утро", day: "Сейчас: день", evening: "Сейчас: вечер", night: "Сейчас: ночь" };
+    var part = "day"; try { part = dayPart(); } catch (e) {}
+    return el("div", "padding:4px 3px 2px; font-size:11px; color:var(--mlp-faint,#6c7086);", t(P[part]));
+}
+
+// ==== Набор из файла проекта (.vscode/settings.json -> moonlightBg.projectSet) ====
+// Показывает, что записано в файле, и даёт записать туда текущий набор или убрать его. Запись
+// делает компаньон (метод projectSetWrite) — сам скрипт окна файлы проекта не видит.
+function makeProjectFileUI() {
+    var box = el("div", null);
+    var v = projectSetValue(), idx = projectFileIndex();
+    var line = !v ? t("В файле проекта набор не задан.")
+        : (idx === null ? t("В файле проекта: «") + v + t("» — такого набора нет.")
+            : t("Набор в файле проекта") + ": " + idx + (setName(idx) ? " · " + setName(idx) : ""));
+    box.appendChild(el("div", "padding:4px 3px; color:var(--mlp-muted,#a6adc8); font-size:11px;", line));
+    var row = el("div", "display:flex; gap:6px; flex-wrap:wrap;");
+    function btn(label, fn) {
+        var b = el("div", "flex:1 1 auto; padding:6px; text-align:center; border-radius:7px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.12); border:1px solid rgba(var(--mlbg-accent-rgb),0.28);", t(label));
+        b.addEventListener("click", fn);
+        keyActivate(b, t(label));
+        row.appendChild(b);
+    }
+    // В файл пишем родное имя набора: своё переименование живёт только на этой машине, а номер
+    // сгенерированного набора на другой машине может указывать на другой набор.
+    btn("Закрепить в файле проекта", function () {
+        var i = activeIndex(), s = SETS[i];
+        var value = (i < GEN_BASE && s && s.name) ? s.name : String(setName(i) || i);
+        mlbgRpc("projectSetWrite", { value: value }).then(function () {
+            toast(t("Набор записан в .vscode/settings.json проекта — он едет вместе с репозиторием"));
+        }, function (e) { toast(t("Не удалось: ") + e.message, false); });
+    });
+    if (v) btn("Убрать из файла проекта", function () {
+        mlbgRpc("projectSetWrite", { value: "" }).then(function () {
+            toast(t("Набор убран из .vscode/settings.json проекта"));
+        }, function (e) { toast(t("Не удалось: ") + e.message, false); });
+    });
+    box.appendChild(row);
+    var d = infoDot(INFO.project_file); if (d) box.appendChild(d);
+    return box;
 }

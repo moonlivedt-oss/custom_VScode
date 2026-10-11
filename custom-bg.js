@@ -1,7 +1,7 @@
 // ============================================================
 //  MoonLight custom-bg — СОБРАННЫЙ ФАЙЛ. НЕ РЕДАКТИРОВАТЬ ВРУЧНУЮ!
 //  Исходники: src/**   |   Пересборка: node build.js
-//  Грузится через vscode_custom_css.imports (be5invis.vscode-custom-css).
+//  Грузится ядром Moon Core как модуль mlbg (mooncore-module.json).
 // ============================================================
 (function () {
     "use strict";
@@ -30,8 +30,10 @@
             var key = w + "|" + msg;
             _errTotal++;
             if (_errByKey[key]) { _errByKey[key].n++; return; }
-            if (errLog.length + 1 > ERR_KEEP) errLog.shift();
+            // Сначала лимит разных ошибок, потом вытеснение: раньше шло наоборот, и после ERR_MAX
+            // каждая новая ошибка выталкивала старую запись, сама не добавляясь, — журнал пустел.
             if (Object.keys(_errByKey).length >= ERR_MAX) return;
+            if (errLog.length + 1 > ERR_KEEP) errLog.shift();
             var rec = { where: w, msg: msg, t: Date.now(), n: 1 };
             _errByKey[key] = rec;
             errLog.push(rec);
@@ -199,11 +201,17 @@
     function mooncoreBase() {
         var m = mooncoreModule();
         var b = (m && typeof m.base === "string") ? m.base : "";
-        if (!/^(?:vscode-file|file):\/\//i.test(b)) return "";
+        // Локальные схемы VS Code и петлевой http — его отдаёт стенд Moon Core (test/serve.js).
+        if (!/^(?:vscode-file|file):\/\//i.test(b) && !/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\//i.test(b)) return "";
         return /\/$/.test(b) ? b : b + "/";
     }
 
     var IMG = (function () {
+        // Под Moon Core адрес самого скрипта ничего не говорит о папке ресурсов: по умолчанию
+        // (moonCore.moduleFiles) ядро кладёт модуль файлом mooncore-mod-mlbg.js рядом с
+        // workbench.html, и «папкой скрипта» оказалась бы папка VS Code — фото-наборы не находились.
+        // Папку модуля точно знает только ядро, поэтому его ответ главнее.
+        if (_viaMoonCore) { var mb = mooncoreBase(); if (mb) return mb; }
         try {
             var src = (/** @type {HTMLScriptElement} */ (document.currentScript) || {}).src || "";
             var i = src.lastIndexOf("/");
@@ -439,20 +447,55 @@
 
     // ===== Сгенерированные наборы (по seed/палитре) =====
     // Пользователь создаёт согласованный набор из seed-строки или базового цвета (genSetFromSeed
-    // в css.js). Такие наборы хранятся в cfg.genSets и ДОЗАГРУЖАЮТСЯ в хвост SETS при старте —
-    // ПЕРЕД loadCfg(), чтобы санитизация mode/setOp/workspaceSets (проверка индекса < SETS.length)
-    // уже учитывала их и выбранный сгенерированный набор переживал перезапуск.
-    // GEN_BASE — индекс первого сгенерированного набора (граница «встроенные | пользовательские»).
+    // в css.js). Такие наборы хранятся в cfg.genSets и живут в хвосте SETS (после GEN_BASE).
+    // Главное правило: хвост SETS должен совпадать с genSets того конфига, который сейчас
+    // санитизируется. mergeCfg проверяет индексы (mode, setOp, привязки к проектам...) по
+    // SETS.length — если хвост ещё старый, ссылки на ген-наборы нового конфига молча выкидывались.
+    // Поэтому любой новый конфиг принимается через adoptCfg: сначала хвост, потом санитизация.
     var GEN_BASE = SETS.length;
-    (function _appendGenSets() {
-        try {
-            // Тот же источник, что возьмёт loadCfg: localStorage, вид от установщика или резерв на диске.
-            var src = startupSource();
-            var p = src && src.cfg;
-            var us = (p && typeof p === "object") ? sanitizeUserSets(p.genSets) : [];
-            for (var i = 0; i < us.length; i++) SETS.push(us[i]);
-        } catch (e) {}
-    })();
+
+    // Подогнать хвост SETS под genSets сырого (ещё не санитизированного) конфига.
+    function prepareGenSets(raw) {
+        SETS.length = GEN_BASE;
+        var us = (raw && typeof raw === "object") ? sanitizeUserSets(raw.genSets) : [];
+        for (var i = 0; i < us.length; i++) SETS.push(us[i]);
+    }
+    // Принять сырой конфиг: хвост SETS под его ген-наборы, затем санитизация. foreign=true —
+    // чужой источник (файл, пресет): сетевые картинки принудительно выключены (mergeForeign).
+    function adoptCfg(raw, foreign) {
+        prepareGenSets(raw);
+        var c = foreign ? mergeForeign(raw) : mergeCfg(raw);
+        pruneSetRefs(c);
+        return c;
+    }
+    // Сырой конфиг с машинно-зависимыми ключами текущего (keys) — для применения образа, синхронизации
+    // и базы из settings.json: чужое содержимое, но свои пути, привязки и ген-наборы.
+    function withKept(raw, keys) {
+        var o = {}, k, i;
+        if (raw && typeof raw === "object") for (k in raw) if (Object.prototype.hasOwnProperty.call(raw, k)) o[k] = raw[k];
+        for (i = 0; i < keys.length; i++) if (typeof cfg !== "undefined" && cfg && keys[i] in cfg) o[keys[i]] = JSON.parse(JSON.stringify(cfg[keys[i]]));
+        return o;
+    }
+
+    // Убрать из конфига все ссылки на наборы, которых нет в SETS: после удаления ген-наборов или
+    // подмены конфига висячий индекс вёл бы на пустую зону (или на чужой набор, появившийся позже).
+    function pruneSetRefs(c) {
+        if (!c) return;
+        var n = SETS.length, k;
+        function bad(key) { return /^\d+$/.test(key) && parseInt(key, 10) >= n; }
+        [c.setOp, c.setAccent, c.setName, c.setImg, c.setPos, c.ui && c.ui.favSets].forEach(function (o) {
+            if (o && typeof o === "object") for (k in o) if (bad(k)) delete o[k];
+        });
+        [c.workspaceSets, c.branchSets, c.langSets, c.remoteSets].forEach(function (m) {
+            if (m && typeof m === "object") for (k in m) { var v = m[k]; if (typeof v !== "string" || bad(v)) delete m[k]; }
+        });
+        if (c.autoTime) ["day", "night", "morning", "evening"].forEach(function (kk) {
+            var v = c.autoTime[kk];
+            if (typeof v === "number" && v >= n) c.autoTime[kk] = (kk === "morning" || kk === "evening") ? -1 : 0;
+        });
+        var mi = parseInt(c.mode, 10);
+        if (!isNaN(mi) && mi >= n) c.mode = "0";
+    }
 
     // Добавить один сгенерированный набор: нормализуем, кладём и в cfg.genSets (сохранится),
     // и в хвост SETS (виден сразу). Возвращает индекс нового набора или -1 (мусор) / -2 (лимит).
@@ -464,36 +507,34 @@
         SETS.push(e);
         return SETS.length - 1;
     }
-    // Убрать ВСЕ сгенерированные наборы (они всегда в хвосте, поэтому обрезаем SETS до GEN_BASE).
-    // Чистим привязки к удалённым индексам (яркость/акцент/имя/картинки/выбранный набор), чтобы
-    // не осталось «висячих» ссылок на несуществующие наборы.
+    // Убрать ВСЕ сгенерированные наборы (они всегда в хвосте, поэтому обрезаем SETS до GEN_BASE)
+    // и все ссылки на них.
     function removeGenSets() {
         SETS.length = GEN_BASE;
         cfg.genSets = [];
-        [cfg.setOp, cfg.setAccent, cfg.setName, cfg.setImg].forEach(function (o) {
-            if (o) for (var k in o) if (/^\d+$/.test(k) && parseInt(k, 10) >= SETS.length) delete o[k];
-        });
-        // карты «контекст -> индекс набора» (проект/ветка/язык): выкинуть висячие ссылки на удалённые наборы
-        [cfg.workspaceSets, cfg.branchSets, cfg.langSets].forEach(function (m) {
-            if (m) for (var mk in m) { var mv = m[mk]; if (typeof mv === "string" && parseInt(mv, 10) >= SETS.length) delete m[mk]; }
-        });
-        var mi = parseInt(cfg.mode, 10);
-        if (!isNaN(mi) && mi >= SETS.length) cfg.mode = "0";
+        pruneSetRefs(cfg);
     }
-    // Пересобрать хвост SETS из cfg.genSets. Нужно после ПОЛНОЙ подмены cfg (импорт файла,
-    // применение пресета, восстановление из резерва, применение кода образа, сброс к дефолту):
-    // _appendGenSets дозагружает сгенерированные наборы только на СТАРТЕ (из localStorage, до
-    // создания cfg), поэтому без этого импортированные ген-наборы не появлялись бы в списке до
-    // перезапуска, а сброшенные — наоборот, висели бы в SETS. Обрезаем до встроенных (GEN_BASE),
-    // нормализуем cfg.genSets тем же санитайзером и дозагружаем; затем чистим mode, если он указывал
-    // на исчезнувший набор. Идемпотентна: повторный вызов при неизменном cfg ничего не ломает.
+    // Пересобрать хвост SETS из cfg.genSets уже принятого конфига (страховка после ручной правки
+    // cfg.genSets). Идемпотентна. Новый конфиг целиком принимать через adoptCfg, а не через неё.
     function syncGenSets() {
         SETS.length = GEN_BASE;
         var us = sanitizeUserSets(cfg.genSets || []);
         cfg.genSets = us; // нормализованная форма — та же, что уйдёт в localStorage
         for (var i = 0; i < us.length; i++) SETS.push(us[i]);
-        var mi = parseInt(cfg.mode, 10);
-        if (!isNaN(mi) && mi >= SETS.length) cfg.mode = "0";
+        pruneSetRefs(cfg);
+    }
+    // Кандидат в конфиг БЕЗ побочных эффектов: SETS после расчёта возвращается как был. Нужен,
+    // чтобы показать, что изменит импорт или чужой образ, ещё до применения (confirmLook).
+    function candidateCfg(raw, foreign) {
+        var tail = SETS.slice(GEN_BASE);
+        try { return adoptCfg(raw, foreign); }
+        finally { SETS.length = GEN_BASE; for (var i = 0; i < tail.length; i++) SETS.push(tail[i]); }
+    }
+    // Сделать кандидата текущим конфигом: хвост SETS под его ген-наборы, random переберётся заново.
+    function commitCfg(c) {
+        cfg = c;
+        syncGenSets();
+        sessionRandomIndex = null;
     }
 
     // ===================== src/core/config.js =====================
@@ -551,7 +592,9 @@
         // (from/to, часы 0–23); поддерживается «через полночь» (to < from). mode: "hours" — по
         // фиксированным часам; "sun" — по реальному рассвету/закату для координат lat/lon (без сети,
         // считается локально из даты; при "sun" from/to игнорируются). lat/lon — широта/долгота.
-        autoTime: { on: false, day: 0, night: 4, from: 8, to: 20, mode: "hours", lat: 0, lon: 0 },
+        // morning/evening — необязательные наборы на первые/последние edge часов дня (-1 — не задан,
+        // тогда это время отдаётся дневному набору): четыре части суток вместо двух.
+        autoTime: { on: false, day: 0, night: 4, morning: -1, evening: -1, edge: 2, from: 8, to: 20, mode: "hours", lat: 0, lon: 0 },
         fxp: { blur: 8, kbScale: 1.08, kbSpeed: 60, vignette: 0.32, partCount: 40, pomoMin: 25, auroraSpeed: 24, spotRadius: 320, tintStrength: 0.18 },
         fx: {
             kenburns: true, glassTabs: true, vignette: true, glassSide: true,
@@ -873,8 +916,7 @@
     // чтобы будущие изменения DEFAULTS не конфликтовали со старым localStorage/импортом.
     function migrateCfg(p) {
         if (!p || typeof p !== "object") return p;
-        var v = (typeof p.version === "number" && isFinite(p.version)) ? p.version : 0;
-        // (будущие миграции здесь, по возрастанию v)
+        // (будущие миграции здесь, по возрастанию версии p.version)
         p.version = CFG_VERSION;
         return p;
     }
@@ -952,9 +994,10 @@
             // фон по git-ветке: флаг + карта «ветка -> индекс набора» (санитизация как workspaceSets)
             if (typeof p.autoBranch === "boolean") c.autoBranch = p.autoBranch;
             c.branchSets = _sanSetMap(p.branchSets, 120);
-            // фон по языку/расширению активного файла: флаг + карта «расширение -> индекс набора»
+            // фон по удалённому репозиторию: флаг + карта «владелец/имя -> индекс набора»
             if (typeof p.autoRemote === "boolean") c.autoRemote = p.autoRemote;
             c.remoteSets = _sanSetMap(p.remoteSets, 140);
+            // фон по языку/расширению активного файла: флаг + карта «расширение -> индекс набора»
             if (typeof p.autoLang === "boolean") c.autoLang = p.autoLang;
             c.langSets = _sanSetMap(p.langSets, 32);
             // индикатор ветки: только булево
@@ -1022,7 +1065,7 @@
                 }
             }
             // сгенерированные наборы: нормализуются как SETS, число ограничено GEN_MAX.
-            // Дозагрузка в хвост SETS — в _appendGenSets (ниже), при старте.
+            // Хвост SETS под них готовит prepareGenSets/adoptCfg (sets.js) ДО этой санитизации.
             if (Array.isArray(p.genSets)) c.genSets = sanitizeUserSets(p.genSets);
             // авто-яркость editor: только булево
             if (typeof p.autoDim === "boolean") c.autoDim = p.autoDim;
@@ -1061,7 +1104,7 @@
             if (p.setPos && typeof p.setPos === "object") {
                 c.setPos = {};
                 for (var _pi in p.setPos) {
-                    if (!/^\d{1,2}$/.test(_pi)) continue;
+                    if (!/^\d{1,2}$/.test(_pi) || parseInt(_pi, 10) >= SETS.length) continue;
                     var _po = p.setPos[_pi]; if (!_po || typeof _po !== "object") continue;
                     var _pz = {};
                     ["editor", "sidebar", "panel"].forEach(function (z) { if (isPosStr(_po[z])) _pz[z] = _po[z]; });
@@ -1080,6 +1123,12 @@
                     var vi = p.autoTime[kk];
                     if (typeof vi === "number" && vi >= 0 && vi < SETS.length) c.autoTime[kk] = Math.floor(vi);
                 });
+                // утро/вечер: индекс набора или -1 («как днём»)
+                ["morning", "evening"].forEach(function (kk) {
+                    var vi = p.autoTime[kk];
+                    if (vi === -1 || (typeof vi === "number" && vi >= 0 && vi < SETS.length)) c.autoTime[kk] = Math.floor(vi);
+                });
+                if (typeof p.autoTime.edge === "number" && isFinite(p.autoTime.edge)) c.autoTime.edge = Math.min(6, Math.max(1, Math.round(p.autoTime.edge)));
                 ["from", "to"].forEach(function (kk) {
                     var hv = p.autoTime[kk];
                     if (typeof hv === "number" && isFinite(hv)) c.autoTime[kk] = Math.min(23, Math.max(0, Math.floor(hv)));
@@ -1164,10 +1213,11 @@
         // localStorage, а поверх него — вид от установщика; localStorage пуст (новая машина /
         // переустановка / крупный апдейт VS Code почистил хранилище) — резерв на диске от Moon Core:
         // это наш же последний конфиг, поэтому проходит через mergeCfg напрямую и своё согласие на
-        // сетевые картинки сохраняет. Источник общий с _appendGenSets (startupSource).
+        // сетевые картинки сохраняет. Хвост SETS под ген-наборы готовит prepareGenSets.
         var src = startupSource();
         if (src) {
             try {
+                prepareGenSets(src.cfg);         // хвост SETS под ген-наборы ДО проверки индексов
                 var c = mergeCfg(src.cfg);
                 cfgLoadedFrom = src.from;
                 if (src.install) {
@@ -1183,8 +1233,9 @@
         // Дальше — базовый конфиг из settings.json (window.__MLBG_SEED__ — едет через Settings
         // Sync): вид «переезжает» на новую машину сам. mergeCfg санитизирует чужой объект.
         var seed = seedConfig();
-        if (seed) { try { var c2 = mergeCfg(seed); cfgLoadedFrom = "seed"; return c2; } catch (e) {} }
+        if (seed) { try { prepareGenSets(seed); var c2 = mergeCfg(seed); cfgLoadedFrom = "seed"; return c2; } catch (e) {} }
         cfgLoadedFrom = "defaults";
+        prepareGenSets(null);
         return clone(DEFAULTS);
     }
 
@@ -1265,14 +1316,21 @@
         markInstall(ins.id);
         if (!ins.force) return;
         backupCfg();
-        cfg = mergeCfg(overlayCfg(JSON.parse(JSON.stringify(cfg)), ins.cfg));
-        try { syncGenSets(); } catch (e) {}
+        cfg = adoptCfg(overlayCfg(JSON.parse(JSON.stringify(cfg)), ins.cfg));
         try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {}
         cfgLoadedFrom = "install";
         try { apply(); } catch (e) { logErr("вид от установщика", e); }
     }
+    // Автоматическая правка (слайдшоу, время суток, библиотека, подтянутый с другой машины вид) —
+    // не повод отправлять вид в Settings Sync: иначе каждый тик слайдшоу уходил бы на все машины, а
+    // машина, только что подтянувшая чужой вид, тут же отправляла бы его обратно как «свой, новее».
+    var _autoDepth = 0;
+    function autoChange(fn) {
+        _autoDepth++; _histSuppress++;
+        try { fn(); } finally { _autoDepth--; _histSuppress--; }
+    }
     function scheduleDiskSave() {
-        try { if (typeof scheduleSyncPush === "function") scheduleSyncPush(); } catch (e) {} // Settings Sync (looks.js)
+        try { if (!_autoDepth && typeof scheduleSyncPush === "function") scheduleSyncPush(); } catch (e) {} // Settings Sync (looks.js)
         if (!_viaMoonCore) return;
         _disk.pending = true;
         if (_disk.timer) clearTimeout(_disk.timer);
@@ -1286,7 +1344,7 @@
         var text;
         try { text = JSON.stringify(cfg); } catch (e) { logErr("резерв конфига", e); return; }
         if (text.length > DISK_MAX) { _disk.lastErr = "конфиг больше 256 КБ"; return; }
-        m.saveData({ v: 1, app: APP_VERSION, t: Date.now(), cfg: JSON.parse(text), daily: dailyCopies(text) }).then(function (r) {
+        m.saveData(diskPayload(text)).then(function (r) {
             _disk.pending = false;
             if (r && r.ok) { _disk.lastOk = Date.now(); _disk.lastErr = ""; }
             else { _disk.lastErr = String((r && r.error) || "нет ответа"); logErr("резерв конфига", _disk.lastErr); }
@@ -1295,6 +1353,15 @@
     // Ежедневные копии: по одной на день, последние 14 (как у cpp-docs-panel). Лежат в том же
     // файле данных модуля. Новая копия дня заменяет старую того же дня только при отличии.
     var DAILY_KEEP = 14;
+    // Файл данных модуля в Moon Core ограничен 1 МБ. Конфиг плюс 14 копий при большой библиотеке
+    // и своём шейдере в него не влезал — ядро отказывало в записи, и резерв переставал обновляться
+    // вовсе. Старые копии отбрасываем, пока файл не уложится с запасом.
+    var DISK_FILE_MAX = 900 * 1024;
+    function diskPayload(text) {
+        var out = { v: 1, app: APP_VERSION, t: Date.now(), cfg: JSON.parse(text), daily: dailyCopies(text) };
+        while (out.daily.length && JSON.stringify(out).length > DISK_FILE_MAX) out.daily.pop();
+        return out;
+    }
     function dailyList() {
         try {
             var m = mooncoreModule(), d = (m && typeof m.data === "function") ? m.data() : null;
@@ -1351,6 +1418,15 @@
     // спасает только ручной экспорт в файл. Лимит длины — как у loadCfg/импорта.
     function backupCfg() { try { localStorage.setItem(BACKUP_KEY, JSON.stringify(cfg)); } catch (e) {} }
     function hasBackup() { try { var r = localStorage.getItem(BACKUP_KEY); return !!(r && r.length <= 256 * 1024); } catch (e) { return false; } }
+    // Сырой резерв (до санитизации): принимать через candidateCfg, чтобы ссылки на ген-наборы
+    // резерва проверялись по его же наборам, а не по текущим.
+    function readBackupRaw() {
+        try {
+            var raw = localStorage.getItem(BACKUP_KEY);
+            if (raw && raw.length <= 256 * 1024) return safeParse(raw);
+        } catch (e) {}
+        return null;
+    }
     function readBackup() {
         try {
             var raw = localStorage.getItem(BACKUP_KEY);
@@ -1439,6 +1515,25 @@
         if (typeof v === "string" && /^\d+$/.test(v)) { var i = parseInt(v, 10); if (i >= 0 && i < SETS.length) return i; }
         return null;
     }
+    // ===== Набор из файла проекта =====
+    // В .vscode/settings.json проекта можно записать "moonlightBg.projectSet": "Плазма" (имя набора
+    // или его номер). Файл едет вместе с репозиторием: на любой машине и в любой папке клона проект
+    // откроется со своим фоном — в отличие от «по проекту», которое помнит имя папки на этой машине.
+    // Значение приносит компаньон (живые данные); это лишь выбор одного из своих наборов, поэтому
+    // чужой репозиторий ничем, кроме фона, управлять через него не может.
+    function projectSetValue() { return (typeof liveStr === "function" && liveStr("projectSet")) || ""; }
+    // Номер набора по значению из файла: номер — как есть, имя — без учёта регистра (сначала своё
+    // имя набора, потом родное). Не нашёлся — null.
+    function resolveSetRef(v) {
+        v = String(v || "").trim();
+        if (!v) return null;
+        if (/^\d+$/.test(v)) { var n = parseInt(v, 10); return n < SETS.length ? n : null; }
+        var low = v.toLowerCase(), i;
+        for (i = 0; i < SETS.length; i++) if (String(setName(i)).toLowerCase() === low) return i;
+        for (i = 0; i < SETS.length; i++) if (SETS[i] && String(SETS[i].name).toLowerCase() === low) return i;
+        return null;
+    }
+    function projectFileIndex() { return resolveSetRef(projectSetValue()); }
     // previewMode — индекс набора, «примеряемого» при наведении на его чип в панели
     // (см. previewSet/previewEnd в controls.js). Пока он задан, весь UI считает активным
     // именно его — поэтому превью работает и в режиме «случайно», и при «фоне по проекту»,
@@ -1447,6 +1542,9 @@
     function activeIndex() {
         // Превью при наведении важнее всего — иначе оно не перебило бы «фон по проекту».
         if (previewMode !== null && previewMode >= 0 && previewMode < SETS.length) return previewMode;
+        // Набор, записанный в файл проекта, — самое явное решение: важнее всех авто-правил.
+        var pf = projectFileIndex();
+        if (pf !== null) return pf;
         // Контекстные приоритеты (все opt-in): проект важнее ветки, ветка важнее языка файла,
         // всё это важнее mode/слайдшоу/времени суток. Так при одновременном включении «побеждает»
         // более осознанный контекст (закреплённый проект), а язык файла — самый частый и низший.
@@ -1468,10 +1566,11 @@
     }
     // Почему сейчас показан именно этот набор: то же дерево приоритетов, что в activeIndex, но
     // с причиной. Для строки «Сейчас работает» на вкладке «Авто-смена».
-    // -> { idx, why: "workspace"|"remote"|"branch"|"lang"|"random"|"time"|"slide"|"manual", key }
+    // -> { idx, why: "project"|"workspace"|"remote"|"branch"|"lang"|"random"|"time"|"slide"|"manual", key }
     function activeRule() {
         var r = { idx: activeIndex(), why: "manual", key: "" };
         try {
+            if (projectFileIndex() !== null) { r.why = "project"; r.key = projectSetValue(); return r; }
             if (workspaceIndex() !== null) { r.why = "workspace"; r.key = workspaceName() || ""; return r; }
             if (remoteIndex() !== null) { r.why = "remote"; r.key = (typeof liveStr === "function" && liveStr("remote")) || ""; return r; }
             if (branchIndex() !== null) { r.why = "branch"; r.key = (typeof gitBranch === "function" && gitBranch()) || ""; return r; }
@@ -1879,16 +1978,21 @@
             if (!d || typeof d !== "object") return null;
             function str(v, max) { return (typeof v === "string") ? v.slice(0, max) : ""; }
             function num(v) { return (typeof v === "number" && isFinite(v) && v >= 0) ? Math.round(v) : 0; }
+            // Счётчики, которых в данных нет (пришло только событие редактора), — null, а не 0:
+            // иначе «ошибок 0» перекрывало бы чтение статусбара, где они на самом деле есть.
+            function cnt(v) { return (typeof v === "number" && isFinite(v) && v >= 0) ? Math.round(v) : null; }
             return {
                 rev: num(d.rev),
                 branch: str(d.branch, 80),
                 remote: str(d.remote, 120),
                 dirty: d.dirty === true,
-                errors: num(d.errors),
-                warnings: num(d.warnings),
+                errors: cnt(d.errors),
+                warnings: cnt(d.warnings),
                 languageId: str(d.languageId, 40).toLowerCase().replace(/[^a-z0-9_+-]/g, ""),
                 fileExt: str(d.fileExt, 16).toLowerCase().replace(/[^a-z0-9_]/g, ""),
-                folder: str(d.folder, 120)
+                folder: str(d.folder, 120),
+                // Набор из файла проекта (.vscode/settings.json -> moonlightBg.projectSet): имя или номер.
+                projectSet: str(d.projectSet, 60)
             };
         } catch (e) { return null; }
     }
@@ -1948,10 +2052,17 @@
         } catch (e) {}
     }
     function trackOff(fn) { if (typeof fn === "function") _mlbgOff.push(fn); }
+    // setTimeout, который снимется при выключении модуля и не сработает после него. Без этого,
+    // например, знакомство через 4 с открывало панель уже выключенного фона.
+    function later(fn, ms) {
+        var id = setTimeout(function () { if (!_mlbgStopped) fn(); }, ms);
+        trackOff(function () { clearTimeout(id); });
+        return id;
+    }
 
     // Всё, что фон кладёт в DOM по id (стиль, кнопка статусбара, панель, виджеты, холсты).
     function mlbgOwnIds() {
-        return [STYLE_ID, SB_ID, PANEL_ID, PANEL_CSS_ID, QUICK_ID, QMENU_ID, TOUR_ID, BRANCH_ID,
+        return [STYLE_ID, SB_ID, PANEL_ID, PANEL_CSS_ID, QUICK_ID, QMENU_ID, TOUR_ID, BRANCH_ID, CONFIRM_ID,
             "mlbg-clock", "mlbg-pomo", "mlbg-stats", "mlbg-particles", "mlbg-cursor-trail", "mlbg-pet", "mlbg-shader", "mlbg-screensaver"];
     }
 
@@ -1959,6 +2070,16 @@
     // включат снова, и фон встанет как был.
     function mlbgStop() {
         if (_mlbgStopped) return;
+        // Открытые окна снимают свои слушатели документа сами (панель, быстрое меню, переключатель,
+        // попап «?», знакомство, «что изменится») — закрываем их до того, как узлы просто удалятся.
+        [function () { confirmCancel(); }, function () { closePanel(); }, function () { closeQuickMenu(); },
+            function () { quickClose(true); }, function () { hideInfo(); }, function () { endTour(false); },
+            function () { screensaverHide(); }].forEach(function (f) { try { f(); } catch (e) {} });
+        // Несохранённый резерв на диске — дописать сейчас, остальные отложенные таймеры — снять.
+        try { if (_disk.timer) { clearTimeout(_disk.timer); diskSaveNow(); } } catch (e) {}
+        try { if (_imgCacheTimer) { clearTimeout(_imgCacheTimer); imgCacheFlush(); } } catch (e) {}
+        [function () { return _syncTimer; }, function () { return _liveFullTimer; }, function () { return _typingTimer; },
+            function () { return _histTimer; }].forEach(function (g) { try { var id = g(); if (id) clearTimeout(id); } catch (e) {} });
         _mlbgStopped = true;
         var off = _mlbgOff.splice(0);
         for (var i = off.length - 1; i >= 0; i--) { try { off[i](); } catch (e) {} }
@@ -1968,6 +2089,7 @@
         mlbgOwnIds().forEach(function (id) {
             try { var n = document.getElementById(id); if (n) n.remove(); } catch (e) {}
         });
+        try { Array.prototype.slice.call(document.querySelectorAll(".mlbg-toast")).forEach(function (n) { n.remove(); }); } catch (e) {}
         try {
             var cl = document.body && document.body.classList;
             if (cl) Array.prototype.slice.call(cl).forEach(function (c) { if (/^mlbg-/.test(c)) cl.remove(c); });
@@ -2116,8 +2238,6 @@
             "Create a coherent set from a seed string or a base color (#rrggbb): dark backdrop + accent + a harmonious companion. The same seed always yields the same set — shareable. Sets are saved and appended to the list.",
         "Автоматическая смена набора по кругу через заданный интервал.":
             "Automatically cycles through sets on a timer.",
-        "Днём — дневной набор, ночью — ночной. Имеет приоритет над слайдшоу; не работает в режиме «случайно».":
-            "Day set by day, night set by night. Takes priority over the slideshow; does not run in “random” mode.",
         "Набор под открытый проект и полоска-индикатор git-ветки. Держатся на чтении заголовка и статусбара VS Code.":
             "A set per open project and a git-branch indicator strip. Both rely on reading the VS Code title and status bar.",
         "Акцентный цвет интерфейса и фильтры фоновой картинки по зонам.":
@@ -2444,7 +2564,7 @@
         "Всё включено: живой фон, частицы, свечения — витрина возможностей.":
             "Everything on: living background, particles, glows — a showcase.",
         "Профиль применён: ": "Profile applied: ",
-        "MoonLight BG: открой панель кнопкой BG в статусбаре. Быстрый старт — «Данные → Профили»; колесо над кнопкой листает наборы, правый клик — быстрые действия.":
+        "MoonLight BG: открой панель кнопкой BG в статусбаре. Быстрый старт — «Эффекты → Стили»; колесо над кнопкой листает наборы, правый клик — быстрые действия.":
             "MoonLight BG: open the panel from the BG button in the status bar. Quick start — “Data → Profiles”; scroll over the button to flip sets, right-click for quick actions.",
 
         // -- Производительность --
@@ -2753,7 +2873,49 @@
         "Синхронизировать между машинами": "Sync between machines",
         "Подтянуть вид с другой машины": "Pull the look from another machine",
         "Между машинами": "Between machines",
-        "цвет": "color"
+        "цвет": "color",
+        "Фон: ": "Background: ",
+        "Свои наборы: ": "Custom sets: ",
+        "Акцент: ": "Accent: ",
+        "Акценты наборов: ": "Per-set accents: ",
+        "Яркость отдельных наборов": "Per-set brightness",
+        "Эффекты включатся: ": "Effects turned on: ",
+        "Эффекты выключатся: ": "Effects turned off: ",
+        "Слайдшоу: ": "Slideshow: ",
+        " мин": " min",
+        "По времени суток: ": "By time of day: ",
+        "Свои картинки": "Custom images",
+        "Привязки наборов к проектам, веткам и языкам": "Set bindings to projects, branches and languages",
+        "Язык панели: ": "Panel language: ",
+        "Свой шейдер": "Custom shader",
+        "Что изменится:": "What will change:",
+        "Ничего не изменится — вид такой же.": "Nothing will change — the look is the same.",
+        "и ещё ": "and more: ",
+        "Примерить": "Try on",
+        "Вернуть как было": "Revert",
+        "Отмена": "Cancel",
+        "Образ из кода": "Look from code",
+        "База из settings.json": "Base from settings.json",
+        "Утро": "Morning",
+        "Вечер": "Evening",
+        "как днём": "same as day",
+        "Утро и вечер, часов": "Morning and evening, hours",
+        "Сейчас: утро": "Now: morning",
+        "Сейчас: день": "Now: day",
+        "Сейчас: вечер": "Now: evening",
+        "Сейчас: ночь": "Now: night",
+        "Набор в файле проекта": "Set from the project file",
+        "Файл проекта": "Project file",
+        "по файлу проекта": "by the project file",
+        "В файле проекта набор не задан.": "No set in the project file.",
+        "В файле проекта: «": "In the project file: “",
+        "» — такого набора нет.": "” — no such set.",
+        "Набор, записанный в .vscode/settings.json проекта: едет вместе с репозиторием и важнее всех правил ниже.": "A set written into the project's .vscode/settings.json: travels with the repository and beats every rule below.",
+        "Днём — дневной набор, ночью — ночной; по желанию — свои наборы на утро и вечер. Имеет приоритет над слайдшоу; не работает в режиме «случайно».": "Day set by day, night set by night; optionally own sets for the morning and the evening. Takes priority over the slideshow; doesn't run in “random” mode.",
+        "Закрепить в файле проекта": "Pin in the project file",
+        "Убрать из файла проекта": "Remove from the project file",
+        "Набор записан в .vscode/settings.json проекта — он едет вместе с репозиторием": "The set is written to the project's .vscode/settings.json — it travels with the repository",
+        "Набор убран из .vscode/settings.json проекта": "The set was removed from the project's .vscode/settings.json"
     };
 
     // ===================== src/fx/color.js =====================
@@ -3026,7 +3188,8 @@
                 luma: typeof e.luma === "number" ? e.luma : null,
                 accent: isColor(e.accent) ? e.accent : null,
                 palette: Object.prototype.toString.call(e.palette) === "[object Array]" ? e.palette.filter(isColor).slice(0, 3) : null,
-                grid: (Object.prototype.toString.call(e.grid) === "[object Array]" && e.grid.length === 64) ? e.grid : null,
+                grid: (Object.prototype.toString.call(e.grid) === "[object Array]" && e.grid.length === 64 &&
+                    e.grid.every(function (x) { return typeof x === "number" && isFinite(x); })) ? e.grid : null,
                 thumb: (typeof e.thumb === "string" && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(e.thumb)) ? e.thumb : null
             };
         } catch (e) { return null; }
@@ -4433,7 +4596,21 @@
     function isShaderSet(idx) { var s = SETS[idx]; return !!(s && s.shader && SHADERS[s.shader]); }
     function isShader(idx, zone) { return isShaderSet(idx) && !hasUserImg(idx, zone); }
 
-    var shd = { canvas: null, gl: null, prog: null, raf: 0, t0: 0, last: 0, u: null, key: "", failed: false };
+    var shd = { canvas: null, gl: null, prog: null, raf: 0, t0: 0, last: 0, u: null, key: "", failed: false, lost: 0 };
+    // Отдать контекст WebGL сразу, а не ждать сборщика мусора: Chromium держит ограниченное число
+    // живых контекстов и при переполнении молча гасит самый старый.
+    function _releaseGl(gl) {
+        try { var ext = gl && gl.getExtension && gl.getExtension("WEBGL_lose_context"); if (ext) ext.loseContext(); } catch (e) {}
+    }
+    // Потеря контекста (сон, сброс драйвера, нехватка памяти GPU) — не повод выключать шейдерный
+    // фон до перезапуска: пробуем снова с растущей паузой, но не больше SHADER_RETRIES раз за сессию.
+    var SHADER_RETRIES = 3;
+    function _shaderLost() {
+        shaderStop();
+        shd.failed = true;
+        shd.lost++;
+        if (shd.lost <= SHADER_RETRIES) later(function () { shd.failed = false; try { ensureShader(); } catch (e) {} }, 5000 * shd.lost);
+    }
 
     function shaderHost() {
         // Холст живёт внутри части «редактор»: так он лежит под кодом, но над фоном части, и
@@ -4468,7 +4645,9 @@
     function ensureShader() {
         if (!shaderActive()) { shaderStop(); return; }
         var host = shaderHost(); if (!host) return;
-        var idx = activeIndex(), s = SETS[idx], key = s.shader + "|" + getAccent() + "|" + (s.base || "");
+        // Акцент в ключ не входит: он передаётся в шейдер на каждом кадре (u_accent), и смена акцента
+        // не должна пересоздавать холст и контекст WebGL.
+        var idx = activeIndex(), s = SETS[idx], key = s.shader + "|" + (s.base || "");
         // Холст потерялся (VS Code пересобрал редактор) или сменился набор — пересоздаём.
         if (shd.canvas && (!shd.canvas.isConnected || shd.key !== key)) shaderStop();
         if (shd.canvas) { shaderStart(); return; }
@@ -4486,11 +4665,11 @@
             if (!vs || !fs) {
                 // Свой шейдер не собрался — откатываемся на встроенный, а не гасим фон совсем.
                 if (s.shader === "custom") fs = _compile(gl, gl.FRAGMENT_SHADER, fragSource(SHADERS.aurora));
-                if (!vs || !fs) { shd.failed = true; return; }
+                if (!vs || !fs) { shd.failed = true; _releaseGl(gl); return; }
             }
             var p = gl.createProgram();
             gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
-            if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { shd.failed = true; return; }
+            if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { shd.failed = true; _releaseGl(gl); return; }
             gl.useProgram(p);
             var buf = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -4503,7 +4682,7 @@
                 accent: gl.getUniformLocation(p, "u_accent"), base: gl.getUniformLocation(p, "u_base"),
                 mouse: gl.getUniformLocation(p, "u_mouse")
             };
-            c.addEventListener("webglcontextlost", function (e) { e.preventDefault(); shaderStop(); shd.failed = true; }, false);
+            c.addEventListener("webglcontextlost", function (e) { e.preventDefault(); if (shd.canvas === c) _shaderLost(); }, false);
             host.insertBefore(c, host.firstChild);
             shd.canvas = c; shd.gl = gl; shd.prog = p; shd.key = key; shd.t0 = 0;
             shaderResize();
@@ -4542,7 +4721,7 @@
                 gl.uniform3f(shd.u.base, bas[0] / 255, bas[1] / 255, bas[2] / 255);
                 gl.uniform2f(shd.u.mouse, mouseNorm.x, mouseNorm.y);
                 gl.drawArrays(gl.TRIANGLES, 0, 3);
-            } catch (e) { shaderStop(); shd.failed = true; return; }
+            } catch (e) { _shaderLost(); return; }
         }
         shd.raf = requestAnimationFrame(shaderFrame);
     }
@@ -4556,7 +4735,9 @@
     function shaderStop() {
         if (shd.raf) { try { cancelAnimationFrame(shd.raf); } catch (e) {} shd.raf = 0; }
         if (shd.canvas) { try { shd.canvas.remove(); } catch (e) {} }
+        var gl = shd.gl;
         shd.canvas = null; shd.gl = null; shd.prog = null; shd.key = "";
+        _releaseGl(gl);   // после обнуления: событие потери контекста от нас самих уже ничего не тронет
     }
 
     // ===================== src/ui/dom.js =====================
@@ -4917,6 +5098,9 @@
         theme_export: "Собрать из палитры активного набора настоящую тему VS Code (color-theme.json): согласованные цвета интерфейса + подсветку синтаксиса, выведенные из акцента. Файл скачивается и копируется в буфер. Зачем: тема работает и там, где кастомный фон недоступен — в vscode.dev, по SSH, в Codespaces — и находится через поиск тем. Как применить: (1) быстро — вставь блок \"colors\" в settings.json под \"workbench.colorCustomizations\", а \"tokenColors\" — под \"editor.tokenColorCustomizations\".textMateRules (применяется сразу, без упаковки); (2) как полноценную тему — положи файл в папку themes/ theme-расширения. У фото-наборов подложка тёмная, выведена из акцента (саму картинку в тему перенести нельзя).",
         img_base: "Папка, откуда берутся картинки наборов. Пригодится, если перенёс плагин, а фон пропал (плитки набора помечены «!»). Укажи путь к папке с assets в виде vscode-file://vscode-app/… или file:///… (завершающий слэш добавится сам). Пусто — путь определяется автоматически и показан подсказкой в поле.",
         autotime_from: "С какого часа (0–23) начинается «день» и включается дневной набор.",
+        autotime_parts: "Необязательные наборы для утра и вечера: утро — первые часы дня, вечер — последние (сколько часов — ползунок ниже). «как днём» — это время отдаётся дневному набору. Так сутки делятся на четыре части вместо двух.",
+        autotime_edge: "Сколько часов длятся утро и вечер: утро — с начала дня, вечер — до его конца. Если день короче, утро и вечер делят его пополам.",
+        project_file: "Набор, записанный в настройки самого проекта (.vscode/settings.json, ключ moonlightBg.projectSet — имя набора или номер). Файл едет вместе с репозиторием: проект откроется со своим фоном на любой машине и в любой папке клона. Важнее всех авто-правил. Нужен компаньон-расширение.",
         autotime_to: "До какого часа (0–23) длится «день». Если «до» меньше, чем «с», интервал считается через полночь (например, день 20→6 — ночной набор днём, дневной вечером).",
         autotime_mode: "Как определять день/ночь: «Часы» — по заданным ниже часам «с/до»; «Рассвет/закат» — по реальному восходу и закату солнца для указанных координат (считается локально, без сети). В режиме рассвета часы «с/до» не используются.",
         autotime_lat: "Широта места (−90…90) для расчёта рассвета/заката. Северное полушарие — положительная, южное — отрицательная. Достаточно приблизительного значения города.",
@@ -5032,6 +5216,9 @@
         theme_export: "Build a real VS Code theme (color-theme.json) from the active set’s palette: coherent workbench colors + syntax highlighting derived from the accent. The file is downloaded and copied to the clipboard. Why: a theme works even where the custom background can’t — vscode.dev, over SSH, in Codespaces — and is found through theme search. How to apply: (1) quick — paste the \"colors\" block into settings.json under \"workbench.colorCustomizations\", and \"tokenColors\" under \"editor.tokenColorCustomizations\".textMateRules (applies instantly, no packaging); (2) as a full theme — drop the file into your theme extension’s themes/ folder. Photo sets get a dark backdrop derived from the accent (the image itself can’t be carried into a theme).",
         img_base: "The folder the set images are read from. Useful if you moved the plugin and the background vanished (set tiles marked with “!”). Point it at the folder that contains assets, as vscode-file://vscode-app/… or file:///… (a trailing slash is added automatically). Empty — the path is detected automatically and shown as the field’s placeholder.",
         autotime_from: "From which hour (0–23) “day” begins and the day set turns on.",
+        autotime_parts: "Optional sets for the morning and the evening: morning is the first hours of the day, evening the last ones (how many — the slider below). “same as day” gives that time to the day set. This splits the day into four parts instead of two.",
+        autotime_edge: "How many hours the morning and the evening last: morning from the start of the day, evening up to its end. If the day is shorter, they split it in half.",
+        project_file: "A set written into the project’s own settings (.vscode/settings.json, key moonlightBg.projectSet — a set name or number). The file travels with the repository: the project opens with its background on any machine and in any clone folder. Beats every auto rule. Needs the companion extension.",
         autotime_to: "Until which hour (0–23) “day” lasts. If “to” is less than “from”, the interval wraps past midnight (e.g. day 20→6 — night set by day, day set in the evening).",
         autotime_mode: "How day/night is decided: “Hours” — by the from/to hours below; “Sunrise/sunset” — by the real sunrise and sunset for the given coordinates (computed locally, no network). In sunrise mode the from/to hours are not used.",
         autotime_lat: "Latitude of your location (−90…90) for the sunrise/sunset calculation. Northern hemisphere positive, southern negative. An approximate city value is enough.",
@@ -5986,11 +6173,17 @@
             "Включить", INFO.autotime_on
         );
     }
-    // Выпадающий список наборов (для выбора дневного/ночного). which — "day" | "night".
-    function makeSetPicker(which, label) {
+    // Выпадающий список наборов. which — "day" | "night" | "morning" | "evening"; у утра и вечера
+    // есть пункт «как днём» (-1): это время отдаётся дневному набору.
+    function makeSetPicker(which, label, info) {
         var wrap = el("div", ST.row);
         wrap.appendChild(el("span", mutedLabel(92), t(label)));
         var sel = el("select", fieldStyle(" padding:3px 4px; cursor:pointer;"));
+        if (which === "morning" || which === "evening") {
+            var none = el("option", null, "— " + t("как днём")); none.value = "-1";
+            if (!cfg.autoTime || !(cfg.autoTime[which] >= 0)) none.selected = true;
+            sel.appendChild(none);
+        }
         for (var i = 0; i < SETS.length; i++) {
             var o = el("option", null, i + " · " + setName(i)); o.value = String(i);
             if (cfg.autoTime && cfg.autoTime[which] === i) o.selected = true;
@@ -6002,7 +6195,50 @@
             if (cfg.autoTime.on) { try { timeTick(); } catch (e) {} }
         });
         wrap.appendChild(sel);
+        if (info) { var d = infoDot(info); if (d) wrap.appendChild(d); }
         return wrap;
+    }
+    // Какая сейчас часть суток — чтобы было видно, какой из четырёх наборов должен гореть.
+    function makeDayPartNow() {
+        var P = { morning: "Сейчас: утро", day: "Сейчас: день", evening: "Сейчас: вечер", night: "Сейчас: ночь" };
+        var part = "day"; try { part = dayPart(); } catch (e) {}
+        return el("div", "padding:4px 3px 2px; font-size:11px; color:var(--mlp-faint,#6c7086);", t(P[part]));
+    }
+
+    // ==== Набор из файла проекта (.vscode/settings.json -> moonlightBg.projectSet) ====
+    // Показывает, что записано в файле, и даёт записать туда текущий набор или убрать его. Запись
+    // делает компаньон (метод projectSetWrite) — сам скрипт окна файлы проекта не видит.
+    function makeProjectFileUI() {
+        var box = el("div", null);
+        var v = projectSetValue(), idx = projectFileIndex();
+        var line = !v ? t("В файле проекта набор не задан.")
+            : (idx === null ? t("В файле проекта: «") + v + t("» — такого набора нет.")
+                : t("Набор в файле проекта") + ": " + idx + (setName(idx) ? " · " + setName(idx) : ""));
+        box.appendChild(el("div", "padding:4px 3px; color:var(--mlp-muted,#a6adc8); font-size:11px;", line));
+        var row = el("div", "display:flex; gap:6px; flex-wrap:wrap;");
+        function btn(label, fn) {
+            var b = el("div", "flex:1 1 auto; padding:6px; text-align:center; border-radius:7px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.12); border:1px solid rgba(var(--mlbg-accent-rgb),0.28);", t(label));
+            b.addEventListener("click", fn);
+            keyActivate(b, t(label));
+            row.appendChild(b);
+        }
+        // В файл пишем родное имя набора: своё переименование живёт только на этой машине, а номер
+        // сгенерированного набора на другой машине может указывать на другой набор.
+        btn("Закрепить в файле проекта", function () {
+            var i = activeIndex(), s = SETS[i];
+            var value = (i < GEN_BASE && s && s.name) ? s.name : String(setName(i) || i);
+            mlbgRpc("projectSetWrite", { value: value }).then(function () {
+                toast(t("Набор записан в .vscode/settings.json проекта — он едет вместе с репозиторием"));
+            }, function (e) { toast(t("Не удалось: ") + e.message, false); });
+        });
+        if (v) btn("Убрать из файла проекта", function () {
+            mlbgRpc("projectSetWrite", { value: "" }).then(function () {
+                toast(t("Набор убран из .vscode/settings.json проекта"));
+            }, function (e) { toast(t("Не удалось: ") + e.message, false); });
+        });
+        box.appendChild(row);
+        var d = infoDot(INFO.project_file); if (d) box.appendChild(d);
+        return box;
     }
 
     // ===================== src/ui/controls-view.js =====================
@@ -6680,32 +6916,36 @@
             if (f.size > 256 * 1024) { toast(t("Файл слишком большой (>256 КБ)"), false); inp.remove(); return; }
             var rd = new FileReader();
             rd.onload = function () {
-                try {
-                    var parsed = safeParse(String(rd.result));
-                    var remote = countRemoteImgs(parsed); // считаем ДО санитизации (сырой файл)
-                    backupCfg(); // текущие настройки -> резерв, чтобы неудачный импорт можно было откатить
-                    cfg = mergeForeign(parsed); // санитизация + сетевые картинки принудительно выкл (чужой файл сам их не включит)
-                    syncGenSets(); // импортированные ген-наборы -> в список сразу (иначе видны только после перезапуска)
-                    // Вернуть активный набор, если файл ссылался на свой ген-набор: mergeCfg зажал mode
-                    // до syncGenSets (SETS ещё не был расширен), поэтому индекс ген-набора сбросился бы на 0.
-                    if (parsed && typeof parsed.mode === "string" && /^\d+$/.test(parsed.mode) && parseInt(parsed.mode, 10) < SETS.length) cfg.mode = parsed.mode;
-                    sessionRandomIndex = null; // сбросить выбор random из прошлой сессии — переберётся под новый конфиг
-                    apply(); refreshPanel();
-                    // Предупреждаем о сетевых ссылках на картинки в импортированном файле. Они
-                    // всегда заблокированы (mergeForeign выключил «Разрешить сетевые картинки»),
-                    // но пользователь должен знать, что кто-то пытался увести редактор в сеть.
-                    if (remote > 0) {
-                        toast(t("Импортировано. Заблокировано ") + remote + t(" сетевых ссылок на картинки — редактор в сеть не пойдёт. Сетевые картинки остаются выключены; включи их вручную, только если доверяешь источнику."), false);
-                    } else {
-                        toast(t("Настройки импортированы"));
-                    }
-                } catch (e) { toast(t("Ошибка: файл не читается как JSON"), false); }
+                importCfgText(String(rd.result));
                 inp.remove();
             };
             rd.onerror = function () { toast(t("Не удалось прочитать файл"), false); inp.remove(); };
             rd.readAsText(f);
         });
         document.body.appendChild(inp); inp.click();
+    }
+    // Импорт текста конфига: сначала окно «что изменится» с примеркой, применение — по кнопке.
+    // Файл может быть чужим, поэтому кандидат строится через mergeForeign (сетевые картинки выкл),
+    // а ген-наборы файла учитываются ДО проверки индексов (candidateCfg) — активный ген-набор,
+    // его яркость, акцент и привязки не теряются.
+    function importCfgText(text) {
+        var parsed;
+        try { parsed = safeParse(String(text)); } catch (e) { toast(t("Ошибка: файл не читается как JSON"), false); return false; }
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) { toast(t("Ошибка: файл не читается как JSON"), false); return false; }
+        var remote = countRemoteImgs(parsed); // считаем ДО санитизации (сырой файл)
+        confirmLook(t("Импорт настроек"), candidateCfg(parsed, true), function () {
+            backupCfg(); // текущие настройки -> резерв, чтобы неудачный импорт можно было откатить
+            commitCfg(candidateCfg(parsed, true));
+            apply(); refreshPanel();
+            // Сетевые ссылки на картинки всегда заблокированы (mergeForeign выключил «Разрешить
+            // сетевые картинки»), но пользователь должен знать, что кто-то пытался увести редактор в сеть.
+            if (remote > 0) {
+                toast(t("Импортировано. Заблокировано ") + remote + t(" сетевых ссылок на картинки — редактор в сеть не пойдёт. Сетевые картинки остаются выключены; включи их вручную, только если доверяешь источнику."), false);
+            } else {
+                toast(t("Настройки импортированы"));
+            }
+        });
+        return true;
     }
     // Тёмная подложка набора: у grad — первый цвет палитры, у proc — base, у фото-набора
     // (картинку в тему не затащить) — выводим тёмный тон из оттенка акцента.
@@ -6762,7 +7002,9 @@
     // Восстановить снимок: через ту же санитизацию, что и импорт (defense-in-depth), и подавляя
     // запись собственного apply() в историю (иначе восстановление плодило бы новый шаг).
     function _histApply(json) {
-        cfg = mergeCfg(safeParse(json));
+        // Снимок несёт свои ген-наборы: хвост SETS под них, иначе после отмены создания набора
+        // он оставался бы в списке, но не сохранялся (и наоборот при повторе).
+        cfg = candidateCfg(safeParse(json)); syncGenSets();
         _histLast = _histNow();
         if (_histTimer) { clearTimeout(_histTimer); _histTimer = 0; }
         _histSuppress++;
@@ -6886,10 +7128,9 @@
                     var cur = loadPresets(); if (!(name in cur)) return;
                     var keepUi = cfg.ui;                // пресет меняет дизайн, не трогая положение панели
                     backupCfg();                        // прежний вид -> резерв (можно откатить применение пресета)
-                    cfg = mergeForeign(cur[name]); cfg.ui = keepUi; // сетевые картинки не включаем из пресета
-                    syncGenSets();                      // ген-наборы пресета -> в список сразу
-                    if (typeof cur[name].mode === "string" && /^\d+$/.test(cur[name].mode) && parseInt(cur[name].mode, 10) < SETS.length) cfg.mode = cur[name].mode;
-                    sessionRandomIndex = null;          // random переберётся под новый конфиг
+                    var next = candidateCfg(cur[name], true); // сетевые картинки не включаем из пресета
+                    next.ui = keepUi;
+                    commitCfg(next);                    // ген-наборы пресета -> в список сразу, random заново
                     apply(); refreshPanel();
                     toast(t("Пресет «") + name + t("» применён"));
                 });
@@ -6923,8 +7164,7 @@
                 for (var kk in patch[k]) if (patch[k].hasOwnProperty(kk)) raw[k][kk] = patch[k][kk]; // слить по полям
             } else raw[k] = patch[k];
         }
-        cfg = mergeCfg(raw);               // санитизация после наложения (в т.ч. clamp яркостей/сил)
-        syncGenSets();                     // ген-наборы текущего конфига остаются в хвосте SETS
+        commitCfg(candidateCfg(raw));      // санитизация после наложения (в т.ч. clamp яркостей/сил)
         apply(); refreshPanel();
         toast(t("Профиль применён: ") + t(p.name));
     }
@@ -7027,10 +7267,10 @@
     // (импорт/сброс/пресет). Текущий cfg при этом сам уходит в резерв — поэтому «Восстановить»
     // работает как переключатель между «до» и «после» (нажал не туда — нажми ещё раз).
     function restoreBackup() {
-        var b = readBackup();
-        if (!b) { toast(t("Резерва нет"), false); return; }
+        var raw = readBackupRaw();
+        if (!raw) { toast(t("Резерва нет"), false); return; }
         backupCfg();                 // текущее -> резерв (обратный откат тем же действием)
-        cfg = b; syncGenSets(); sessionRandomIndex = null; // хвост SETS под ген-наборы восстановленного конфига
+        commitCfg(candidateCfg(raw)); // ссылки на ген-наборы резерва проверяются по его же наборам
         apply(); refreshPanel();
         toast(t("Восстановлены прежние настройки"));
     }
@@ -7063,25 +7303,26 @@
         var json = b64dec(String(code).trim()); if (!json) return null;
         try { var o = safeParse(json); return (o && typeof o === "object") ? o : null; } catch (e) { return null; }
     }
-    // Применить образ из объекта (SHARE_KEYS): всё через mergeCfg, машинно-зависимое (SHARE_KEEP)
-    // остаётся своим. Текущий конфиг уходит в резерв — применение можно откатить.
+    // Кандидат образа: содержимое из o (SHARE_KEYS), машинно-зависимое (SHARE_KEEP, в т.ч. свои
+    // ген-наборы) — своё. Санитизация через mergeCfg; SETS не трогается.
+    function lookCandidate(o) { return candidateCfg(withKept(o, SHARE_KEEP)); }
+    // Применить образ из объекта: текущий конфиг уходит в резерв — применение можно откатить.
     function applyLook(o) {
         if (!o || typeof o !== "object") return false;
         backupCfg(); // текущее -> резерв (применение чужого кода можно откатить)
-        var keep = {}; for (var i = 0; i < SHARE_KEEP.length; i++) keep[SHARE_KEEP[i]] = cfg[SHARE_KEEP[i]];
-        cfg = mergeCfg(o); // санитизация всего содержимого
-        for (var j = 0; j < SHARE_KEEP.length; j++) cfg[SHARE_KEEP[j]] = keep[SHARE_KEEP[j]]; // вернуть машинно-зависимое (в т.ч. genSets)
-        syncGenSets(); // хвост SETS под сохранённые ген-наборы (genSets вернулись из keep); заодно зажмёт mode на чужой ген-индекс
-        sessionRandomIndex = null;
+        commitCfg(lookCandidate(o));
         apply();
         try { if (document.getElementById(PANEL_ID)) refreshPanel(); } catch (e) { logErr("панель после образа", e); }
         return true;
     }
+    // Чужой код сначала показываем: что изменится, с примеркой; применяем по кнопке.
     function applyShareCode(code) {
         var o = shareDecode(code);
         if (!o) { toast(t("Код не распознан"), false); return false; }
-        applyLook(o);
-        toast(t("Образ применён из кода"));
+        confirmLook(t("Образ из кода"), lookCandidate(o), function () {
+            applyLook(o);
+            toast(t("Образ применён из кода"));
+        });
         return true;
     }
 
@@ -7141,8 +7382,18 @@
         SHARE_KEEP.forEach(function (k) { delete o[k]; });
         return o;
     }
+    // Первое подтягивание при старте ещё не прошло — отправка ждёт его. Иначе правка первых секунд
+    // (смена набора по времени суток, резерв) ушла бы раньше с новым временем, и подтягивание решило
+    // бы, что здесь уже самый свежий вид, затерев вид с другой машины.
+    var _syncReady = true, _syncWaiting = false;
+    function syncHoldUntilPull() { _syncReady = false; }
+    function syncRelease() {
+        _syncReady = true;
+        if (_syncWaiting) { _syncWaiting = false; scheduleSyncPush(); }
+    }
     function scheduleSyncPush() {
         if (!cfg.ui || !cfg.ui.sync || !_viaMoonCore) return;
+        if (!_syncReady) { _syncWaiting = true; return; }
         if (_syncTimer) clearTimeout(_syncTimer);
         _syncTimer = setTimeout(function () {
             _syncTimer = 0;
@@ -7157,12 +7408,10 @@
             if (!r || !r.cfg || typeof r.t !== "number") { if (!quiet) toast(t("На других машинах ещё нет синхронизированного вида")); return; }
             var mine = 0; try { mine = Number(localStorage.getItem(SYNC_T_KEY)) || 0; } catch (e) {}
             if (r.t <= mine) { if (!quiet) toast(t("Здесь уже самый свежий вид")); return; }
-            var keep = {}; SHARE_KEEP.forEach(function (k) { keep[k] = cfg[k]; });
-            cfg = mergeCfg(r.cfg);
-            SHARE_KEEP.forEach(function (k) { cfg[k] = keep[k]; });
+            commitCfg(candidateCfg(withKept(r.cfg, SHARE_KEEP)));
             try { localStorage.setItem(SYNC_T_KEY, String(r.t)); } catch (e) {}
-            syncGenSets(); sessionRandomIndex = null;
-            _histSuppress++; try { apply(); } finally { _histSuppress--; }
+            // Подтянутый вид — не своя правка: обратно с новым временем его не отправляем.
+            autoChange(apply);
             if (document.getElementById(PANEL_ID)) refreshPanel();
             toast(t("Вид подтянут с другой машины"));
         });
@@ -7171,13 +7420,12 @@
     function applySeed() {
         var o = seedConfig();
         if (!o) { toast(t("Базовый конфиг из settings.json не найден (нужно расширение-компаньон)"), false); return; }
-        backupCfg(); // текущее -> резерв (загрузку базы можно откатить)
-        var keep = {}; for (var i = 0; i < SHARE_KEEP.length; i++) keep[SHARE_KEEP[i]] = cfg[SHARE_KEEP[i]];
-        cfg = mergeCfg(o);
-        for (var j = 0; j < SHARE_KEEP.length; j++) cfg[SHARE_KEEP[j]] = keep[SHARE_KEEP[j]]; // машинно-зависимое оставляем своё
-        syncGenSets(); sessionRandomIndex = null;
-        apply(); refreshPanel();
-        toast(t("Загружено из settings.json"));
+        confirmLook(t("База из settings.json"), candidateCfg(withKept(o, SHARE_KEEP)), function () {
+            backupCfg(); // текущее -> резерв (загрузку базы можно откатить)
+            commitCfg(candidateCfg(withKept(o, SHARE_KEEP))); // машинно-зависимое оставляем своё
+            apply(); refreshPanel();
+            toast(t("Загружено из settings.json"));
+        });
     }
     function makeSyncUI() {
         var box = el("div", null);
@@ -7197,6 +7445,145 @@
             box.appendChild(loadB);
         }
         return box;
+    }
+
+    // ===================== src/ui/confirm-look.js =====================
+    // ===== «Что изменится»: предпросмотр чужого конфига до применения =====
+    // Импорт файла, чужой код образа и база из settings.json раньше применялись сразу: понять, что
+    // именно поменялось, можно было только глазами, а откатить — кнопкой «Восстановить». Теперь
+    // сначала показывается окно со списком изменений и кнопкой «Примерить» (вид меняется без
+    // записи, «Вернуть» откатывает), а применяется всё только по «Применить».
+
+    var CONFIRM_ID = "mlbg-confirm";
+    var _confirm = null;   // { next, onApply, snap, cleanup }
+
+    function _pct(v) { return Math.round((typeof v === "number" ? v : 0) * 100) + "%"; }
+    function _modeLabel(c) {
+        if (c.mode === "random") return t("случайно");
+        var i = parseInt(c.mode, 10);
+        return isNaN(i) ? String(c.mode) : (t("Набор ") + i + (setNameIn(c, i) ? " · " + setNameIn(c, i) : ""));
+    }
+    // Имя набора в конфиге c (его setName и его ген-наборы), а не в текущем.
+    function setNameIn(c, i) {
+        var o = c.setName && c.setName[i];
+        if (typeof o === "string" && o) return o;
+        if (i >= GEN_BASE) { var g = c.genSets && c.genSets[i - GEN_BASE]; return (g && g.name) || ""; }
+        var s = SETS[i]; return (s && s.name) || "";
+    }
+    function _same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+    function _count(o) { return (o && typeof o === "object") ? Object.keys(o).length : 0; }
+
+    // Список изменений a -> b человеческим языком (уже переведённый). Пусто — ничего не изменится.
+    function lookDiff(a, b) {
+        var out = [], k, i;
+        if (!a || !b) return out;
+        if (a.enabled !== b.enabled) out.push(t("Фон: ") + (b.enabled ? t("вкл") : t("выкл")));
+        if (a.mode !== b.mode) out.push(_modeLabel(a) + " → " + _modeLabel(b));
+        var ga = (a.genSets || []).length, gb = (b.genSets || []).length;
+        if (ga !== gb || !_same(a.genSets, b.genSets)) out.push(t("Свои наборы: ") + ga + " → " + gb);
+        if (a.accent !== b.accent) out.push(t("Акцент: ") + a.accent + " → " + b.accent);
+        if (!_same(a.setAccent, b.setAccent)) out.push(t("Акценты наборов: ") + _count(a.setAccent) + " → " + _count(b.setAccent));
+        var zones = [["editor", "Яркость: редактор"], ["side", "Яркость: сайдбар"], ["panel", "Яркость: панель"]];
+        for (i = 0; i < zones.length; i++) {
+            var z = zones[i][0];
+            if (a.baseOp && b.baseOp && a.baseOp[z] !== b.baseOp[z]) out.push(t(zones[i][1]) + " " + _pct(a.baseOp[z]) + " → " + _pct(b.baseOp[z]));
+        }
+        if (!_same(a.setOp, b.setOp)) out.push(t("Яркость отдельных наборов"));
+        var on = [], off = [];
+        for (k in b.fx) if (Object.prototype.hasOwnProperty.call(b.fx, k) && a.fx && a.fx[k] !== b.fx[k]) (b.fx[k] ? on : off).push(t(fxLabel(k)));
+        if (on.length) out.push(t("Эффекты включатся: ") + on.join(", "));
+        if (off.length) out.push(t("Эффекты выключатся: ") + off.join(", "));
+        for (i = 0; i < PARAMS.length; i++) {
+            var pk = PARAMS[i][0];
+            if (a.fxp && b.fxp && a.fxp[pk] !== b.fxp[pk]) out.push(t(PARAMS[i][1]) + ": " + a.fxp[pk] + " → " + b.fxp[pk]);
+        }
+        if (a.partStyle !== b.partStyle) out.push(t("Стиль частиц") + ": " + a.partStyle + " → " + b.partStyle);
+        if (!_same(a.imgfx, b.imgfx) || !_same(a.fit, b.fit)) out.push(t("Фильтры картинки"));
+        if (!_same(a.term, b.term)) out.push(t("Терминал"));
+        if (!_same(a.slideshow, b.slideshow)) out.push(t("Слайдшоу: ") + (b.slideshow.on ? t("вкл") : t("выкл")) + (b.slideshow.on ? ", " + b.slideshow.min + t(" мин") : ""));
+        if (!_same(a.autoTime, b.autoTime)) out.push(t("По времени суток: ") + (b.autoTime.on ? t("вкл") : t("выкл")));
+        if (!_same(a.setImg, b.setImg) || !_same(a.setPos, b.setPos) || !_same(a.library, b.library)) out.push(t("Свои картинки"));
+        if (!_same(a.workspaceSets, b.workspaceSets) || !_same(a.branchSets, b.branchSets) || !_same(a.langSets, b.langSets) || !_same(a.remoteSets, b.remoteSets) ||
+            a.autoWorkspace !== b.autoWorkspace || a.autoBranch !== b.autoBranch || a.autoLang !== b.autoLang || a.autoRemote !== b.autoRemote)
+            out.push(t("Привязки наборов к проектам, веткам и языкам"));
+        if (a.lang !== b.lang) out.push(t("Язык панели: ") + a.lang + " → " + b.lang);
+        if (a.imgBase !== b.imgBase) out.push(t("Папка плагина"));
+        if (a.shaderSrc !== b.shaderSrc) out.push(t("Свой шейдер"));
+        return out;
+    }
+
+    // Примерка: вид кандидата без записи (applyNoSave). Повторный вызов с false — вернуть свой.
+    function confirmPreview(on) {
+        if (!_confirm) return;
+        if (on && !_confirm.snap) {
+            _confirm.snap = cfg;
+            cfg = clone(_confirm.next); syncGenSets(); applyNoSave();
+        } else if (!on && _confirm.snap) {
+            cfg = _confirm.snap; _confirm.snap = null; syncGenSets(); applyNoSave();
+        }
+    }
+    function _confirmClose() {
+        if (!_confirm) return;
+        confirmPreview(false);
+        try { if (_confirm.cleanup) _confirm.cleanup(); } catch (e) {}
+        var n = document.getElementById(CONFIRM_ID); if (n) n.remove();
+        _confirm = null;
+    }
+    function confirmCancel() { _confirmClose(); }
+    function confirmAccept() {
+        if (!_confirm) return;
+        var fn = _confirm.onApply;
+        _confirmClose();
+        try { fn(); } catch (e) { logErr("применение образа", e); }
+    }
+
+    // Показать окно «что изменится». next — готовый кандидат (candidateCfg), onApply — применение.
+    function confirmLook(title, next, onApply) {
+        _confirmClose();
+        var diff = lookDiff(cfg, next);
+        _confirm = { next: next, onApply: onApply, snap: null, cleanup: null };
+        var box = el("div",
+            "position:fixed; left:50%; top:18%; transform:translateX(-50%); z-index:100010; width:min(440px,92vw);" +
+            "padding:14px 16px; border-radius:12px; background:var(--mlp-bg,rgba(24,24,37,0.97)); color:var(--mlp-fg,#cdd6f4);" +
+            "border:1px solid rgba(var(--mlbg-accent-rgb),0.4); box-shadow:0 18px 48px rgba(0,0,0,0.55);" +
+            "font-family:var(--vscode-font-family,sans-serif); font-size:12px;");
+        box.id = CONFIRM_ID;
+        box.setAttribute("role", "dialog");
+        box.setAttribute("aria-label", title);
+        box.appendChild(el("div", "font-weight:700; font-size:13px; margin-bottom:8px; color:var(--mlbg-accent);", title));
+        box.appendChild(el("div", "color:var(--mlp-muted,#a6adc8); margin-bottom:6px;",
+            diff.length ? t("Что изменится:") : t("Ничего не изменится — вид такой же.")));
+        var list = el("div", "max-height:40vh; overflow:auto; display:flex; flex-direction:column; gap:3px; margin-bottom:12px;");
+        var SHOW = 14;
+        diff.slice(0, SHOW).forEach(function (s) { list.appendChild(el("div", "padding:3px 7px; border-radius:6px; background:rgba(var(--mlbg-accent-rgb),0.08); line-height:1.35;", s)); });
+        if (diff.length > SHOW) list.appendChild(el("div", "padding:3px 7px; color:var(--mlp-faint,#6c7086);", t("и ещё ") + (diff.length - SHOW)));
+        box.appendChild(list);
+        var row = el("div", "display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;");
+        var btnCss = "padding:6px 12px; border-radius:8px; cursor:pointer; font-weight:600; border:1px solid rgba(var(--mlbg-accent-rgb),0.32);";
+        var tryB = el("div", btnCss + " color:var(--mlp-fg,#cdd6f4);", t("Примерить"));
+        tryB.addEventListener("click", function () {
+            var on = !_confirm.snap;
+            confirmPreview(on);
+            tryB.textContent = on ? t("Вернуть как было") : t("Примерить");
+        });
+        keyActivate(tryB, t("Примерить"));
+        var noB = el("div", btnCss + " color:var(--mlp-muted,#a6adc8);", t("Отмена"));
+        noB.addEventListener("click", confirmCancel);
+        keyActivate(noB, t("Отмена"));
+        var okB = el("div", btnCss + " color:#181825; background:var(--mlbg-accent);", t("Применить"));
+        okB.addEventListener("click", confirmAccept);
+        keyActivate(okB, t("Применить"));
+        if (diff.length) row.appendChild(tryB);
+        row.appendChild(noB); row.appendChild(okB);
+        box.appendChild(row);
+        function onKey(e) {
+            if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); confirmCancel(); }
+        }
+        document.addEventListener("keydown", onKey, true);
+        _confirm.cleanup = function () { document.removeEventListener("keydown", onKey, true); };
+        (document.body || document.documentElement).appendChild(box);
+        try { okB.setAttribute("tabindex", "0"); okB.focus(); } catch (e) {}
+        return diff;
     }
 
     // ===================== src/ui/theme-export.js =====================
@@ -7545,7 +7932,7 @@
                     t("ветка") + " " + (lv.branch || "—") + " · " +
                     t("репозиторий") + " " + (lv.remote || "—") + " · " +
                     t("язык") + " " + (lv.languageId || "—") + " · " +
-                    t("ошибок") + " " + lv.errors);
+                    t("ошибок") + " " + (lv.errors === null ? "—" : lv.errors));
             }
         }
         // «Здоровье» CSS-селекторов воркбенча: не читаем данные, а проверяем, что
@@ -7879,7 +8266,7 @@
         }
         // Режим презентации одной кнопкой: стиль «Презентация», повторный клик возвращает прежний вид.
         item(_presentPrev ? "Выключить режим презентации" : "Режим презентации", function () {
-            if (_presentPrev) { cfg = mergeCfg(safeParse(_presentPrev)); _presentPrev = ""; syncGenSets(); apply(); toast(t("Прежний вид возвращён")); }
+            if (_presentPrev) { commitCfg(candidateCfg(safeParse(_presentPrev))); _presentPrev = ""; apply(); toast(t("Прежний вид возвращён")); }
             else { _presentPrev = JSON.stringify(cfg); applyProfile("present"); toast(t("Режим презентации: фон тише, акценты крупнее")); }
             if (document.getElementById(PANEL_ID)) { try { refreshPanel(); } catch (e) {} }
         }, "");
@@ -8444,6 +8831,7 @@
         var nm = setName(r.idx);
         txt.appendChild(el("b", null, t("Сейчас: набор ") + r.idx + (nm ? " · " + nm : "")));
         var WHY = {
+            project: t("по файлу проекта") + (r.key ? " «" + r.key + "»" : ""),
             workspace: t("по проекту") + (r.key ? " «" + r.key + "»" : ""),
             remote: t("по репозиторию") + (r.key ? " «" + r.key + "»" : ""),
             branch: t("по ветке") + (r.key ? " «" + r.key + "»" : ""),
@@ -8468,23 +8856,31 @@
             t("Правила ниже — по старшинству: срабатывает верхнее включённое.")));
         function rule(n, title, on, info) { return collapsible(tAuto, title, info, { num: n, on: !!on }); }
 
-        var secWs = rule(1, "По проекту", cfg.autoWorkspace, "Набор под открытый проект и полоска-индикатор git-ветки. Держатся на чтении заголовка и статусбара VS Code.");
+        var secFile = rule(1, "Файл проекта", projectFileIndex() !== null, "Набор, записанный в .vscode/settings.json проекта: едет вместе с репозиторием и важнее всех правил ниже.");
+        secFile.appendChild(makeProjectFileUI());
+
+        var secWs = rule(2, "По проекту", cfg.autoWorkspace, "Набор под открытый проект и полоска-индикатор git-ветки. Держатся на чтении заголовка и статусбара VS Code.");
         secWs.appendChild(makeWorkspaceUI());
         secWs.appendChild(makeAmbientBranchToggle());
 
-        var secRemote = rule(2, "По репозиторию", cfg.autoRemote, "Набор под удалённый репозиторий (владелец/имя): один и тот же проект, склонированный в разные папки, получает один фон. Адрес репозитория берётся из git через компаньон-расширение — из вёрстки редактора его не достать.");
+        var secRemote = rule(3, "По репозиторию", cfg.autoRemote, "Набор под удалённый репозиторий (владелец/имя): один и тот же проект, склонированный в разные папки, получает один фон. Адрес репозитория берётся из git через компаньон-расширение — из вёрстки редактора его не достать.");
         secRemote.appendChild(makeRemoteAutoUI());
 
-        var secBranch = rule(3, "По ветке", cfg.autoBranch, "Набор под текущую git-ветку: main/master — один, фиче-ветки — другой. Приоритетнее слайдшоу и времени суток, но уступает «по проекту». Ветка читается из статусбара VS Code.");
+        var secBranch = rule(4, "По ветке", cfg.autoBranch, "Набор под текущую git-ветку: main/master — один, фиче-ветки — другой. Приоритетнее слайдшоу и времени суток, но уступает «по проекту». Ветка читается из статусбара VS Code.");
         secBranch.appendChild(makeBranchAutoUI());
 
-        var secLang = rule(4, "По языку", cfg.autoLang, "Набор под язык активного файла (по расширению): напр. .py — один набор, .md — другой. Самый частый контекст (низший приоритет). Расширение читается из подписи активной вкладки.");
+        var secLang = rule(5, "По языку", cfg.autoLang, "Набор под язык активного файла (по расширению): напр. .py — один набор, .md — другой. Самый частый контекст (низший приоритет). Расширение читается из подписи активной вкладки.");
         secLang.appendChild(makeLangAutoUI());
 
-        var secTime = rule(5, "По времени суток", cfg.autoTime && cfg.autoTime.on, "Днём — дневной набор, ночью — ночной. Имеет приоритет над слайдшоу; не работает в режиме «случайно».");
+        var secTime = rule(6, "По времени суток", cfg.autoTime && cfg.autoTime.on, "Днём — дневной набор, ночью — ночной; по желанию — свои наборы на утро и вечер. Имеет приоритет над слайдшоу; не работает в режиме «случайно».");
         secTime.appendChild(makeAutoTimeToggle());
+        if (cfg.autoTime && cfg.autoTime.on) secTime.appendChild(makeDayPartNow());
+        secTime.appendChild(makeSetPicker("morning", "Утро", INFO.autotime_parts));
         secTime.appendChild(makeSetPicker("day", "Дневной"));
+        secTime.appendChild(makeSetPicker("evening", "Вечер"));
         secTime.appendChild(makeSetPicker("night", "Ночной"));
+        if (cfg.autoTime && (cfg.autoTime.morning >= 0 || cfg.autoTime.evening >= 0))
+            secTime.appendChild(makeObjSlider(cfg.autoTime, "edge", "Утро и вечер, часов", 1, 6, 1, 0, INFO.autotime_edge, DEFAULTS.autoTime.edge));
         secTime.appendChild(makeAutoTimeMode());
         if (cfg.autoTime && cfg.autoTime.mode === "sun") {
             secTime.appendChild(makeObjSlider(cfg.autoTime, "lat", "Широта", -90, 90, 1, 0, INFO.autotime_lat, DEFAULTS.autoTime.lat));
@@ -8494,7 +8890,7 @@
             secTime.appendChild(makeObjSlider(cfg.autoTime, "to", "День до, ч", 0, 23, 1, 0, INFO.autotime_to, DEFAULTS.autoTime.to));
         }
 
-        var secSlide = rule(6, "Слайдшоу", cfg.slideshow && cfg.slideshow.on, "Автоматическая смена набора по кругу через заданный интервал.");
+        var secSlide = rule(7, "Слайдшоу", cfg.slideshow && cfg.slideshow.on, "Автоматическая смена набора по кругу через заданный интервал.");
         secSlide.appendChild(makeSlideToggle());
         if (cfg.slideshow.on) secSlide.appendChild(makeObjSlider(cfg.slideshow, "min", "Интервал, мин", 1, 120, 1, 0, INFO.slide_min, DEFAULTS.slideshow.min));
     }
@@ -8686,8 +9082,8 @@
             b.addEventListener("click", function () {
                 backupCfg();
                 var keepUi = cfg.ui;
-                cfg = mergeCfg(x.cfg); cfg.ui = keepUi;
-                syncGenSets(); apply(); refreshPanel();
+                var next = candidateCfg(x.cfg); next.ui = keepUi;
+                commitCfg(next); apply(); refreshPanel();
                 toast(t("Настройки возвращены на ") + x.day + t(" — отменить: «Восстановить прежние настройки»"));
             });
             keyActivate(b, b.title);
@@ -9332,6 +9728,8 @@
             var qm = document.getElementById(QMENU_ID);
             if (qm && qm.contains(e.target)) return;   // пункт быстрого меню сам решит, что делать с панелью
             if (_infoPop && _infoPop.contains(e.target)) return; // попап «?» может жить вне панели
+            var cf = document.getElementById(CONFIRM_ID);
+            if (cf && cf.contains(e.target)) return;   // окно «что изменится» над панелью
             closePanel();
         }
         document.addEventListener("keydown", onKey, true);
@@ -10226,7 +10624,7 @@
         var nowUrl = libraryEditorUrl();
         onImage(nowUrl, function () {
             if (libraryEditorUrl() !== nowUrl) return; // пока ждали, успели сменить
-            var go = function () { _histSuppress++; try { applyFade(); } finally { _histSuppress--; } };
+            var go = function () { autoChange(applyFade); };
             try { var im = new Image(); im.src = nowUrl; if (im.decode) im.decode().then(go, go); else go(); } catch (e) { go(); }
         });
         // Следующую картинку — заранее (и её пробу: метрики и уменьшенная копия будут готовы).
@@ -10312,8 +10710,39 @@
             return (r === null || s === null) ? null : { rise: r, set: s };
         } catch (e) { return null; }
     }
-    function isDaytime() {
-        var at = cfg.autoTime || {}, now = new Date();
+    // Границы дня в дробных часах местного времени: { from, to } — по рассвету/закату или по часам.
+    function dayBounds(now) {
+        var at = cfg.autoTime || {};
+        if (at.mode === "sun") {
+            var st = sunTimes(typeof at.lat === "number" ? at.lat : 0, typeof at.lon === "number" ? at.lon : 0, now);
+            if (st && st.rise !== st.set) return { from: st.rise, to: st.set };
+        }
+        var f = (typeof at.from === "number") ? at.from : 8, t = (typeof at.to === "number") ? at.to : 20;
+        return { from: f, to: t };
+    }
+    // Часть суток: "morning" | "day" | "evening" | "night". Утро — первые edge часов дня, вечер —
+    // последние edge часов. Если день короче двух edge, утро и вечер делят его пополам.
+    function dayPart(now) {
+        now = now || new Date();
+        if (!isDaytime(now)) return "night";
+        var b = dayBounds(now), at = cfg.autoTime || {};
+        var len = ((b.to - b.from) % 24 + 24) % 24; if (len === 0) return "day"; // «всегда день»
+        var edge = Math.min(typeof at.edge === "number" ? at.edge : 2, len / 2);
+        var hf = now.getHours() + now.getMinutes() / 60;
+        var since = ((hf - b.from) % 24 + 24) % 24;          // сколько часов прошло с начала дня
+        if (since < edge) return "morning";
+        if (since >= len - edge) return "evening";
+        return "day";
+    }
+    // Набор для текущей части суток: утро/вечер, если заданы, иначе дневной; ночью — ночной.
+    function timeSetFor(part) {
+        var at = cfg.autoTime || {};
+        if (part === "night") return at.night;
+        if ((part === "morning" || part === "evening") && typeof at[part] === "number" && at[part] >= 0) return at[part];
+        return at.day;
+    }
+    function isDaytime(nowArg) {
+        var at = cfg.autoTime || {}, now = nowArg || new Date();
         // Режим «рассвет/закат»: сравниваем текущий момент с вычисленными восходом/закатом.
         if (at.mode === "sun") {
             var st = sunTimes(typeof at.lat === "number" ? at.lat : 0, typeof at.lon === "number" ? at.lon : 0, now);
@@ -10333,12 +10762,12 @@
     function timeTick() {
         if (!cfg.autoTime || !cfg.autoTime.on || SETS.length < 1) return;
         if (cfg.mode === "random") return; // ручной «случайно» не перебиваем
-        var want = isDaytime() ? cfg.autoTime.day : cfg.autoTime.night;
+        var want = timeSetFor(dayPart());
         if (typeof want !== "number" || want < 0 || want >= SETS.length) return;
         var ws = String(want);
         if (cfg.mode === ws) return; // уже нужный набор
         // Авто-смена по времени — не шаг истории Undo (сдвигаем базу через _histSuppress).
-        cfg.mode = ws; _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
+        cfg.mode = ws; autoChange(applyFade);
         if (document.getElementById(PANEL_ID)) refreshPanelSoon();
     }
 
@@ -10354,8 +10783,8 @@
         // повтора), а не превращаем mode в фиксированный. Иначе слайдшоу молча гасило random.
         if (cfg.mode === "random") sessionRandomIndex = pickRandom();
         else cfg.mode = String((activeIndex() + 1) % SETS.length); // следующий набор по кругу
-        // Тик слайдшоу — не шаг истории Undo (сдвигаем базу через _histSuppress).
-        _histSuppress++; try { applyFade(); } finally { _histSuppress--; }
+        // Тик слайдшоу — не шаг истории Undo и не повод для Settings Sync (autoChange).
+        autoChange(applyFade);
         preloadNext();                                          // подготовить следующий заранее
         if (document.getElementById(PANEL_ID)) refreshPanelSoon(); // подсветить активный чип в открытой панели
     }
@@ -10475,8 +10904,9 @@
     // Папка-источник фона (cfg.libraryDir): при старте перечитываем её через компаньона, чтобы
     // новые картинки в папке подхватились без повторного выбора. Нет Moon Core — тихо пропускаем.
     if (cfg.libraryDir && _viaMoonCore) {
-        setTimeout(function () {
+        later(function () {
             mlbgRpc("listFolder", { dir: cfg.libraryDir }).then(function (r) {
+                if (_mlbgStopped) return;
                 if (!r || !Array.isArray(r.images) || !r.images.length) return;
                 if (JSON.stringify(r.images) === JSON.stringify(cfg.library)) return;
                 cfg.library = r.images.slice(0, 64); saveCfg(); apply();
@@ -10484,8 +10914,14 @@
         }, 5000);
     }
 
-    // Синхронизация между машинами: при старте подтянуть более новый вид (тихо).
-    if (cfg.ui && cfg.ui.sync && _viaMoonCore) setTimeout(function () { syncPull(true).then(null, function () {}); }, 4000);
+    // Синхронизация между машинами: при старте подтянуть более новый вид (тихо). До конца этого
+    // подтягивания своя отправка придержана (syncHoldUntilPull) — иначе правка первых секунд ушла
+    // бы с новым временем и затёрла бы вид с другой машины. Мост может не ответить — страховка 15 с.
+    if (cfg.ui && cfg.ui.sync && _viaMoonCore) {
+        syncHoldUntilPull();
+        later(syncRelease, 15000);
+        later(function () { syncPull(true).then(syncRelease, syncRelease); }, 4000);
+    }
 
     // ===== Горячие клавиши =====
     // Переключение набора без открытия панели и быстрый вызов панели. Коды клавиш (e.code)
@@ -10751,7 +11187,7 @@
         try { _seen = !!localStorage.getItem(ONBOARD_KEY); } catch (e) {}
         if (!_seen) {
             try { localStorage.setItem(ONBOARD_KEY, "1"); } catch (e) {}
-            setTimeout(function () {
+            later(function () {
                 try {
                     if (document.hidden) return;
                     // Открываем панель сразу на «Профили»: готовые профили — лучший старт,
@@ -10765,12 +11201,12 @@
                             togglePanel({ stopPropagation: function () {} });
                         }
                     } catch (e2) {}
-                    toast(t("MoonLight BG: открой панель кнопкой BG в статусбаре. Быстрый старт — «Данные → Профили»; колесо над кнопкой листает наборы, правый клик — быстрые действия."));
+                    toast(t("MoonLight BG: открой панель кнопкой BG в статусбаре. Быстрый старт — «Эффекты → Стили»; колесо над кнопкой листает наборы, правый клик — быстрые действия."));
                 } catch (e) {}
             }, 4000);
         }
     } catch (e) {}
 
-    console.log("[MoonLight custom-bg] " + APP_VERSION + " installed (v20: adaptive readability scrim, OKLab palette, CSS-variable pipeline, dual loader + true transparency, workbench selector health, WebGL shader sets, master-frame sets, quick switcher Ctrl+Alt+P, cross-window sync), enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "loader:", (typeof loaderKind === "function" ? loaderKind().id : "?"), "lang:", uiLang(), "theme:", themeKind());
+    console.log("[MoonLight custom-bg] " + APP_VERSION + " started, enabled:", cfg.enabled, "sets:", SETS.length, "mode:", cfg.mode, "loader:", (typeof loaderKind === "function" ? loaderKind().id : "?"), "images:", IMG || "(не задано)", "lang:", uiLang(), "theme:", themeKind());
 
 })();

@@ -4,6 +4,7 @@
 
 # Собранный артефакт и исходники — всегда LF (build.js склеивает через "\n").
 custom-bg.js text eol=lf
+custom-bg.min.js text eol=lf
 *.js text eol=lf
 *.json text eol=lf
 *.md text eol=lf

@@ -57,7 +57,21 @@ function fragSource(body) {
 function isShaderSet(idx) { var s = SETS[idx]; return !!(s && s.shader && SHADERS[s.shader]); }
 function isShader(idx, zone) { return isShaderSet(idx) && !hasUserImg(idx, zone); }
 
-var shd = { canvas: null, gl: null, prog: null, raf: 0, t0: 0, last: 0, u: null, key: "", failed: false };
+var shd = { canvas: null, gl: null, prog: null, raf: 0, t0: 0, last: 0, u: null, key: "", failed: false, lost: 0 };
+// Отдать контекст WebGL сразу, а не ждать сборщика мусора: Chromium держит ограниченное число
+// живых контекстов и при переполнении молча гасит самый старый.
+function _releaseGl(gl) {
+    try { var ext = gl && gl.getExtension && gl.getExtension("WEBGL_lose_context"); if (ext) ext.loseContext(); } catch (e) {}
+}
+// Потеря контекста (сон, сброс драйвера, нехватка памяти GPU) — не повод выключать шейдерный
+// фон до перезапуска: пробуем снова с растущей паузой, но не больше SHADER_RETRIES раз за сессию.
+var SHADER_RETRIES = 3;
+function _shaderLost() {
+    shaderStop();
+    shd.failed = true;
+    shd.lost++;
+    if (shd.lost <= SHADER_RETRIES) later(function () { shd.failed = false; try { ensureShader(); } catch (e) {} }, 5000 * shd.lost);
+}
 
 function shaderHost() {
     // Холст живёт внутри части «редактор»: так он лежит под кодом, но над фоном части, и
@@ -92,7 +106,9 @@ function shaderBody(name) {
 function ensureShader() {
     if (!shaderActive()) { shaderStop(); return; }
     var host = shaderHost(); if (!host) return;
-    var idx = activeIndex(), s = SETS[idx], key = s.shader + "|" + getAccent() + "|" + (s.base || "");
+    // Акцент в ключ не входит: он передаётся в шейдер на каждом кадре (u_accent), и смена акцента
+    // не должна пересоздавать холст и контекст WebGL.
+    var idx = activeIndex(), s = SETS[idx], key = s.shader + "|" + (s.base || "");
     // Холст потерялся (VS Code пересобрал редактор) или сменился набор — пересоздаём.
     if (shd.canvas && (!shd.canvas.isConnected || shd.key !== key)) shaderStop();
     if (shd.canvas) { shaderStart(); return; }
@@ -110,11 +126,11 @@ function ensureShader() {
         if (!vs || !fs) {
             // Свой шейдер не собрался — откатываемся на встроенный, а не гасим фон совсем.
             if (s.shader === "custom") fs = _compile(gl, gl.FRAGMENT_SHADER, fragSource(SHADERS.aurora));
-            if (!vs || !fs) { shd.failed = true; return; }
+            if (!vs || !fs) { shd.failed = true; _releaseGl(gl); return; }
         }
         var p = gl.createProgram();
         gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
-        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { shd.failed = true; return; }
+        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { shd.failed = true; _releaseGl(gl); return; }
         gl.useProgram(p);
         var buf = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -127,7 +143,7 @@ function ensureShader() {
             accent: gl.getUniformLocation(p, "u_accent"), base: gl.getUniformLocation(p, "u_base"),
             mouse: gl.getUniformLocation(p, "u_mouse")
         };
-        c.addEventListener("webglcontextlost", function (e) { e.preventDefault(); shaderStop(); shd.failed = true; }, false);
+        c.addEventListener("webglcontextlost", function (e) { e.preventDefault(); if (shd.canvas === c) _shaderLost(); }, false);
         host.insertBefore(c, host.firstChild);
         shd.canvas = c; shd.gl = gl; shd.prog = p; shd.key = key; shd.t0 = 0;
         shaderResize();
@@ -166,7 +182,7 @@ function shaderFrame(ts) {
             gl.uniform3f(shd.u.base, bas[0] / 255, bas[1] / 255, bas[2] / 255);
             gl.uniform2f(shd.u.mouse, mouseNorm.x, mouseNorm.y);
             gl.drawArrays(gl.TRIANGLES, 0, 3);
-        } catch (e) { shaderStop(); shd.failed = true; return; }
+        } catch (e) { _shaderLost(); return; }
     }
     shd.raf = requestAnimationFrame(shaderFrame);
 }
@@ -180,5 +196,7 @@ function shaderStart() {
 function shaderStop() {
     if (shd.raf) { try { cancelAnimationFrame(shd.raf); } catch (e) {} shd.raf = 0; }
     if (shd.canvas) { try { shd.canvas.remove(); } catch (e) {} }
+    var gl = shd.gl;
     shd.canvas = null; shd.gl = null; shd.prog = null; shd.key = "";
+    _releaseGl(gl);   // после обнуления: событие потери контекста от нас самих уже ничего не тронет
 }

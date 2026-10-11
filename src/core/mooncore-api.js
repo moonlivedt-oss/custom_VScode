@@ -18,10 +18,17 @@ function onGlobal(target, ev, fn, opt) {
     } catch (e) {}
 }
 function trackOff(fn) { if (typeof fn === "function") _mlbgOff.push(fn); }
+// setTimeout, который снимется при выключении модуля и не сработает после него. Без этого,
+// например, знакомство через 4 с открывало панель уже выключенного фона.
+function later(fn, ms) {
+    var id = setTimeout(function () { if (!_mlbgStopped) fn(); }, ms);
+    trackOff(function () { clearTimeout(id); });
+    return id;
+}
 
 // Всё, что фон кладёт в DOM по id (стиль, кнопка статусбара, панель, виджеты, холсты).
 function mlbgOwnIds() {
-    return [STYLE_ID, SB_ID, PANEL_ID, PANEL_CSS_ID, QUICK_ID, QMENU_ID, TOUR_ID, BRANCH_ID,
+    return [STYLE_ID, SB_ID, PANEL_ID, PANEL_CSS_ID, QUICK_ID, QMENU_ID, TOUR_ID, BRANCH_ID, CONFIRM_ID,
         "mlbg-clock", "mlbg-pomo", "mlbg-stats", "mlbg-particles", "mlbg-cursor-trail", "mlbg-pet", "mlbg-shader", "mlbg-screensaver"];
 }
 
@@ -29,6 +36,16 @@ function mlbgOwnIds() {
 // включат снова, и фон встанет как был.
 function mlbgStop() {
     if (_mlbgStopped) return;
+    // Открытые окна снимают свои слушатели документа сами (панель, быстрое меню, переключатель,
+    // попап «?», знакомство, «что изменится») — закрываем их до того, как узлы просто удалятся.
+    [function () { confirmCancel(); }, function () { closePanel(); }, function () { closeQuickMenu(); },
+        function () { quickClose(true); }, function () { hideInfo(); }, function () { endTour(false); },
+        function () { screensaverHide(); }].forEach(function (f) { try { f(); } catch (e) {} });
+    // Несохранённый резерв на диске — дописать сейчас, остальные отложенные таймеры — снять.
+    try { if (_disk.timer) { clearTimeout(_disk.timer); diskSaveNow(); } } catch (e) {}
+    try { if (_imgCacheTimer) { clearTimeout(_imgCacheTimer); imgCacheFlush(); } } catch (e) {}
+    [function () { return _syncTimer; }, function () { return _liveFullTimer; }, function () { return _typingTimer; },
+        function () { return _histTimer; }].forEach(function (g) { try { var id = g(); if (id) clearTimeout(id); } catch (e) {} });
     _mlbgStopped = true;
     var off = _mlbgOff.splice(0);
     for (var i = off.length - 1; i >= 0; i--) { try { off[i](); } catch (e) {} }
@@ -38,6 +55,7 @@ function mlbgStop() {
     mlbgOwnIds().forEach(function (id) {
         try { var n = document.getElementById(id); if (n) n.remove(); } catch (e) {}
     });
+    try { Array.prototype.slice.call(document.querySelectorAll(".mlbg-toast")).forEach(function (n) { n.remove(); }); } catch (e) {}
     try {
         var cl = document.body && document.body.classList;
         if (cl) Array.prototype.slice.call(cl).forEach(function (c) { if (/^mlbg-/.test(c)) cl.remove(c); });

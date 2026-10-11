@@ -571,6 +571,8 @@ function togglePanel(ev) {
         var qm = document.getElementById(QMENU_ID);
         if (qm && qm.contains(e.target)) return;   // пункт быстрого меню сам решит, что делать с панелью
         if (_infoPop && _infoPop.contains(e.target)) return; // попап «?» может жить вне панели
+        var cf = document.getElementById(CONFIRM_ID);
+        if (cf && cf.contains(e.target)) return;   // окно «что изменится» над панелью
         closePanel();
     }
     document.addEventListener("keydown", onKey, true);

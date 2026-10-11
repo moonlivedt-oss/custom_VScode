@@ -72,32 +72,36 @@ function importCfg() {
         if (f.size > 256 * 1024) { toast(t("Файл слишком большой (>256 КБ)"), false); inp.remove(); return; }
         var rd = new FileReader();
         rd.onload = function () {
-            try {
-                var parsed = safeParse(String(rd.result));
-                var remote = countRemoteImgs(parsed); // считаем ДО санитизации (сырой файл)
-                backupCfg(); // текущие настройки -> резерв, чтобы неудачный импорт можно было откатить
-                cfg = mergeForeign(parsed); // санитизация + сетевые картинки принудительно выкл (чужой файл сам их не включит)
-                syncGenSets(); // импортированные ген-наборы -> в список сразу (иначе видны только после перезапуска)
-                // Вернуть активный набор, если файл ссылался на свой ген-набор: mergeCfg зажал mode
-                // до syncGenSets (SETS ещё не был расширен), поэтому индекс ген-набора сбросился бы на 0.
-                if (parsed && typeof parsed.mode === "string" && /^\d+$/.test(parsed.mode) && parseInt(parsed.mode, 10) < SETS.length) cfg.mode = parsed.mode;
-                sessionRandomIndex = null; // сбросить выбор random из прошлой сессии — переберётся под новый конфиг
-                apply(); refreshPanel();
-                // Предупреждаем о сетевых ссылках на картинки в импортированном файле. Они
-                // всегда заблокированы (mergeForeign выключил «Разрешить сетевые картинки»),
-                // но пользователь должен знать, что кто-то пытался увести редактор в сеть.
-                if (remote > 0) {
-                    toast(t("Импортировано. Заблокировано ") + remote + t(" сетевых ссылок на картинки — редактор в сеть не пойдёт. Сетевые картинки остаются выключены; включи их вручную, только если доверяешь источнику."), false);
-                } else {
-                    toast(t("Настройки импортированы"));
-                }
-            } catch (e) { toast(t("Ошибка: файл не читается как JSON"), false); }
+            importCfgText(String(rd.result));
             inp.remove();
         };
         rd.onerror = function () { toast(t("Не удалось прочитать файл"), false); inp.remove(); };
         rd.readAsText(f);
     });
     document.body.appendChild(inp); inp.click();
+}
+// Импорт текста конфига: сначала окно «что изменится» с примеркой, применение — по кнопке.
+// Файл может быть чужим, поэтому кандидат строится через mergeForeign (сетевые картинки выкл),
+// а ген-наборы файла учитываются ДО проверки индексов (candidateCfg) — активный ген-набор,
+// его яркость, акцент и привязки не теряются.
+function importCfgText(text) {
+    var parsed;
+    try { parsed = safeParse(String(text)); } catch (e) { toast(t("Ошибка: файл не читается как JSON"), false); return false; }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) { toast(t("Ошибка: файл не читается как JSON"), false); return false; }
+    var remote = countRemoteImgs(parsed); // считаем ДО санитизации (сырой файл)
+    confirmLook(t("Импорт настроек"), candidateCfg(parsed, true), function () {
+        backupCfg(); // текущие настройки -> резерв, чтобы неудачный импорт можно было откатить
+        commitCfg(candidateCfg(parsed, true));
+        apply(); refreshPanel();
+        // Сетевые ссылки на картинки всегда заблокированы (mergeForeign выключил «Разрешить
+        // сетевые картинки»), но пользователь должен знать, что кто-то пытался увести редактор в сеть.
+        if (remote > 0) {
+            toast(t("Импортировано. Заблокировано ") + remote + t(" сетевых ссылок на картинки — редактор в сеть не пойдёт. Сетевые картинки остаются выключены; включи их вручную, только если доверяешь источнику."), false);
+        } else {
+            toast(t("Настройки импортированы"));
+        }
+    });
+    return true;
 }
 // Тёмная подложка набора: у grad — первый цвет палитры, у proc — base, у фото-набора
 // (картинку в тему не затащить) — выводим тёмный тон из оттенка акцента.
@@ -154,7 +158,9 @@ function canRedo() { return _histRedo.length > 0; }
 // Восстановить снимок: через ту же санитизацию, что и импорт (defense-in-depth), и подавляя
 // запись собственного apply() в историю (иначе восстановление плодило бы новый шаг).
 function _histApply(json) {
-    cfg = mergeCfg(safeParse(json));
+    // Снимок несёт свои ген-наборы: хвост SETS под них, иначе после отмены создания набора
+    // он оставался бы в списке, но не сохранялся (и наоборот при повторе).
+    cfg = candidateCfg(safeParse(json)); syncGenSets();
     _histLast = _histNow();
     if (_histTimer) { clearTimeout(_histTimer); _histTimer = 0; }
     _histSuppress++;

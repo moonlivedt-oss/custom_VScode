@@ -20,7 +20,8 @@ fi
 
 # Если сборка изменила custom-bg.js (кто-то правил src, но не пересобрал) — до-добавляем
 # свежий артефакт в этот же коммит, чтобы в истории src и сборка всегда совпадали.
-if ! git diff --quiet -- custom-bg.js; then
-  git add custom-bg.js
-  echo "pre-commit: custom-bg.js пересобран из src/ и добавлен в коммит."
+# custom-bg.min.js — то, что грузит Moon Core (mooncore-module.json), поэтому он тоже в репозитории.
+if ! git diff --quiet -- custom-bg.js custom-bg.min.js; then
+  git add custom-bg.js custom-bg.min.js
+  echo "pre-commit: custom-bg.js и custom-bg.min.js пересобраны из src/ и добавлены в коммит."
 fi

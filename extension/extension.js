@@ -281,7 +281,9 @@ function fileUrl(p) { return pathToFileURL(p).href; }
 // Папки, которые пользователь сам выбрал в диалоге: перечитывать можно только их. Иначе любой
 // скрипт в окне VS Code мог бы попросить список картинок из произвольной папки диска.
 const DIRS_KEY = "moonlightBg.pickedDirs";
-function dirKey(d) { return path.resolve(String(d)).toLowerCase(); }
+// Пути на Windows и macOS (по умолчанию) нечувствительны к регистру, на Linux — чувствительны:
+// там две папки, различающиеся регистром, — разные папки.
+function dirKey(d) { const p = path.resolve(String(d)); return process.platform === "linux" ? p : p.toLowerCase(); }
 function pickedDirs() { const v = extCtx && extCtx.globalState.get(DIRS_KEY); return Array.isArray(v) ? v : []; }
 async function rememberDir(dir) {
     if (!extCtx) return;
@@ -321,6 +323,17 @@ async function onWindowRequest(method, body) {
         if (text.length > 256 * 1024) return { ok: false, error: "too big" };
         await extCtx.globalState.update(SYNC_KEY, { t: body.t, cfg: body.cfg });
         return { ok: true };
+    }
+    if (method === "projectSetWrite") {
+        // Записать набор в настройки проекта (.vscode/settings.json). Пустая строка — убрать.
+        // Пишется только короткая строка в один известный ключ — ничем, кроме выбора фона, это
+        // не управляет.
+        if (!vscode.workspace.workspaceFolders || !vscode.workspace.workspaceFolders.length) throw new Error("не открыта папка проекта");
+        const raw = body && typeof body.value === "string" ? body.value : "";
+        const value = raw.replace(/[\u0000-\u001f]/g, "").trim().slice(0, 60);
+        const conf = vscode.workspace.getConfiguration("moonlightBg");
+        await conf.update("projectSet", value || undefined, vscode.ConfigurationTarget.Workspace);
+        return { ok: true, value };
     }
     if (method === "listFolder") {
         const dir = body && typeof body.dir === "string" ? body.dir : "";

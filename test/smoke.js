@@ -468,7 +468,7 @@ var shareCode = sandbox.shareEncode();
 ok(typeof shareCode === "string" && shareCode.length > 0, "shareEncode: образ кодируется в непустую строку");
 sandbox.cfg = sandbox.mergeCfg({ mode: "5", accent: "#000000" });
 sandbox.cfg.imgBase = "file:///mine/"; sandbox.cfg.setImg = { "0": { editor: "mine.jpg" } };
-sandbox.applyShareCode(shareCode);
+sandbox.applyShareCode(shareCode); sandbox.confirmAccept(); // чужой код сначала показывается окном «что изменится»
 ok(sandbox.cfg.mode === "2" && sandbox.cfg.accent === "#abcdef", "applyShareCode: вид (набор/акцент) применился из кода");
 ok(sandbox.cfg.imgBase === "file:///mine/" && sandbox.cfg.setImg["0"].editor === "mine.jpg",
     "applyShareCode: свои картинки и путь плагина НЕ затронуты чужим кодом");
@@ -844,7 +844,7 @@ sandbox.cfg.partStyle = "dots";
 sandbox.cfg = sandbox.mergeCfg({ mode: "0", partStyle: "sakura" });
 var scode = sandbox.shareEncode();
 sandbox.cfg = sandbox.mergeCfg({ mode: "0", partStyle: "dots" });
-sandbox.applyShareCode(scode);
+sandbox.applyShareCode(scode); sandbox.confirmAccept();
 ok(sandbox.cfg.partStyle === "sakura", "shareEncode/applyShareCode: стиль частиц переносится кодом образа");
 sandbox.cfg.partStyle = "dots";
 
@@ -1659,7 +1659,7 @@ ok(lv.evil === undefined, "неизвестные поля отбрасываю�
 ok(sandbox.mlbgLive(null) !== undefined, "mlbgLive устойчив к вызову без аргументов");
 sandbox.window.__MLBG_LIVE__ = { branch: 123, errors: "много", languageId: { x: 1 } };
 var bad = sandbox.mlbgLive();
-ok(bad.branch === "" && bad.errors === 0 && bad.languageId === "", "значения не тех типов заменяются пустыми");
+ok(bad.branch === "" && bad.errors === null && bad.languageId === "", "значения не тех типов заменяются пустыми");
 
 // Приоритет: пока живые данные есть, DOM не спрашиваем.
 sandbox.window.__MLBG_LIVE__ = { branch: "release/1.2", errors: 7, folder: "живая-папка", remote: "acme/tool" };
@@ -1762,6 +1762,160 @@ console.log("\n-- новое API Moon Core --");
     sandbox.heal();
     sandbox.document.createElement = mk;
     ok(made === 0, "после выключения самолечение ничего не создаёт заново");
+})();
+
+// ============================================================
+//  Исправления аудита 2026-10-08 и новые возможности
+// ============================================================
+console.log("\n-- аудит: исправления --");
+
+// Под Moon Core модуль по умолчанию лежит файлом рядом с workbench.html (moonCore.moduleFiles):
+// у скрипта есть адрес, но это папка VS Code. Картинки должны браться из папки модуля от ядра.
+(function () {
+    // Исходники без обёртки IIFE — чтобы снаружи были видны IMG и zoneUrl.
+    var built = FILES.map(function (f) { return fs.readFileSync(path.join(__dirname, "..", f), "utf8"); }).join(String.fromCharCode(10));
+    var sb = makeSandbox();
+    sb.document.currentScript = {
+        src: "vscode-file://vscode-app/c:/vscode/out/vs/code/electron-browser/workbench/mooncore-mod-mlbg.js",
+        getAttribute: function (k) { return k === "data-mooncore-module" ? "mlbg" : null; }
+    };
+    sb.window.__MOONCORE__ = { module: function () { return { base: "vscode-file://vscode-app/d:/mods/vscode-bg/" }; } };
+    vm.runInNewContext(built, sb, { filename: "custom-bg.js" });
+    ok(sb._viaMoonCore === true, "moon-core (файл модуля): фон узнал, что запущен как модуль");
+    ok(sb.IMG === "vscode-file://vscode-app/d:/mods/vscode-bg/", "moon-core (файл модуля): картинки — из папки модуля, а не из папки workbench.html (" + sb.IMG + ")");
+    ok(sb.zoneUrl(0, "editor") === "vscode-file://vscode-app/d:/mods/vscode-bg/" + sb.SETS[0].editor, "moon-core (файл модуля): путь картинки набора собран от папки модуля");
+    // Без адреса от ядра — прежнее поведение (адрес скрипта): не ломаем загрузчики.
+    var sb2 = makeSandbox();
+    vm.runInNewContext(built, sb2, { filename: "custom-bg.js" });
+    ok(sb2.IMG === "vscode-file://vscode-app/test/vscode-bg/", "загрузчик без Moon Core: база картинок — папка скрипта");
+    // Старт с сохранённым ген-набором: хвост наборов готов ДО проверки индексов конфига.
+    var sb3 = makeSandbox();
+    var nBuiltin = sb2.GEN_BASE;
+    var saved = { genSets: [{ name: "Свой", grad: ["#111111", "#888888", "#444444"], accent: "#888888" }], mode: String(nBuiltin), setAccent: {} };
+    saved.setAccent[nBuiltin] = "#224466";
+    sb3.localStorage.setItem("moonlight-bg-config", JSON.stringify(saved));
+    vm.runInNewContext(built, sb3, { filename: "custom-bg.js" });
+    ok(sb3.cfg.mode === String(nBuiltin) && sb3.cfg.setAccent[nBuiltin] === "#224466" && sb3.SETS.length === nBuiltin + 1,
+       "старт: сохранённый ген-набор, его выбор и акцент пережили перезапуск");
+})();
+
+(function () {
+    var s = sandboxMod.loadRuntime();
+    var base = s.GEN_BASE;
+    // Импорт конфига с собственным ген-набором: его акцент, яркость, имя и привязка не теряются.
+    var raw = {
+        genSets: [{ name: "Ввозной", grad: ["#101010", "#a0a0a0", "#505050"], accent: "#a0a0a0" }],
+        mode: String(base), setAccent: {}, setOp: {}, setName: {}, workspaceSets: { proj: String(base) }
+    };
+    raw.setAccent[base] = "#123456"; raw.setOp[base] = { editor: 0.2 }; raw.setName[base] = "Мой";
+    var len0 = s.SETS.length;
+    var cand = s.candidateCfg(raw, true);
+    ok(s.SETS.length === len0, "candidateCfg: расчёт кандидата не меняет список наборов");
+    ok(cand.mode === String(base) && cand.setAccent[base] === "#123456" && cand.setOp[base] && cand.setOp[base].editor === 0.2 &&
+       cand.setName[base] === "Мой" && cand.workspaceSets.proj === String(base),
+       "импорт: ссылки на ген-набор файла (набор, акцент, яркость, имя, проект) сохраняются");
+    ok(s.importCfgText(JSON.stringify(raw)) === true, "importCfgText: файл разобран, показано окно «что изменится»");
+    ok(s.cfg.mode !== String(base), "импорт: до «Применить» конфиг не меняется");
+    s.confirmAccept();
+    ok(s.cfg.mode === String(base) && s.SETS.length === base + 1 && s.setName(base) === "Мой", "импорт: после «Применить» ген-набор в списке и активен");
+    ok(s.importCfgText("{не json") === false, "импорт: битый файл не открывает окно");
+
+    // Отмена/повтор знают про ген-наборы: снимок несёт свои наборы.
+    s.commitHistory && s.commitHistory();
+    var before = s.SETS.length;
+    s._histApply(JSON.stringify(s.mergeCfg({})));
+    ok(s.SETS.length === base && s.cfg.genSets.length === 0, "отмена: хвост наборов совпадает с genSets снимка");
+    s._histApply(JSON.stringify(s.candidateCfg(raw)));
+    ok(s.SETS.length === before && s.cfg.mode === String(base), "повтор: ген-набор вернулся вместе с выбором");
+
+    // Удаление ген-наборов чистит все ссылки, включая репозитории, время суток и избранное.
+    s.cfg.remoteSets = { "me/repo": String(base) };
+    s.cfg.autoTime.night = base; s.cfg.autoTime.morning = base;
+    s.cfg.ui.favSets[String(base)] = true;
+    s.cfg.setPos = {}; s.cfg.setPos[base] = { editor: "10% 10%" };
+    s.removeGenSets();
+    ok(!s.cfg.remoteSets["me/repo"] && s.cfg.autoTime.night === 0 && s.cfg.autoTime.morning === -1 &&
+       !s.cfg.ui.favSets[String(base)] && !s.cfg.setPos[base] && s.cfg.mode === "0",
+       "removeGenSets: висячие ссылки убраны (репозиторий, ночь, утро, избранное, точка фокуса, набор)");
+    ok(!s.mergeCfg({ setPos: { "99": { editor: "1% 1%" } } }).setPos["99"], "mergeCfg: точка фокуса для несуществующего набора отбрасывается");
+
+    // «Что изменится»: список изменений, примерка без записи, отмена.
+    var next = s.candidateCfg({ mode: "3", fx: { particles: !s.cfg.fx.particles }, baseOp: { editor: 0.31 } });
+    var diff = s.lookDiff(s.cfg, next);
+    ok(diff.length >= 3, "lookDiff: набор, эффект и яркость попали в список (" + diff.length + ")");
+    ok(s.lookDiff(s.cfg, s.clone(s.cfg)).length === 0, "lookDiff: одинаковые конфиги — пустой список");
+    var applied = 0, mode0 = s.cfg.mode;
+    s.confirmLook("тест", next, function () { applied++; });
+    s.confirmPreview(true);
+    ok(s.cfg.mode === "3", "примерка: вид кандидата показан");
+    s.confirmCancel();
+    ok(s.cfg.mode === mode0 && applied === 0, "отмена: вид вернулся, применение не вызвано");
+    s.confirmLook("тест", next, function () { applied++; });
+    s.confirmAccept();
+    ok(applied === 1, "«Применить» вызывает применение один раз");
+
+    // Части суток: утро и вечер — первые/последние edge часов дня.
+    s.cfg.autoTime = { on: true, day: 1, night: 2, morning: 3, evening: 4, edge: 2, from: 8, to: 20, mode: "hours", lat: 0, lon: 0 };
+    function at(h) { return s.dayPart(new Date(2026, 0, 10, h, 30)); }
+    ok(at(8) === "morning" && at(12) === "day" && at(19) === "evening" && at(22) === "night", "части суток: утро/день/вечер/ночь по границам дня");
+    ok(s.timeSetFor("morning") === 3 && s.timeSetFor("evening") === 4 && s.timeSetFor("night") === 2, "части суток: свои наборы утра и вечера");
+    s.cfg.autoTime.morning = -1;
+    ok(s.timeSetFor("morning") === 1, "части суток: утро «как днём» отдаёт дневной набор");
+    s.cfg.autoTime.from = 22; s.cfg.autoTime.to = 2;   // короткий день через полночь
+    ok(s.dayPart(new Date(2026, 0, 10, 22, 30)) === "morning" && s.dayPart(new Date(2026, 0, 10, 1, 30)) === "evening",
+       "части суток: день через полночь короче двух edge — утро и вечер делят его пополам");
+    var atm = s.mergeCfg({ autoTime: { morning: 999, evening: 5, edge: 40 } }).autoTime;
+    ok(atm.morning === -1 && atm.evening === 5 && atm.edge === 6, "mergeCfg: утро/вечер — индекс или -1, edge зажат в 1..6");
+
+    // Набор из файла проекта (moonlightBg.projectSet): имя или номер, важнее авто-правил.
+    s.cfg.autoTime.on = false;
+    var plasma = -1; for (var i = 0; i < s.SETS.length; i++) if (s.SETS[i].name === "Плазма") plasma = i;
+    s.window.__MLBG_LIVE__ = { projectSet: "плазма" };
+    ok(s.activeIndex() === plasma && s.activeRule().why === "project", "файл проекта: набор по имени (без учёта регистра) важнее всего");
+    s.window.__MLBG_LIVE__ = { projectSet: "5" };
+    ok(s.activeIndex() === 5, "файл проекта: набор по номеру");
+    s.window.__MLBG_LIVE__ = { projectSet: "нет такого" };
+    ok(s.projectFileIndex() === null && s.activeRule().why !== "project", "файл проекта: неизвестное имя игнорируется");
+    // Счётчик ошибок без данных о диагностике — null, и счёт берётся из статусбара.
+    s.window.__MLBG_LIVE__ = { languageId: "js" };
+    ok(s.liveNum("errors") === null, "живые данные без диагностики: ошибок не «0», а неизвестно");
+    s.window.__MLBG_LIVE__ = undefined;
+
+    // Синхронизация: авто-смена не отправляет вид, отправка ждёт первого подтягивания.
+    s._viaMoonCore = true; s.cfg.ui.sync = true;
+    s._syncTimer = 0;
+    s.autoChange(function () { s.saveCfg(); });
+    ok(!s._syncTimer, "синхронизация: авто-смена (слайдшоу, время суток) в Settings Sync не уходит");
+    s.syncHoldUntilPull();
+    s.saveCfg();
+    ok(!s._syncTimer && s._syncWaiting === true, "синхронизация: до первого подтягивания отправка придержана");
+    s.syncRelease();
+    ok(!!s._syncTimer && s._syncWaiting === false, "синхронизация: после подтягивания придержанная отправка уходит");
+    s._viaMoonCore = false; s.cfg.ui.sync = false;
+
+    // Резерв на диске укладывается в лимит файла данных Moon Core.
+    var big = s.clone(s.cfg); big.shaderSrc = new Array(7990).join("x");
+    big.library = []; for (var li = 0; li < 64; li++) big.library.push("file:///" + new Array(1000).join("p") + li);
+    var daily = []; for (var di = 0; di < 14; di++) daily.push({ day: "2026-01-" + (10 + di), cfg: big });
+    s.window.__MOONCORE__ = { module: function () { return { data: function () { return { daily: daily }; } }; } };
+    s._viaMoonCore = true;
+    var payload = s.diskPayload(JSON.stringify(big));
+    s._viaMoonCore = false; s.window.__MOONCORE__ = undefined;
+    ok(JSON.stringify(payload).length <= s.DISK_FILE_MAX && payload.daily.length >= 1, "резерв на диске: старые копии отброшены, файл в лимите (" + payload.daily.length + " копий)");
+
+    // Журнал ошибок не пустеет после лимита разных ошибок.
+    for (var ei = 0; ei < 80; ei++) s.logErr("тест", new Error("ошибка " + ei));
+    ok(s.errLog.length === s.ERR_KEEP, "журнал ошибок: после лимита держит последние " + s.ERR_KEEP + " записей (" + s.errLog.length + ")");
+
+    // Шейдер: контекст WebGL отдаётся сразу.
+    var lost = 0;
+    s._releaseGl({ getExtension: function (n) { return n === "WEBGL_lose_context" ? { loseContext: function () { lost++; } } : null; } });
+    ok(lost === 1, "шейдер: при остановке контекст WebGL освобождается");
+
+    // Выключение модуля снимает отложенные таймеры (later).
+    var offs = s._mlbgOff.length;
+    s.later(function () {}, 1000);
+    ok(s._mlbgOff.length === offs + 1, "later: отложенный вызов снимается при выключении модуля");
 })();
 
 // ============================================================

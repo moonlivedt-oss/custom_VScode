@@ -1,7 +1,7 @@
 {
   "name": "moonlight-custom-bg",
   "version": "20.0.0",
-  "description": "Кастомный фон и панель оформления для VS Code: картинки по зонам, наборы с палитрой, слайдшоу, живые эффекты, шейдерные фоны и движок читаемости. Грузится через be5invis.vscode-custom-css или subframe7536.custom-ui-style.",
+  "description": "Кастомный фон и панель оформления для VS Code: картинки по зонам, наборы с палитрой, слайдшоу, живые эффекты, шейдерные фоны и движок читаемости. Грузится ядром Moon Core как модуль mlbg.",
   "author": "moonlivedt (MoonLightDeath) <moonlivedt@gmail.com>",
   "license": "MIT",
   "private": true,
@@ -9,6 +9,8 @@
   "main": "custom-bg.js",
   "files": [
     "custom-bg.js",
+    "custom-bg.min.js",
+    "mooncore-module.json",
     "src",
     "assets"
   ],
@@ -41,10 +43,10 @@
   },
   "keywords": [
     "vscode",
-    "custom-css",
+    "moon-core",
     "background",
-    "theme",
-    "be5invis"
+    "wallpaper",
+    "theme"
   ],
   "//devDependencies": "Только для интеграционного теста (npm run test:e2e). Основной поток (build + smoke) зависимостей НЕ требует; ставь эту dev-зависимость лишь для e2e.",
   "devDependencies": {

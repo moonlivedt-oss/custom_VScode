@@ -51,11 +51,17 @@ function mlbgRpc(method, body) {
 function mooncoreBase() {
     var m = mooncoreModule();
     var b = (m && typeof m.base === "string") ? m.base : "";
-    if (!/^(?:vscode-file|file):\/\//i.test(b)) return "";
+    // Локальные схемы VS Code и петлевой http — его отдаёт стенд Moon Core (test/serve.js).
+    if (!/^(?:vscode-file|file):\/\//i.test(b) && !/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\//i.test(b)) return "";
     return /\/$/.test(b) ? b : b + "/";
 }
 
 var IMG = (function () {
+    // Под Moon Core адрес самого скрипта ничего не говорит о папке ресурсов: по умолчанию
+    // (moonCore.moduleFiles) ядро кладёт модуль файлом mooncore-mod-mlbg.js рядом с
+    // workbench.html, и «папкой скрипта» оказалась бы папка VS Code — фото-наборы не находились.
+    // Папку модуля точно знает только ядро, поэтому его ответ главнее.
+    if (_viaMoonCore) { var mb = mooncoreBase(); if (mb) return mb; }
     try {
         var src = (/** @type {HTMLScriptElement} */ (document.currentScript) || {}).src || "";
         var i = src.lastIndexOf("/");
@@ -291,20 +297,55 @@ var SETS_DROPPED = (function () {
 
 // ===== Сгенерированные наборы (по seed/палитре) =====
 // Пользователь создаёт согласованный набор из seed-строки или базового цвета (genSetFromSeed
-// в css.js). Такие наборы хранятся в cfg.genSets и ДОЗАГРУЖАЮТСЯ в хвост SETS при старте —
-// ПЕРЕД loadCfg(), чтобы санитизация mode/setOp/workspaceSets (проверка индекса < SETS.length)
-// уже учитывала их и выбранный сгенерированный набор переживал перезапуск.
-// GEN_BASE — индекс первого сгенерированного набора (граница «встроенные | пользовательские»).
+// в css.js). Такие наборы хранятся в cfg.genSets и живут в хвосте SETS (после GEN_BASE).
+// Главное правило: хвост SETS должен совпадать с genSets того конфига, который сейчас
+// санитизируется. mergeCfg проверяет индексы (mode, setOp, привязки к проектам...) по
+// SETS.length — если хвост ещё старый, ссылки на ген-наборы нового конфига молча выкидывались.
+// Поэтому любой новый конфиг принимается через adoptCfg: сначала хвост, потом санитизация.
 var GEN_BASE = SETS.length;
-(function _appendGenSets() {
-    try {
-        // Тот же источник, что возьмёт loadCfg: localStorage, вид от установщика или резерв на диске.
-        var src = startupSource();
-        var p = src && src.cfg;
-        var us = (p && typeof p === "object") ? sanitizeUserSets(p.genSets) : [];
-        for (var i = 0; i < us.length; i++) SETS.push(us[i]);
-    } catch (e) {}
-})();
+
+// Подогнать хвост SETS под genSets сырого (ещё не санитизированного) конфига.
+function prepareGenSets(raw) {
+    SETS.length = GEN_BASE;
+    var us = (raw && typeof raw === "object") ? sanitizeUserSets(raw.genSets) : [];
+    for (var i = 0; i < us.length; i++) SETS.push(us[i]);
+}
+// Принять сырой конфиг: хвост SETS под его ген-наборы, затем санитизация. foreign=true —
+// чужой источник (файл, пресет): сетевые картинки принудительно выключены (mergeForeign).
+function adoptCfg(raw, foreign) {
+    prepareGenSets(raw);
+    var c = foreign ? mergeForeign(raw) : mergeCfg(raw);
+    pruneSetRefs(c);
+    return c;
+}
+// Сырой конфиг с машинно-зависимыми ключами текущего (keys) — для применения образа, синхронизации
+// и базы из settings.json: чужое содержимое, но свои пути, привязки и ген-наборы.
+function withKept(raw, keys) {
+    var o = {}, k, i;
+    if (raw && typeof raw === "object") for (k in raw) if (Object.prototype.hasOwnProperty.call(raw, k)) o[k] = raw[k];
+    for (i = 0; i < keys.length; i++) if (typeof cfg !== "undefined" && cfg && keys[i] in cfg) o[keys[i]] = JSON.parse(JSON.stringify(cfg[keys[i]]));
+    return o;
+}
+
+// Убрать из конфига все ссылки на наборы, которых нет в SETS: после удаления ген-наборов или
+// подмены конфига висячий индекс вёл бы на пустую зону (или на чужой набор, появившийся позже).
+function pruneSetRefs(c) {
+    if (!c) return;
+    var n = SETS.length, k;
+    function bad(key) { return /^\d+$/.test(key) && parseInt(key, 10) >= n; }
+    [c.setOp, c.setAccent, c.setName, c.setImg, c.setPos, c.ui && c.ui.favSets].forEach(function (o) {
+        if (o && typeof o === "object") for (k in o) if (bad(k)) delete o[k];
+    });
+    [c.workspaceSets, c.branchSets, c.langSets, c.remoteSets].forEach(function (m) {
+        if (m && typeof m === "object") for (k in m) { var v = m[k]; if (typeof v !== "string" || bad(v)) delete m[k]; }
+    });
+    if (c.autoTime) ["day", "night", "morning", "evening"].forEach(function (kk) {
+        var v = c.autoTime[kk];
+        if (typeof v === "number" && v >= n) c.autoTime[kk] = (kk === "morning" || kk === "evening") ? -1 : 0;
+    });
+    var mi = parseInt(c.mode, 10);
+    if (!isNaN(mi) && mi >= n) c.mode = "0";
+}
 
 // Добавить один сгенерированный набор: нормализуем, кладём и в cfg.genSets (сохранится),
 // и в хвост SETS (виден сразу). Возвращает индекс нового набора или -1 (мусор) / -2 (лимит).
@@ -316,34 +357,32 @@ function addGenSet(s) {
     SETS.push(e);
     return SETS.length - 1;
 }
-// Убрать ВСЕ сгенерированные наборы (они всегда в хвосте, поэтому обрезаем SETS до GEN_BASE).
-// Чистим привязки к удалённым индексам (яркость/акцент/имя/картинки/выбранный набор), чтобы
-// не осталось «висячих» ссылок на несуществующие наборы.
+// Убрать ВСЕ сгенерированные наборы (они всегда в хвосте, поэтому обрезаем SETS до GEN_BASE)
+// и все ссылки на них.
 function removeGenSets() {
     SETS.length = GEN_BASE;
     cfg.genSets = [];
-    [cfg.setOp, cfg.setAccent, cfg.setName, cfg.setImg].forEach(function (o) {
-        if (o) for (var k in o) if (/^\d+$/.test(k) && parseInt(k, 10) >= SETS.length) delete o[k];
-    });
-    // карты «контекст -> индекс набора» (проект/ветка/язык): выкинуть висячие ссылки на удалённые наборы
-    [cfg.workspaceSets, cfg.branchSets, cfg.langSets].forEach(function (m) {
-        if (m) for (var mk in m) { var mv = m[mk]; if (typeof mv === "string" && parseInt(mv, 10) >= SETS.length) delete m[mk]; }
-    });
-    var mi = parseInt(cfg.mode, 10);
-    if (!isNaN(mi) && mi >= SETS.length) cfg.mode = "0";
+    pruneSetRefs(cfg);
 }
-// Пересобрать хвост SETS из cfg.genSets. Нужно после ПОЛНОЙ подмены cfg (импорт файла,
-// применение пресета, восстановление из резерва, применение кода образа, сброс к дефолту):
-// _appendGenSets дозагружает сгенерированные наборы только на СТАРТЕ (из localStorage, до
-// создания cfg), поэтому без этого импортированные ген-наборы не появлялись бы в списке до
-// перезапуска, а сброшенные — наоборот, висели бы в SETS. Обрезаем до встроенных (GEN_BASE),
-// нормализуем cfg.genSets тем же санитайзером и дозагружаем; затем чистим mode, если он указывал
-// на исчезнувший набор. Идемпотентна: повторный вызов при неизменном cfg ничего не ломает.
+// Пересобрать хвост SETS из cfg.genSets уже принятого конфига (страховка после ручной правки
+// cfg.genSets). Идемпотентна. Новый конфиг целиком принимать через adoptCfg, а не через неё.
 function syncGenSets() {
     SETS.length = GEN_BASE;
     var us = sanitizeUserSets(cfg.genSets || []);
     cfg.genSets = us; // нормализованная форма — та же, что уйдёт в localStorage
     for (var i = 0; i < us.length; i++) SETS.push(us[i]);
-    var mi = parseInt(cfg.mode, 10);
-    if (!isNaN(mi) && mi >= SETS.length) cfg.mode = "0";
+    pruneSetRefs(cfg);
+}
+// Кандидат в конфиг БЕЗ побочных эффектов: SETS после расчёта возвращается как был. Нужен,
+// чтобы показать, что изменит импорт или чужой образ, ещё до применения (confirmLook).
+function candidateCfg(raw, foreign) {
+    var tail = SETS.slice(GEN_BASE);
+    try { return adoptCfg(raw, foreign); }
+    finally { SETS.length = GEN_BASE; for (var i = 0; i < tail.length; i++) SETS.push(tail[i]); }
+}
+// Сделать кандидата текущим конфигом: хвост SETS под его ген-наборы, random переберётся заново.
+function commitCfg(c) {
+    cfg = c;
+    syncGenSets();
+    sessionRandomIndex = null;
 }

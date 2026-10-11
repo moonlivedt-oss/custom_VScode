@@ -112,6 +112,7 @@ function makeActiveRuleCard() {
     var nm = setName(r.idx);
     txt.appendChild(el("b", null, t("Сейчас: набор ") + r.idx + (nm ? " · " + nm : "")));
     var WHY = {
+        project: t("по файлу проекта") + (r.key ? " «" + r.key + "»" : ""),
         workspace: t("по проекту") + (r.key ? " «" + r.key + "»" : ""),
         remote: t("по репозиторию") + (r.key ? " «" + r.key + "»" : ""),
         branch: t("по ветке") + (r.key ? " «" + r.key + "»" : ""),
@@ -136,23 +137,31 @@ function buildTabAuto(tAuto) {
         t("Правила ниже — по старшинству: срабатывает верхнее включённое.")));
     function rule(n, title, on, info) { return collapsible(tAuto, title, info, { num: n, on: !!on }); }
 
-    var secWs = rule(1, "По проекту", cfg.autoWorkspace, "Набор под открытый проект и полоска-индикатор git-ветки. Держатся на чтении заголовка и статусбара VS Code.");
+    var secFile = rule(1, "Файл проекта", projectFileIndex() !== null, "Набор, записанный в .vscode/settings.json проекта: едет вместе с репозиторием и важнее всех правил ниже.");
+    secFile.appendChild(makeProjectFileUI());
+
+    var secWs = rule(2, "По проекту", cfg.autoWorkspace, "Набор под открытый проект и полоска-индикатор git-ветки. Держатся на чтении заголовка и статусбара VS Code.");
     secWs.appendChild(makeWorkspaceUI());
     secWs.appendChild(makeAmbientBranchToggle());
 
-    var secRemote = rule(2, "По репозиторию", cfg.autoRemote, "Набор под удалённый репозиторий (владелец/имя): один и тот же проект, склонированный в разные папки, получает один фон. Адрес репозитория берётся из git через компаньон-расширение — из вёрстки редактора его не достать.");
+    var secRemote = rule(3, "По репозиторию", cfg.autoRemote, "Набор под удалённый репозиторий (владелец/имя): один и тот же проект, склонированный в разные папки, получает один фон. Адрес репозитория берётся из git через компаньон-расширение — из вёрстки редактора его не достать.");
     secRemote.appendChild(makeRemoteAutoUI());
 
-    var secBranch = rule(3, "По ветке", cfg.autoBranch, "Набор под текущую git-ветку: main/master — один, фиче-ветки — другой. Приоритетнее слайдшоу и времени суток, но уступает «по проекту». Ветка читается из статусбара VS Code.");
+    var secBranch = rule(4, "По ветке", cfg.autoBranch, "Набор под текущую git-ветку: main/master — один, фиче-ветки — другой. Приоритетнее слайдшоу и времени суток, но уступает «по проекту». Ветка читается из статусбара VS Code.");
     secBranch.appendChild(makeBranchAutoUI());
 
-    var secLang = rule(4, "По языку", cfg.autoLang, "Набор под язык активного файла (по расширению): напр. .py — один набор, .md — другой. Самый частый контекст (низший приоритет). Расширение читается из подписи активной вкладки.");
+    var secLang = rule(5, "По языку", cfg.autoLang, "Набор под язык активного файла (по расширению): напр. .py — один набор, .md — другой. Самый частый контекст (низший приоритет). Расширение читается из подписи активной вкладки.");
     secLang.appendChild(makeLangAutoUI());
 
-    var secTime = rule(5, "По времени суток", cfg.autoTime && cfg.autoTime.on, "Днём — дневной набор, ночью — ночной. Имеет приоритет над слайдшоу; не работает в режиме «случайно».");
+    var secTime = rule(6, "По времени суток", cfg.autoTime && cfg.autoTime.on, "Днём — дневной набор, ночью — ночной; по желанию — свои наборы на утро и вечер. Имеет приоритет над слайдшоу; не работает в режиме «случайно».");
     secTime.appendChild(makeAutoTimeToggle());
+    if (cfg.autoTime && cfg.autoTime.on) secTime.appendChild(makeDayPartNow());
+    secTime.appendChild(makeSetPicker("morning", "Утро", INFO.autotime_parts));
     secTime.appendChild(makeSetPicker("day", "Дневной"));
+    secTime.appendChild(makeSetPicker("evening", "Вечер"));
     secTime.appendChild(makeSetPicker("night", "Ночной"));
+    if (cfg.autoTime && (cfg.autoTime.morning >= 0 || cfg.autoTime.evening >= 0))
+        secTime.appendChild(makeObjSlider(cfg.autoTime, "edge", "Утро и вечер, часов", 1, 6, 1, 0, INFO.autotime_edge, DEFAULTS.autoTime.edge));
     secTime.appendChild(makeAutoTimeMode());
     if (cfg.autoTime && cfg.autoTime.mode === "sun") {
         secTime.appendChild(makeObjSlider(cfg.autoTime, "lat", "Широта", -90, 90, 1, 0, INFO.autotime_lat, DEFAULTS.autoTime.lat));
@@ -162,7 +171,7 @@ function buildTabAuto(tAuto) {
         secTime.appendChild(makeObjSlider(cfg.autoTime, "to", "День до, ч", 0, 23, 1, 0, INFO.autotime_to, DEFAULTS.autoTime.to));
     }
 
-    var secSlide = rule(6, "Слайдшоу", cfg.slideshow && cfg.slideshow.on, "Автоматическая смена набора по кругу через заданный интервал.");
+    var secSlide = rule(7, "Слайдшоу", cfg.slideshow && cfg.slideshow.on, "Автоматическая смена набора по кругу через заданный интервал.");
     secSlide.appendChild(makeSlideToggle());
     if (cfg.slideshow.on) secSlide.appendChild(makeObjSlider(cfg.slideshow, "min", "Интервал, мин", 1, 120, 1, 0, INFO.slide_min, DEFAULTS.slideshow.min));
 }
@@ -354,8 +363,8 @@ function makeDailyCopiesUI() {
         b.addEventListener("click", function () {
             backupCfg();
             var keepUi = cfg.ui;
-            cfg = mergeCfg(x.cfg); cfg.ui = keepUi;
-            syncGenSets(); apply(); refreshPanel();
+            var next = candidateCfg(x.cfg); next.ui = keepUi;
+            commitCfg(next); apply(); refreshPanel();
             toast(t("Настройки возвращены на ") + x.day + t(" — отменить: «Восстановить прежние настройки»"));
         });
         keyActivate(b, b.title);

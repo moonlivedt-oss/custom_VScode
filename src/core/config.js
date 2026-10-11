@@ -52,7 +52,9 @@ var DEFAULTS = {
     // (from/to, часы 0–23); поддерживается «через полночь» (to < from). mode: "hours" — по
     // фиксированным часам; "sun" — по реальному рассвету/закату для координат lat/lon (без сети,
     // считается локально из даты; при "sun" from/to игнорируются). lat/lon — широта/долгота.
-    autoTime: { on: false, day: 0, night: 4, from: 8, to: 20, mode: "hours", lat: 0, lon: 0 },
+    // morning/evening — необязательные наборы на первые/последние edge часов дня (-1 — не задан,
+    // тогда это время отдаётся дневному набору): четыре части суток вместо двух.
+    autoTime: { on: false, day: 0, night: 4, morning: -1, evening: -1, edge: 2, from: 8, to: 20, mode: "hours", lat: 0, lon: 0 },
     fxp: { blur: 8, kbScale: 1.08, kbSpeed: 60, vignette: 0.32, partCount: 40, pomoMin: 25, auroraSpeed: 24, spotRadius: 320, tintStrength: 0.18 },
     fx: {
         kenburns: true, glassTabs: true, vignette: true, glassSide: true,
@@ -374,8 +376,7 @@ var sessionRandomIndex = null, switchMul = 1;
 // чтобы будущие изменения DEFAULTS не конфликтовали со старым localStorage/импортом.
 function migrateCfg(p) {
     if (!p || typeof p !== "object") return p;
-    var v = (typeof p.version === "number" && isFinite(p.version)) ? p.version : 0;
-    // (будущие миграции здесь, по возрастанию v)
+    // (будущие миграции здесь, по возрастанию версии p.version)
     p.version = CFG_VERSION;
     return p;
 }
@@ -453,9 +454,10 @@ function mergeCfg(p) {
         // фон по git-ветке: флаг + карта «ветка -> индекс набора» (санитизация как workspaceSets)
         if (typeof p.autoBranch === "boolean") c.autoBranch = p.autoBranch;
         c.branchSets = _sanSetMap(p.branchSets, 120);
-        // фон по языку/расширению активного файла: флаг + карта «расширение -> индекс набора»
+        // фон по удалённому репозиторию: флаг + карта «владелец/имя -> индекс набора»
         if (typeof p.autoRemote === "boolean") c.autoRemote = p.autoRemote;
         c.remoteSets = _sanSetMap(p.remoteSets, 140);
+        // фон по языку/расширению активного файла: флаг + карта «расширение -> индекс набора»
         if (typeof p.autoLang === "boolean") c.autoLang = p.autoLang;
         c.langSets = _sanSetMap(p.langSets, 32);
         // индикатор ветки: только булево
@@ -523,7 +525,7 @@ function mergeCfg(p) {
             }
         }
         // сгенерированные наборы: нормализуются как SETS, число ограничено GEN_MAX.
-        // Дозагрузка в хвост SETS — в _appendGenSets (ниже), при старте.
+        // Хвост SETS под них готовит prepareGenSets/adoptCfg (sets.js) ДО этой санитизации.
         if (Array.isArray(p.genSets)) c.genSets = sanitizeUserSets(p.genSets);
         // авто-яркость editor: только булево
         if (typeof p.autoDim === "boolean") c.autoDim = p.autoDim;
@@ -562,7 +564,7 @@ function mergeCfg(p) {
         if (p.setPos && typeof p.setPos === "object") {
             c.setPos = {};
             for (var _pi in p.setPos) {
-                if (!/^\d{1,2}$/.test(_pi)) continue;
+                if (!/^\d{1,2}$/.test(_pi) || parseInt(_pi, 10) >= SETS.length) continue;
                 var _po = p.setPos[_pi]; if (!_po || typeof _po !== "object") continue;
                 var _pz = {};
                 ["editor", "sidebar", "panel"].forEach(function (z) { if (isPosStr(_po[z])) _pz[z] = _po[z]; });
@@ -581,6 +583,12 @@ function mergeCfg(p) {
                 var vi = p.autoTime[kk];
                 if (typeof vi === "number" && vi >= 0 && vi < SETS.length) c.autoTime[kk] = Math.floor(vi);
             });
+            // утро/вечер: индекс набора или -1 («как днём»)
+            ["morning", "evening"].forEach(function (kk) {
+                var vi = p.autoTime[kk];
+                if (vi === -1 || (typeof vi === "number" && vi >= 0 && vi < SETS.length)) c.autoTime[kk] = Math.floor(vi);
+            });
+            if (typeof p.autoTime.edge === "number" && isFinite(p.autoTime.edge)) c.autoTime.edge = Math.min(6, Math.max(1, Math.round(p.autoTime.edge)));
             ["from", "to"].forEach(function (kk) {
                 var hv = p.autoTime[kk];
                 if (typeof hv === "number" && isFinite(hv)) c.autoTime[kk] = Math.min(23, Math.max(0, Math.floor(hv)));
@@ -665,10 +673,11 @@ function loadCfg() {
     // localStorage, а поверх него — вид от установщика; localStorage пуст (новая машина /
     // переустановка / крупный апдейт VS Code почистил хранилище) — резерв на диске от Moon Core:
     // это наш же последний конфиг, поэтому проходит через mergeCfg напрямую и своё согласие на
-    // сетевые картинки сохраняет. Источник общий с _appendGenSets (startupSource).
+    // сетевые картинки сохраняет. Хвост SETS под ген-наборы готовит prepareGenSets.
     var src = startupSource();
     if (src) {
         try {
+            prepareGenSets(src.cfg);         // хвост SETS под ген-наборы ДО проверки индексов
             var c = mergeCfg(src.cfg);
             cfgLoadedFrom = src.from;
             if (src.install) {
@@ -684,8 +693,9 @@ function loadCfg() {
     // Дальше — базовый конфиг из settings.json (window.__MLBG_SEED__ — едет через Settings
     // Sync): вид «переезжает» на новую машину сам. mergeCfg санитизирует чужой объект.
     var seed = seedConfig();
-    if (seed) { try { var c2 = mergeCfg(seed); cfgLoadedFrom = "seed"; return c2; } catch (e) {} }
+    if (seed) { try { prepareGenSets(seed); var c2 = mergeCfg(seed); cfgLoadedFrom = "seed"; return c2; } catch (e) {} }
     cfgLoadedFrom = "defaults";
+    prepareGenSets(null);
     return clone(DEFAULTS);
 }
 
@@ -766,14 +776,21 @@ function takeInstallLive() {
     markInstall(ins.id);
     if (!ins.force) return;
     backupCfg();
-    cfg = mergeCfg(overlayCfg(JSON.parse(JSON.stringify(cfg)), ins.cfg));
-    try { syncGenSets(); } catch (e) {}
+    cfg = adoptCfg(overlayCfg(JSON.parse(JSON.stringify(cfg)), ins.cfg));
     try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {}
     cfgLoadedFrom = "install";
     try { apply(); } catch (e) { logErr("вид от установщика", e); }
 }
+// Автоматическая правка (слайдшоу, время суток, библиотека, подтянутый с другой машины вид) —
+// не повод отправлять вид в Settings Sync: иначе каждый тик слайдшоу уходил бы на все машины, а
+// машина, только что подтянувшая чужой вид, тут же отправляла бы его обратно как «свой, новее».
+var _autoDepth = 0;
+function autoChange(fn) {
+    _autoDepth++; _histSuppress++;
+    try { fn(); } finally { _autoDepth--; _histSuppress--; }
+}
 function scheduleDiskSave() {
-    try { if (typeof scheduleSyncPush === "function") scheduleSyncPush(); } catch (e) {} // Settings Sync (looks.js)
+    try { if (!_autoDepth && typeof scheduleSyncPush === "function") scheduleSyncPush(); } catch (e) {} // Settings Sync (looks.js)
     if (!_viaMoonCore) return;
     _disk.pending = true;
     if (_disk.timer) clearTimeout(_disk.timer);
@@ -787,7 +804,7 @@ function diskSaveNow() {
     var text;
     try { text = JSON.stringify(cfg); } catch (e) { logErr("резерв конфига", e); return; }
     if (text.length > DISK_MAX) { _disk.lastErr = "конфиг больше 256 КБ"; return; }
-    m.saveData({ v: 1, app: APP_VERSION, t: Date.now(), cfg: JSON.parse(text), daily: dailyCopies(text) }).then(function (r) {
+    m.saveData(diskPayload(text)).then(function (r) {
         _disk.pending = false;
         if (r && r.ok) { _disk.lastOk = Date.now(); _disk.lastErr = ""; }
         else { _disk.lastErr = String((r && r.error) || "нет ответа"); logErr("резерв конфига", _disk.lastErr); }
@@ -796,6 +813,15 @@ function diskSaveNow() {
 // Ежедневные копии: по одной на день, последние 14 (как у cpp-docs-panel). Лежат в том же
 // файле данных модуля. Новая копия дня заменяет старую того же дня только при отличии.
 var DAILY_KEEP = 14;
+// Файл данных модуля в Moon Core ограничен 1 МБ. Конфиг плюс 14 копий при большой библиотеке
+// и своём шейдере в него не влезал — ядро отказывало в записи, и резерв переставал обновляться
+// вовсе. Старые копии отбрасываем, пока файл не уложится с запасом.
+var DISK_FILE_MAX = 900 * 1024;
+function diskPayload(text) {
+    var out = { v: 1, app: APP_VERSION, t: Date.now(), cfg: JSON.parse(text), daily: dailyCopies(text) };
+    while (out.daily.length && JSON.stringify(out).length > DISK_FILE_MAX) out.daily.pop();
+    return out;
+}
 function dailyList() {
     try {
         var m = mooncoreModule(), d = (m && typeof m.data === "function") ? m.data() : null;
@@ -852,6 +878,15 @@ function saveCfg() {
 // спасает только ручной экспорт в файл. Лимит длины — как у loadCfg/импорта.
 function backupCfg() { try { localStorage.setItem(BACKUP_KEY, JSON.stringify(cfg)); } catch (e) {} }
 function hasBackup() { try { var r = localStorage.getItem(BACKUP_KEY); return !!(r && r.length <= 256 * 1024); } catch (e) { return false; } }
+// Сырой резерв (до санитизации): принимать через candidateCfg, чтобы ссылки на ген-наборы
+// резерва проверялись по его же наборам, а не по текущим.
+function readBackupRaw() {
+    try {
+        var raw = localStorage.getItem(BACKUP_KEY);
+        if (raw && raw.length <= 256 * 1024) return safeParse(raw);
+    } catch (e) {}
+    return null;
+}
 function readBackup() {
     try {
         var raw = localStorage.getItem(BACKUP_KEY);

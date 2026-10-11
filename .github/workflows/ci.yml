@@ -29,14 +29,15 @@ jobs:
       - name: Smoke test
         run: node test/smoke.js
 
-      # Собранный custom-bg.js должен совпадать с пересборкой из src/ —
-      # иначе кто-то поправил src, но забыл `node build.js`. git diff это ловит.
-      - name: Артефакт пересобран из src/
+      # Собранные custom-bg.js и custom-bg.min.js должны совпадать с пересборкой из src/ —
+      # иначе кто-то поправил src, но забыл `node build.js`. Сжатую сборку грузит Moon Core
+      # (mooncore-module.json), без неё модуль из клона репозитория не запустится.
+      - name: Артефакты пересобраны из src/
         run: |
           node build.js
-          if ! git diff --quiet -- custom-bg.js; then
-            echo "::error::custom-bg.js не совпадает с пересборкой из src/. Запусти 'node build.js' и закоммить результат."
-            git diff --stat -- custom-bg.js
+          if ! git diff --quiet -- custom-bg.js custom-bg.min.js || [ -n "$(git status --porcelain -- custom-bg.min.js)" ]; then
+            echo "::error::custom-bg.js / custom-bg.min.js не совпадают с пересборкой из src/. Запусти 'node build.js' и закоммить результат."
+            git status --short -- custom-bg.js custom-bg.min.js
             exit 1
           fi
 

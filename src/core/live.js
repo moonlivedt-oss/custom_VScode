@@ -66,16 +66,21 @@ function mlbgLive() {
         if (!d || typeof d !== "object") return null;
         function str(v, max) { return (typeof v === "string") ? v.slice(0, max) : ""; }
         function num(v) { return (typeof v === "number" && isFinite(v) && v >= 0) ? Math.round(v) : 0; }
+        // Счётчики, которых в данных нет (пришло только событие редактора), — null, а не 0:
+        // иначе «ошибок 0» перекрывало бы чтение статусбара, где они на самом деле есть.
+        function cnt(v) { return (typeof v === "number" && isFinite(v) && v >= 0) ? Math.round(v) : null; }
         return {
             rev: num(d.rev),
             branch: str(d.branch, 80),
             remote: str(d.remote, 120),
             dirty: d.dirty === true,
-            errors: num(d.errors),
-            warnings: num(d.warnings),
+            errors: cnt(d.errors),
+            warnings: cnt(d.warnings),
             languageId: str(d.languageId, 40).toLowerCase().replace(/[^a-z0-9_+-]/g, ""),
             fileExt: str(d.fileExt, 16).toLowerCase().replace(/[^a-z0-9_]/g, ""),
-            folder: str(d.folder, 120)
+            folder: str(d.folder, 120),
+            // Набор из файла проекта (.vscode/settings.json -> moonlightBg.projectSet): имя или номер.
+            projectSet: str(d.projectSet, 60)
         };
     } catch (e) { return null; }
 }

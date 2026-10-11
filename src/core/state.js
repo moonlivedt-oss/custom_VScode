@@ -75,6 +75,25 @@ function langIndex() {
     if (typeof v === "string" && /^\d+$/.test(v)) { var i = parseInt(v, 10); if (i >= 0 && i < SETS.length) return i; }
     return null;
 }
+// ===== Набор из файла проекта =====
+// В .vscode/settings.json проекта можно записать "moonlightBg.projectSet": "Плазма" (имя набора
+// или его номер). Файл едет вместе с репозиторием: на любой машине и в любой папке клона проект
+// откроется со своим фоном — в отличие от «по проекту», которое помнит имя папки на этой машине.
+// Значение приносит компаньон (живые данные); это лишь выбор одного из своих наборов, поэтому
+// чужой репозиторий ничем, кроме фона, управлять через него не может.
+function projectSetValue() { return (typeof liveStr === "function" && liveStr("projectSet")) || ""; }
+// Номер набора по значению из файла: номер — как есть, имя — без учёта регистра (сначала своё
+// имя набора, потом родное). Не нашёлся — null.
+function resolveSetRef(v) {
+    v = String(v || "").trim();
+    if (!v) return null;
+    if (/^\d+$/.test(v)) { var n = parseInt(v, 10); return n < SETS.length ? n : null; }
+    var low = v.toLowerCase(), i;
+    for (i = 0; i < SETS.length; i++) if (String(setName(i)).toLowerCase() === low) return i;
+    for (i = 0; i < SETS.length; i++) if (SETS[i] && String(SETS[i].name).toLowerCase() === low) return i;
+    return null;
+}
+function projectFileIndex() { return resolveSetRef(projectSetValue()); }
 // previewMode — индекс набора, «примеряемого» при наведении на его чип в панели
 // (см. previewSet/previewEnd в controls.js). Пока он задан, весь UI считает активным
 // именно его — поэтому превью работает и в режиме «случайно», и при «фоне по проекту»,
@@ -83,6 +102,9 @@ var previewMode = null;
 function activeIndex() {
     // Превью при наведении важнее всего — иначе оно не перебило бы «фон по проекту».
     if (previewMode !== null && previewMode >= 0 && previewMode < SETS.length) return previewMode;
+    // Набор, записанный в файл проекта, — самое явное решение: важнее всех авто-правил.
+    var pf = projectFileIndex();
+    if (pf !== null) return pf;
     // Контекстные приоритеты (все opt-in): проект важнее ветки, ветка важнее языка файла,
     // всё это важнее mode/слайдшоу/времени суток. Так при одновременном включении «побеждает»
     // более осознанный контекст (закреплённый проект), а язык файла — самый частый и низший.
@@ -104,10 +126,11 @@ function activeIndex() {
 }
 // Почему сейчас показан именно этот набор: то же дерево приоритетов, что в activeIndex, но
 // с причиной. Для строки «Сейчас работает» на вкладке «Авто-смена».
-// -> { idx, why: "workspace"|"remote"|"branch"|"lang"|"random"|"time"|"slide"|"manual", key }
+// -> { idx, why: "project"|"workspace"|"remote"|"branch"|"lang"|"random"|"time"|"slide"|"manual", key }
 function activeRule() {
     var r = { idx: activeIndex(), why: "manual", key: "" };
     try {
+        if (projectFileIndex() !== null) { r.why = "project"; r.key = projectSetValue(); return r; }
         if (workspaceIndex() !== null) { r.why = "workspace"; r.key = workspaceName() || ""; return r; }
         if (remoteIndex() !== null) { r.why = "remote"; r.key = (typeof liveStr === "function" && liveStr("remote")) || ""; return r; }
         if (branchIndex() !== null) { r.why = "branch"; r.key = (typeof gitBranch === "function" && gitBranch()) || ""; return r; }

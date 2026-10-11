@@ -17,7 +17,7 @@ Ken Burns, frosted glass, Aurora, spotlight · background per project · status-
 ![sets](https://img.shields.io/badge/sets-37-f5a97f)
 ![effects](https://img.shields.io/badge/effects-51-f38ba8)
 ![lang](https://img.shields.io/badge/language-RU%20%7C%20EN-89b4fa)
-![tests](https://img.shields.io/badge/tests-430%20ok-a6e3a1)
+![tests](https://img.shields.io/badge/tests-496%20ok-a6e3a1)
 ![deps](https://img.shields.io/badge/dependencies-0-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 

@@ -95,7 +95,7 @@ function showQuickMenu(anchor) {
     }
     // Режим презентации одной кнопкой: стиль «Презентация», повторный клик возвращает прежний вид.
     item(_presentPrev ? "Выключить режим презентации" : "Режим презентации", function () {
-        if (_presentPrev) { cfg = mergeCfg(safeParse(_presentPrev)); _presentPrev = ""; syncGenSets(); apply(); toast(t("Прежний вид возвращён")); }
+        if (_presentPrev) { commitCfg(candidateCfg(safeParse(_presentPrev))); _presentPrev = ""; apply(); toast(t("Прежний вид возвращён")); }
         else { _presentPrev = JSON.stringify(cfg); applyProfile("present"); toast(t("Режим презентации: фон тише, акценты крупнее")); }
         if (document.getElementById(PANEL_ID)) { try { refreshPanel(); } catch (e) {} }
     }, "");

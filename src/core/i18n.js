@@ -77,8 +77,6 @@ var EN = {
         "Create a coherent set from a seed string or a base color (#rrggbb): dark backdrop + accent + a harmonious companion. The same seed always yields the same set — shareable. Sets are saved and appended to the list.",
     "Автоматическая смена набора по кругу через заданный интервал.":
         "Automatically cycles through sets on a timer.",
-    "Днём — дневной набор, ночью — ночной. Имеет приоритет над слайдшоу; не работает в режиме «случайно».":
-        "Day set by day, night set by night. Takes priority over the slideshow; does not run in “random” mode.",
     "Набор под открытый проект и полоска-индикатор git-ветки. Держатся на чтении заголовка и статусбара VS Code.":
         "A set per open project and a git-branch indicator strip. Both rely on reading the VS Code title and status bar.",
     "Акцентный цвет интерфейса и фильтры фоновой картинки по зонам.":
@@ -405,7 +403,7 @@ var EN = {
     "Всё включено: живой фон, частицы, свечения — витрина возможностей.":
         "Everything on: living background, particles, glows — a showcase.",
     "Профиль применён: ": "Profile applied: ",
-    "MoonLight BG: открой панель кнопкой BG в статусбаре. Быстрый старт — «Данные → Профили»; колесо над кнопкой листает наборы, правый клик — быстрые действия.":
+    "MoonLight BG: открой панель кнопкой BG в статусбаре. Быстрый старт — «Эффекты → Стили»; колесо над кнопкой листает наборы, правый клик — быстрые действия.":
         "MoonLight BG: open the panel from the BG button in the status bar. Quick start — “Data → Profiles”; scroll over the button to flip sets, right-click for quick actions.",
 
     // -- Производительность --
@@ -714,5 +712,47 @@ var EN = {
     "Синхронизировать между машинами": "Sync between machines",
     "Подтянуть вид с другой машины": "Pull the look from another machine",
     "Между машинами": "Between machines",
-    "цвет": "color"
+    "цвет": "color",
+    "Фон: ": "Background: ",
+    "Свои наборы: ": "Custom sets: ",
+    "Акцент: ": "Accent: ",
+    "Акценты наборов: ": "Per-set accents: ",
+    "Яркость отдельных наборов": "Per-set brightness",
+    "Эффекты включатся: ": "Effects turned on: ",
+    "Эффекты выключатся: ": "Effects turned off: ",
+    "Слайдшоу: ": "Slideshow: ",
+    " мин": " min",
+    "По времени суток: ": "By time of day: ",
+    "Свои картинки": "Custom images",
+    "Привязки наборов к проектам, веткам и языкам": "Set bindings to projects, branches and languages",
+    "Язык панели: ": "Panel language: ",
+    "Свой шейдер": "Custom shader",
+    "Что изменится:": "What will change:",
+    "Ничего не изменится — вид такой же.": "Nothing will change — the look is the same.",
+    "и ещё ": "and more: ",
+    "Примерить": "Try on",
+    "Вернуть как было": "Revert",
+    "Отмена": "Cancel",
+    "Образ из кода": "Look from code",
+    "База из settings.json": "Base from settings.json",
+    "Утро": "Morning",
+    "Вечер": "Evening",
+    "как днём": "same as day",
+    "Утро и вечер, часов": "Morning and evening, hours",
+    "Сейчас: утро": "Now: morning",
+    "Сейчас: день": "Now: day",
+    "Сейчас: вечер": "Now: evening",
+    "Сейчас: ночь": "Now: night",
+    "Набор в файле проекта": "Set from the project file",
+    "Файл проекта": "Project file",
+    "по файлу проекта": "by the project file",
+    "В файле проекта набор не задан.": "No set in the project file.",
+    "В файле проекта: «": "In the project file: “",
+    "» — такого набора нет.": "” — no such set.",
+    "Набор, записанный в .vscode/settings.json проекта: едет вместе с репозиторием и важнее всех правил ниже.": "A set written into the project's .vscode/settings.json: travels with the repository and beats every rule below.",
+    "Днём — дневной набор, ночью — ночной; по желанию — свои наборы на утро и вечер. Имеет приоритет над слайдшоу; не работает в режиме «случайно».": "Day set by day, night set by night; optionally own sets for the morning and the evening. Takes priority over the slideshow; doesn't run in “random” mode.",
+    "Закрепить в файле проекта": "Pin in the project file",
+    "Убрать из файла проекта": "Remove from the project file",
+    "Набор записан в .vscode/settings.json проекта — он едет вместе с репозиторием": "The set is written to the project's .vscode/settings.json — it travels with the repository",
+    "Набор убран из .vscode/settings.json проекта": "The set was removed from the project's .vscode/settings.json"
 };

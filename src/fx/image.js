@@ -66,7 +66,8 @@ function imgCacheGet(url) {
             luma: typeof e.luma === "number" ? e.luma : null,
             accent: isColor(e.accent) ? e.accent : null,
             palette: Object.prototype.toString.call(e.palette) === "[object Array]" ? e.palette.filter(isColor).slice(0, 3) : null,
-            grid: (Object.prototype.toString.call(e.grid) === "[object Array]" && e.grid.length === 64) ? e.grid : null,
+            grid: (Object.prototype.toString.call(e.grid) === "[object Array]" && e.grid.length === 64 &&
+                e.grid.every(function (x) { return typeof x === "number" && isFinite(x); })) ? e.grid : null,
             thumb: (typeof e.thumb === "string" && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(e.thumb)) ? e.thumb : null
         };
     } catch (e) { return null; }

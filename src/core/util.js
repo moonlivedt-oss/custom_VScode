@@ -15,8 +15,10 @@ function logErr(where, e) {
         var key = w + "|" + msg;
         _errTotal++;
         if (_errByKey[key]) { _errByKey[key].n++; return; }
-        if (errLog.length + 1 > ERR_KEEP) errLog.shift();
+        // Сначала лимит разных ошибок, потом вытеснение: раньше шло наоборот, и после ERR_MAX
+        // каждая новая ошибка выталкивала старую запись, сама не добавляясь, — журнал пустел.
         if (Object.keys(_errByKey).length >= ERR_MAX) return;
+        if (errLog.length + 1 > ERR_KEEP) errLog.shift();
         var rec = { where: w, msg: msg, t: Date.now(), n: 1 };
         _errByKey[key] = rec;
         errLog.push(rec);
