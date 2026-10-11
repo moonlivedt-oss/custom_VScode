@@ -1,6 +1,6 @@
 <div align="center">
 
-[Русский](README.md) · **English**
+[Русский](README.md) / **English**
 
 <img src="docs/screenshots/logo.webp" alt="MoonLight custom-bg logo: a cat under a starry sky and the VS Code mark" width="120">
 
@@ -8,8 +8,8 @@
 
 ### A living background and a full theming panel for VS Code — right inside the editor
 
-Per-zone images · sets with their own palette · generative backgrounds with no assets · slideshow<br>
-Ken Burns, frosted glass, Aurora, spotlight · background per project · status-bar widgets · RU / EN interface
+Per-zone images / sets with their own palette / generative backgrounds with no assets / slideshow<br>
+Ken Burns, frosted glass, Aurora, spotlight / background per project / status-bar widgets / RU / EN interface
 
 [![CI](https://github.com/moonlivedt-oss/custom_VScode/actions/workflows/ci.yml/badge.svg)](https://github.com/moonlivedt-oss/custom_VScode/actions/workflows/ci.yml)
 ![version](https://img.shields.io/badge/version-v20-cba6f7)
@@ -23,7 +23,7 @@ Ken Burns, frosted glass, Aurora, spotlight · background per project · status-
 
 <img src="docs/screenshots/hero.webp" alt="MoonLight custom-bg in action: code, file tree and a set background" width="880">
 
-<sub>One self-contained script · zero npm dependencies · set up in a couple of clicks, no file editing</sub>
+<sub>One self-contained script / zero npm dependencies / set up in a couple of clicks, no file editing</sub>
 
 </div>
 
@@ -190,19 +190,19 @@ scrollbar, cursor, borders, active-line highlight — all change together with t
 
 <table>
   <tr valign="top">
-    <td align="center" width="33%"><img src="docs/screenshots/set-bloodmoon.webp" alt="Set: crimson castle and poppies behind code, red accent" width="280"><br><sub><b>Crimson Crowns</b> · photo</sub></td>
-    <td align="center" width="33%"><img src="docs/screenshots/set-cats.webp" alt="Set: starry night with a cat silhouette, lilac accent" width="280"><br><sub><b>Cat and Stars</b> · photo</sub></td>
-    <td align="center" width="33%"><img src="docs/screenshots/set-mist-scroll.webp" alt="Set: misty mountains and waterfalls" width="280"><br><sub><b>Mist Scroll</b> · photo</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-bloodmoon.webp" alt="Set: crimson castle and poppies behind code, red accent" width="280"><br><sub><b>Crimson Crowns</b> / photo</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-cats.webp" alt="Set: starry night with a cat silhouette, lilac accent" width="280"><br><sub><b>Cat and Stars</b> / photo</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-mist-scroll.webp" alt="Set: misty mountains and waterfalls" width="280"><br><sub><b>Mist Scroll</b> / photo</sub></td>
   </tr>
   <tr valign="top">
-    <td align="center"><img src="docs/screenshots/set-crystal-lake.webp" alt="Set: winter lake, blue accent" width="280"><br><sub><b>Crystal Lake</b> · photo</sub></td>
-    <td align="center"><img src="docs/screenshots/set-star-pier.webp" alt="Set: a cat on a roof and blooming sakura" width="280"><br><sub><b>Star Pier</b> · photo</sub></td>
-    <td align="center"><img src="docs/screenshots/set-falling-star.webp" alt="Set: sakura and a figure under a night sky" width="280"><br><sub><b>Falling Star Night</b> · photo</sub></td>
+    <td align="center"><img src="docs/screenshots/set-crystal-lake.webp" alt="Set: winter lake, blue accent" width="280"><br><sub><b>Crystal Lake</b> / photo</sub></td>
+    <td align="center"><img src="docs/screenshots/set-star-pier.webp" alt="Set: a cat on a roof and blooming sakura" width="280"><br><sub><b>Star Pier</b> / photo</sub></td>
+    <td align="center"><img src="docs/screenshots/set-falling-star.webp" alt="Set: sakura and a figure under a night sky" width="280"><br><sub><b>Falling Star Night</b> / photo</sub></td>
   </tr>
   <tr valign="top">
-    <td align="center"><img src="docs/screenshots/set-dunes.webp" alt="Procedural set: warm dune waves on canvas" width="280"><br><sub><b>Dunes</b> · procedural</sub></td>
-    <td align="center"><img src="docs/screenshots/set-grid.webp" alt="Procedural set: a techy grid on canvas" width="280"><br><sub><b>Grid</b> · procedural</sub></td>
-    <td align="center"><img src="docs/screenshots/set-cells.webp" alt="Procedural set: organic cells on canvas" width="280"><br><sub><b>Cells</b> · procedural</sub></td>
+    <td align="center"><img src="docs/screenshots/set-dunes.webp" alt="Procedural set: warm dune waves on canvas" width="280"><br><sub><b>Dunes</b> / procedural</sub></td>
+    <td align="center"><img src="docs/screenshots/set-grid.webp" alt="Procedural set: a techy grid on canvas" width="280"><br><sub><b>Grid</b> / procedural</sub></td>
+    <td align="center"><img src="docs/screenshots/set-cells.webp" alt="Procedural set: organic cells on canvas" width="280"><br><sub><b>Cells</b> / procedural</sub></td>
   </tr>
 </table>
 
@@ -365,5 +365,5 @@ MIT — see [LICENSE](LICENSE). Background sets and palettes are part of the pro
 <div align="center">
   <sub><b>MoonLight custom-bg</b> — one script, zero dependencies, the whole look in your hands.</sub>
   <br>
-  <sub>Found a bug or have an idea? — <a href="https://github.com/moonlivedt-oss/custom_VScode/issues">Issues</a> · <a href="https://github.com/moonlivedt-oss/custom_VScode/discussions">Discussions</a></sub>
+  <sub>Found a bug or have an idea? — <a href="https://github.com/moonlivedt-oss/custom_VScode/issues">Issues</a> / <a href="https://github.com/moonlivedt-oss/custom_VScode/discussions">Discussions</a></sub>
 </div>

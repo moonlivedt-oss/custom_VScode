@@ -1,6 +1,6 @@
 <div align="center">
 
-**Русский** · [English](README.en.md)
+**Русский** / [English](README.en.md)
 
 <img src="docs/screenshots/logo.webp" alt="Логотип MoonLight custom-bg: кот под звёздным небом и логотип VS Code" width="120">
 
@@ -8,8 +8,8 @@
 
 ### Живой фон и полноценная панель оформления для VS Code — прямо в редакторе
 
-Картинки по зонам · наборы с собственной палитрой · генеративные фоны без ассетов · слайдшоу<br>
-Ken Burns, матовое стекло, Aurora, спотлайт · фон под проект · виджеты статусбара · интерфейс RU / EN
+Картинки по зонам / наборы с собственной палитрой / генеративные фоны без ассетов / слайдшоу<br>
+Ken Burns, матовое стекло, Aurora, спотлайт / фон под проект / виджеты статусбара / интерфейс RU / EN
 
 [![CI](https://github.com/moonlivedt-oss/custom_VScode/actions/workflows/ci.yml/badge.svg)](https://github.com/moonlivedt-oss/custom_VScode/actions/workflows/ci.yml)
 ![version](https://img.shields.io/badge/version-v20-cba6f7)
@@ -23,7 +23,7 @@ Ken Burns, матовое стекло, Aurora, спотлайт · фон по�
 
 <img src="docs/screenshots/hero.webp" alt="MoonLight custom-bg в работе: код, дерево файлов и фоновая картинка набора" width="880">
 
-<sub>Один самодостаточный скрипт · ноль npm-зависимостей · настройка в пару кликов, без правки файлов</sub>
+<sub>Один самодостаточный скрипт / ноль npm-зависимостей / настройка в пару кликов, без правки файлов</sub>
 
 </div>
 
@@ -276,19 +276,19 @@ Ken Burns, матовое стекло, Aurora, спотлайт · фон по�
 
 <table>
   <tr valign="top">
-    <td align="center" width="33%"><img src="docs/screenshots/set-bloodmoon.webp" alt="Набор «Алые кроны»: багряный замок и маки за кодом, красный акцент" width="280"><br><sub><b>Алые кроны</b> · фото</sub></td>
-    <td align="center" width="33%"><img src="docs/screenshots/set-cats.webp" alt="Набор «Кот и звёзды»: звёздная ночь и силуэт кота, сиреневый акцент" width="280"><br><sub><b>Кот и звёзды</b> · фото</sub></td>
-    <td align="center" width="33%"><img src="docs/screenshots/set-mist-scroll.webp" alt="Набор «Свиток тумана»: туманные горы и водопады" width="280"><br><sub><b>Свиток тумана</b> · фото</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-bloodmoon.webp" alt="Набор «Алые кроны»: багряный замок и маки за кодом, красный акцент" width="280"><br><sub><b>Алые кроны</b> / фото</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-cats.webp" alt="Набор «Кот и звёзды»: звёздная ночь и силуэт кота, сиреневый акцент" width="280"><br><sub><b>Кот и звёзды</b> / фото</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/set-mist-scroll.webp" alt="Набор «Свиток тумана»: туманные горы и водопады" width="280"><br><sub><b>Свиток тумана</b> / фото</sub></td>
   </tr>
   <tr valign="top">
-    <td align="center"><img src="docs/screenshots/set-crystal-lake.webp" alt="Набор «Хрустальное озеро»: зимнее озеро, голубой акцент" width="280"><br><sub><b>Хрустальное озеро</b> · фото</sub></td>
-    <td align="center"><img src="docs/screenshots/set-star-pier.webp" alt="Набор «Звёздный причал»: кот на крыше и цветущая сакура" width="280"><br><sub><b>Звёздный причал</b> · фото</sub></td>
-    <td align="center"><img src="docs/screenshots/set-falling-star.webp" alt="Набор «Ночь падающей звезды»: сакура и фигура под ночным небом" width="280"><br><sub><b>Ночь падающей звезды</b> · фото</sub></td>
+    <td align="center"><img src="docs/screenshots/set-crystal-lake.webp" alt="Набор «Хрустальное озеро»: зимнее озеро, голубой акцент" width="280"><br><sub><b>Хрустальное озеро</b> / фото</sub></td>
+    <td align="center"><img src="docs/screenshots/set-star-pier.webp" alt="Набор «Звёздный причал»: кот на крыше и цветущая сакура" width="280"><br><sub><b>Звёздный причал</b> / фото</sub></td>
+    <td align="center"><img src="docs/screenshots/set-falling-star.webp" alt="Набор «Ночь падающей звезды»: сакура и фигура под ночным небом" width="280"><br><sub><b>Ночь падающей звезды</b> / фото</sub></td>
   </tr>
   <tr valign="top">
-    <td align="center"><img src="docs/screenshots/set-dunes.webp" alt="Процедурный набор «Дюны»: тёплые волны-дюны на canvas" width="280"><br><sub><b>Дюны</b> · процедурный</sub></td>
-    <td align="center"><img src="docs/screenshots/set-grid.webp" alt="Процедурный набор «Сетка»: техно-сетка на canvas" width="280"><br><sub><b>Сетка</b> · процедурный</sub></td>
-    <td align="center"><img src="docs/screenshots/set-cells.webp" alt="Процедурный набор «Клетки»: органичные клетки на canvas" width="280"><br><sub><b>Клетки</b> · процедурный</sub></td>
+    <td align="center"><img src="docs/screenshots/set-dunes.webp" alt="Процедурный набор «Дюны»: тёплые волны-дюны на canvas" width="280"><br><sub><b>Дюны</b> / процедурный</sub></td>
+    <td align="center"><img src="docs/screenshots/set-grid.webp" alt="Процедурный набор «Сетка»: техно-сетка на canvas" width="280"><br><sub><b>Сетка</b> / процедурный</sub></td>
+    <td align="center"><img src="docs/screenshots/set-cells.webp" alt="Процедурный набор «Клетки»: органичные клетки на canvas" width="280"><br><sub><b>Клетки</b> / процедурный</sub></td>
   </tr>
 </table>
 
@@ -674,5 +674,5 @@ MIT — см. [LICENSE](LICENSE). Наборы фонов и палитры — 
 <div align="center">
   <sub><b>MoonLight custom-bg</b> — один скрипт, ноль зависимостей, весь вид в твоих руках.</sub>
   <br>
-  <sub>Нашёл баг или есть идея? — <a href="https://github.com/moonlivedt-oss/custom_VScode/issues">Issues</a> · <a href="https://github.com/moonlivedt-oss/custom_VScode/discussions">Discussions</a></sub>
+  <sub>Нашёл баг или есть идея? — <a href="https://github.com/moonlivedt-oss/custom_VScode/issues">Issues</a> / <a href="https://github.com/moonlivedt-oss/custom_VScode/discussions">Discussions</a></sub>
 </div>
