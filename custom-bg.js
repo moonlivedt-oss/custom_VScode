@@ -1379,8 +1379,8 @@
     // Строка для диагностики.
     function diskBackupInfo() {
         if (!_viaMoonCore) return "нет (нужен Moon Core)";
-        var from = cfgLoadedFrom === "disk" ? " · при старте восстановлен из резерва" :
-            cfgLoadedFrom === "install" ? " · применён вид из установщика" : "";
+        var from = cfgLoadedFrom === "disk" ? " | при старте восстановлен из резерва" :
+            cfgLoadedFrom === "install" ? " | применён вид из установщика" : "";
         if (_disk.lastErr) return "ошибка: " + _disk.lastErr + from;
         if (_disk.lastOk) {
             var d = new Date(_disk.lastOk);
@@ -2377,8 +2377,8 @@
         "Код образа скопирован в буфер": "Look code copied to clipboard",
         "Не удалось сформировать код": "Could not build the code",
         "Всё в порядке": "All good",
-        "Всё в порядке · отчёт скопирован": "All good · report copied",
-        "Есть проблемы · отчёт скопирован для issue": "Problems found · report copied for an issue",
+        "Всё в порядке | отчёт скопирован": "All good | report copied",
+        "Есть проблемы | отчёт скопирован для issue": "Problems found | report copied for an issue",
 
         // -- Служебные фрагменты / метки --
         "Эффект: ": "Effect: ",
@@ -2439,8 +2439,8 @@
         "BG выкл": "BG off",
         "Фон и дизайн — настройки": "Background & design — settings",
         "Фон и дизайн — настройки (фон выключен, Ctrl+Alt+0 — включить)": "Background & design — settings (background off, Ctrl+Alt+0 to enable)",
-        " · авто-набор по времени суток": " · auto set by time of day",
-        " · слайдшоу вкл": " · slideshow on",
+        " | авто-набор по времени суток": " | auto set by time of day",
+        " | слайдшоу вкл": " | slideshow on",
         " (набор: ": " (set: ",
 
         // -- Пресеты (aria / title) --
@@ -2449,8 +2449,8 @@
         "Удалить пресет ": "Delete preset ",
 
         // -- Диагностика: составные ключи скрейпинга --
-        "Картинка · ": "Image · ",
-        "Чтение из DOM · ": "DOM read · ",
+        "Картинка | ": "Image | ",
+        "Чтение из DOM | ": "DOM read | ",
         "СБОЙ": "FAIL",
         "git-ветка": "git branch",
         "счётчик ошибок": "error count",
@@ -2541,7 +2541,7 @@
         // -- Чипы наборов / слайдеры --
         "Двойной клик — сброс к значению по умолчанию": "Double-click — reset to default",
         "Не грузится: ": "Not loading: ",
-        " (редактор · сайдбар · панель)": " (editor · sidebar · panel)",
+        " (редактор | сайдбар | панель)": " (editor | sidebar | panel)",
         "Случайный набор": "Random set",
 
         // -- Онбординг / профили --
@@ -2673,7 +2673,7 @@
         "Авто-бюджет FPS выключен — эффекты не приглушаются": "Auto FPS budget off — effects aren’t dimmed",
         "FPS не измеряется (нет тяжёлых эффектов)": "FPS not measured (no heavy effects)",
         "Производительность: ~": "Performance: ~",
-        " FPS · эконом-режим: ": " FPS · power-saving: ",
+        " FPS | эконом-режим: ": " FPS | power-saving: ",
         "вкл": "on",
         "выкл": "off",
         "Потянуть — ширина панели": "Drag — panel width",
@@ -5730,7 +5730,7 @@
             var nm = setName(idx);
             var no = el("span", null, label); no.className = "mlp-set-no"; nmRow.appendChild(no);
             nmRow.appendChild(el("span", null, nm || t("Набор ") + label));
-            c.title = idx + (nm ? " · " + nm : "") + t(" (редактор · сайдбар · панель)");
+            c.title = idx + (nm ? " | " + nm : "") + t(" (редактор | сайдбар | панель)");
             // Звёздочка: любимые наборы попадают в быстрое меню у кнопки BG и в фильтр «только любимые».
             var fav = isFavSet(idx);
             var star = el("span", null, fav ? "\u2605" : "\u2606"); star.className = "mlp-set-star" + (fav ? " on" : "");
@@ -6030,7 +6030,7 @@
         var pinned = (name && cfg.workspaceSets) ? cfg.workspaceSets[name] : null;
         if (name && pinned != null) {
             box.appendChild(el("div", "padding:2px 3px 4px; color:var(--mlp-muted,#a6adc8); font-size:11px;",
-                t("Закреплён набор ") + pinned + (setName(parseInt(pinned, 10)) ? " · " + setName(parseInt(pinned, 10)) : "")));
+                t("Закреплён набор ") + pinned + (setName(parseInt(pinned, 10)) ? " | " + setName(parseInt(pinned, 10)) : "")));
             var forget = el("div", "margin-top:2px; padding:6px; text-align:center; border-radius:7px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.12); border:1px solid rgba(var(--mlbg-accent-rgb),0.28);", t("Забыть закрепление за проектом"));
             forget.addEventListener("click", function () { if (cfg.workspaceSets) delete cfg.workspaceSets[name]; apply(); refreshPanel(); });
             keyActivate(forget, t("Забыть закрепление набора за проектом"));
@@ -6062,7 +6062,7 @@
             var cur = (cfg[opts.map] && cfg[opts.map][key] != null) ? String(cfg[opts.map][key]) : "";
             var none = el("option", null, "—"); none.value = ""; sel.appendChild(none);
             for (var i = 0; i < SETS.length; i++) {
-                var o = el("option", null, i + " · " + setName(i)); o.value = String(i);
+                var o = el("option", null, i + " | " + setName(i)); o.value = String(i);
                 if (o.value === cur) o.selected = true; sel.appendChild(o);
             }
             sel.addEventListener("change", function () {
@@ -6185,7 +6185,7 @@
             sel.appendChild(none);
         }
         for (var i = 0; i < SETS.length; i++) {
-            var o = el("option", null, i + " · " + setName(i)); o.value = String(i);
+            var o = el("option", null, i + " | " + setName(i)); o.value = String(i);
             if (cfg.autoTime && cfg.autoTime[which] === i) o.selected = true;
             sel.appendChild(o);
         }
@@ -6213,7 +6213,7 @@
         var v = projectSetValue(), idx = projectFileIndex();
         var line = !v ? t("В файле проекта набор не задан.")
             : (idx === null ? t("В файле проекта: «") + v + t("» — такого набора нет.")
-                : t("Набор в файле проекта") + ": " + idx + (setName(idx) ? " · " + setName(idx) : ""));
+                : t("Набор в файле проекта") + ": " + idx + (setName(idx) ? " | " + setName(idx) : ""));
         box.appendChild(el("div", "padding:4px 3px; color:var(--mlp-muted,#a6adc8); font-size:11px;", line));
         var row = el("div", "display:flex; gap:6px; flex-wrap:wrap;");
         function btn(label, fn) {
@@ -6653,7 +6653,7 @@
             else {
                 var fps = Math.round((typeof perf !== "undefined" && perf.fps) ? perf.fps : 60);
                 var save = !!(typeof perf !== "undefined" && perf.save);
-                txt = t("Производительность: ~") + fps + t(" FPS · эконом-режим: ") + (save ? t("вкл") : t("выкл"));
+                txt = t("Производительность: ~") + fps + t(" FPS | эконом-режим: ") + (save ? t("вкл") : t("выкл"));
                 line.style.color = save ? "#f9e2af" : "var(--mlp-faint,#6c7086)";
             }
             line.textContent = txt;
@@ -7461,7 +7461,7 @@
     function _modeLabel(c) {
         if (c.mode === "random") return t("случайно");
         var i = parseInt(c.mode, 10);
-        return isNaN(i) ? String(c.mode) : (t("Набор ") + i + (setNameIn(c, i) ? " · " + setNameIn(c, i) : ""));
+        return isNaN(i) ? String(c.mode) : (t("Набор ") + i + (setNameIn(c, i) ? " | " + setNameIn(c, i) : ""));
     }
     // Имя набора в конфиге c (его setName и его ген-наборы), а не в текущем.
     function setNameIn(c, i) {
@@ -7892,7 +7892,7 @@
             : isProcSet(idx) ? " (проц.)"
             : isGradSet(idx) ? " (град.)"
             : (SETS[idx] && SETS[idx].master) ? " (мастер-кадр)" : " (фото)";
-        add("Активный набор", idx + " · " + (setName(idx) || "?") + kind);
+        add("Активный набор", idx + " | " + (setName(idx) || "?") + kind);
         var base = imgBase();
         add("Папка картинок", (base || "(путь не определён)") + (cfg.imgBase ? "  [задана вручную]" : "  [авто]"));
         add("Сетевые картинки", cfg.allowRemoteImages ? t("разрешены") : t("выключены"));
@@ -7903,7 +7903,7 @@
         ["editor", "sidebar", "panel"].forEach(function (z, i) {
             var r = _zoneDiag(idx, z);
             if (r.bad) bad++;
-            lines.push(t("Картинка · ") + t(["редактор", "сайдбар", "панель"][i]) + ": " + r.s);
+            lines.push(t("Картинка | ") + t(["редактор", "сайдбар", "панель"][i]) + ": " + r.s);
         });
         add("Всего наборов", SETS.length + (SETS_DROPPED > 0 ? "  (отброшено битых: " + SETS_DROPPED + " — проверь правки SETS)" : ""));
         // «Здоровье» DOM-скрейпинга (git-ветка / счётчик ошибок / имя проекта): если селектор под
@@ -7913,7 +7913,7 @@
             var health = scrapeHealth();
             health.forEach(function (h) {
                 if (!h.ok) bad++;
-                lines.push(t("Чтение из DOM · ") + t(h.name) + ": " + (h.ok ? "" : t("СБОЙ") + " · ") + t(h.note));
+                lines.push(t("Чтение из DOM | ") + t(h.name) + ": " + (h.ok ? "" : t("СБОЙ") + " | ") + t(h.note));
             });
         }
         // Загрузчик: каким расширением внедрён скрипт. Компаньон кладёт это в
@@ -7929,9 +7929,9 @@
             var lv = mlbgLive();
             if (lv) {
                 lines.push(t("Живые данные") + ": " +
-                    t("ветка") + " " + (lv.branch || "—") + " · " +
-                    t("репозиторий") + " " + (lv.remote || "—") + " · " +
-                    t("язык") + " " + (lv.languageId || "—") + " · " +
+                    t("ветка") + " " + (lv.branch || "—") + " | " +
+                    t("репозиторий") + " " + (lv.remote || "—") + " | " +
+                    t("язык") + " " + (lv.languageId || "—") + " | " +
                     t("ошибок") + " " + (lv.errors === null ? "—" : lv.errors));
             }
         }
@@ -7979,8 +7979,8 @@
             var d = diagnostics();
             out.textContent = d.text; out.hidden = false;
             var copied = copyText(d.text);
-            toast(d.ok ? (copied ? t("Всё в порядке · отчёт скопирован") : t("Всё в порядке"))
-                       : t("Есть проблемы · отчёт скопирован для issue"), d.ok);
+            toast(d.ok ? (copied ? t("Всё в порядке | отчёт скопирован") : t("Всё в порядке"))
+                       : t("Есть проблемы | отчёт скопирован для issue"), d.ok);
         });
         box.appendChild(runB); box.appendChild(out);
         return box;
@@ -8221,7 +8221,7 @@
             list.forEach(function (idx) {
                 var th = el("div", null); th.className = "mlp-qset" + (idx === cur ? " on" : "");
                 try { paintSetPreview(th, idx); } catch (e) {}
-                th.title = idx + (setName(idx) ? " · " + setName(idx) : "");
+                th.title = idx + (setName(idx) ? " | " + setName(idx) : "");
                 th.addEventListener("mouseenter", function () { previewSet(idx); });
                 th.addEventListener("mouseleave", function () { previewEnd(); });
                 th.addEventListener("click", function () {
@@ -8299,7 +8299,7 @@
             item.title = t0; item.setAttribute("aria-label", t0);
             return;
         }
-        // Миниатюра набора + имя вместо «BG N · имя»: набор узнаётся по картинке.
+        // Миниатюра набора + имя вместо «BG N | имя»: набор узнаётся по картинке.
         a.textContent = "";
         var th = el("span", null); th.className = "mlbg-sb-thumb";
         th.style.cssText = "display:inline-block; position:relative; width:22px; height:13px; margin-right:6px; vertical-align:-2px; border-radius:3px; overflow:hidden; box-shadow:0 0 0 1px rgba(var(--mlbg-accent-rgb),0.6);";
@@ -8324,7 +8324,7 @@
             else { dot.style.background = "var(--mlbg-accent)"; dot.style.border = "none"; }
         } else if (dot) { dot.remove(); }
 
-        var modeTxt = auto ? t(" · авто-набор по времени суток") : (slide ? t(" · слайдшоу вкл") : "");
+        var modeTxt = auto ? t(" | авто-набор по времени суток") : (slide ? t(" | слайдшоу вкл") : "");
         var title = t("Фон и дизайн — настройки") + (nm ? t(" (набор: ") + nm + ")" : "") + modeTxt +
             t("\nКлик — панель, колесо — листать наборы, правый клик — быстрые действия");
         item.title = title; item.setAttribute("aria-label", title);
@@ -8790,7 +8790,7 @@
         // Активный набор показываем всегда — чтобы было видно, что выбрано.
         var favN = 0; for (var fi = 0; fi < SETS.length; fi++) if (isFavSet(fi)) favN++;
         var onlyFav = !!cfg.ui.favOnly;
-        secSet.appendChild(makeSeg("", [["all", "Все"], ["fav", t("Любимые") + (favN ? " · " + favN : "")]],
+        secSet.appendChild(makeSeg("", [["all", "Все"], ["fav", t("Любимые") + (favN ? " | " + favN : "")]],
             function () { return onlyFav ? "fav" : "all"; },
             function (v) {
                 cfg.ui.favOnly = v === "fav"; saveCfg(); refreshPanel();
@@ -8829,7 +8829,7 @@
         card.appendChild(pv);
         var txt = el("div", null); txt.className = "mlp-now-t";
         var nm = setName(r.idx);
-        txt.appendChild(el("b", null, t("Сейчас: набор ") + r.idx + (nm ? " · " + nm : "")));
+        txt.appendChild(el("b", null, t("Сейчас: набор ") + r.idx + (nm ? " | " + nm : "")));
         var WHY = {
             project: t("по файлу проекта") + (r.key ? " «" + r.key + "»" : ""),
             workspace: t("по проекту") + (r.key ? " «" + r.key + "»" : ""),
@@ -10055,7 +10055,7 @@
     function paintStats() {
         var e0 = document.getElementById("mlbg-stats"); if (!e0) return; var a = e0.querySelector("a"); if (!a) return;
         var en = uiLang() === "en";
-        a.textContent = fmtDur(Date.now() - statsState.start) + " · " + statsState.fileCount + (en ? "f" : "ф") + " · " + statsState.keys + (en ? "k" : "к");
+        a.textContent = fmtDur(Date.now() - statsState.start) + " | " + statsState.fileCount + (en ? "f" : "ф") + " | " + statsState.keys + (en ? "k" : "к");
     }
 
     function syncWidgets() {
@@ -10666,7 +10666,7 @@
             : ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
         saver._clock.textContent = pad2(d.getHours()) + ":" + pad2(d.getMinutes());
         saver._date.textContent = days[d.getDay()] + ", " + pad2(d.getDate()) + "." + pad2(d.getMonth() + 1);
-        try { var i = activeIndex(), nm = setName(i); saver._setn.textContent = nm ? (t("Набор ") + i + " · " + nm) : ""; } catch (e) {}
+        try { var i = activeIndex(), nm = setName(i); saver._setn.textContent = nm ? (t("Набор ") + i + " | " + nm) : ""; } catch (e) {}
     }
     function screensaverTick() {
         if (!cfg.enabled || !cfg.screensaver || !cfg.screensaver.on || document.hidden) { if (saver.active) screensaverHide(); return; }
@@ -10934,7 +10934,7 @@
         cfg.mode = String(next); // из «случайно» — переходим на конкретный набор
         applyFade();
         if (document.getElementById(PANEL_ID)) refreshPanel();
-        try { toast(t("Набор ") + next + (setName(next) ? " · " + setName(next) : "")); } catch (e) {}
+        try { toast(t("Набор ") + next + (setName(next) ? " | " + setName(next) : "")); } catch (e) {}
     }
     function onHotkey(e) {
         try {

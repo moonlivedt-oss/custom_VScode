@@ -97,7 +97,7 @@ function makeChip(mode, label) {
         var nm = setName(idx);
         var no = el("span", null, label); no.className = "mlp-set-no"; nmRow.appendChild(no);
         nmRow.appendChild(el("span", null, nm || t("Набор ") + label));
-        c.title = idx + (nm ? " · " + nm : "") + t(" (редактор · сайдбар · панель)");
+        c.title = idx + (nm ? " | " + nm : "") + t(" (редактор | сайдбар | панель)");
         // Звёздочка: любимые наборы попадают в быстрое меню у кнопки BG и в фильтр «только любимые».
         var fav = isFavSet(idx);
         var star = el("span", null, fav ? "\u2605" : "\u2606"); star.className = "mlp-set-star" + (fav ? " on" : "");
@@ -397,7 +397,7 @@ function makeWorkspaceUI() {
     var pinned = (name && cfg.workspaceSets) ? cfg.workspaceSets[name] : null;
     if (name && pinned != null) {
         box.appendChild(el("div", "padding:2px 3px 4px; color:var(--mlp-muted,#a6adc8); font-size:11px;",
-            t("Закреплён набор ") + pinned + (setName(parseInt(pinned, 10)) ? " · " + setName(parseInt(pinned, 10)) : "")));
+            t("Закреплён набор ") + pinned + (setName(parseInt(pinned, 10)) ? " | " + setName(parseInt(pinned, 10)) : "")));
         var forget = el("div", "margin-top:2px; padding:6px; text-align:center; border-radius:7px; cursor:pointer; font-size:11px; color:var(--mlbg-accent); background:rgba(var(--mlbg-accent-rgb),0.12); border:1px solid rgba(var(--mlbg-accent-rgb),0.28);", t("Забыть закрепление за проектом"));
         forget.addEventListener("click", function () { if (cfg.workspaceSets) delete cfg.workspaceSets[name]; apply(); refreshPanel(); });
         keyActivate(forget, t("Забыть закрепление набора за проектом"));
@@ -429,7 +429,7 @@ function makeCtxAutoUI(opts) {
         var cur = (cfg[opts.map] && cfg[opts.map][key] != null) ? String(cfg[opts.map][key]) : "";
         var none = el("option", null, "—"); none.value = ""; sel.appendChild(none);
         for (var i = 0; i < SETS.length; i++) {
-            var o = el("option", null, i + " · " + setName(i)); o.value = String(i);
+            var o = el("option", null, i + " | " + setName(i)); o.value = String(i);
             if (o.value === cur) o.selected = true; sel.appendChild(o);
         }
         sel.addEventListener("change", function () {
@@ -552,7 +552,7 @@ function makeSetPicker(which, label, info) {
         sel.appendChild(none);
     }
     for (var i = 0; i < SETS.length; i++) {
-        var o = el("option", null, i + " · " + setName(i)); o.value = String(i);
+        var o = el("option", null, i + " | " + setName(i)); o.value = String(i);
         if (cfg.autoTime && cfg.autoTime[which] === i) o.selected = true;
         sel.appendChild(o);
     }
@@ -580,7 +580,7 @@ function makeProjectFileUI() {
     var v = projectSetValue(), idx = projectFileIndex();
     var line = !v ? t("В файле проекта набор не задан.")
         : (idx === null ? t("В файле проекта: «") + v + t("» — такого набора нет.")
-            : t("Набор в файле проекта") + ": " + idx + (setName(idx) ? " · " + setName(idx) : ""));
+            : t("Набор в файле проекта") + ": " + idx + (setName(idx) ? " | " + setName(idx) : ""));
     box.appendChild(el("div", "padding:4px 3px; color:var(--mlp-muted,#a6adc8); font-size:11px;", line));
     var row = el("div", "display:flex; gap:6px; flex-wrap:wrap;");
     function btn(label, fn) {

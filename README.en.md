@@ -311,7 +311,7 @@ is lost on updates (a limitation of the mechanism, not this plugin).
 workbench), but the **MoonLight themes** work there — pick one via `Color Theme`.
 
 Still stuck / found a bug / have an idea?
-[Issues](https://github.com/moonlivedt-oss/custom_VScode/issues) ·
+[Issues](https://github.com/moonlivedt-oss/custom_VScode/issues) /
 [Discussions](https://github.com/moonlivedt-oss/custom_VScode/discussions).
 
 ---

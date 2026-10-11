@@ -50,7 +50,7 @@ function showQuickMenu(anchor) {
         list.forEach(function (idx) {
             var th = el("div", null); th.className = "mlp-qset" + (idx === cur ? " on" : "");
             try { paintSetPreview(th, idx); } catch (e) {}
-            th.title = idx + (setName(idx) ? " · " + setName(idx) : "");
+            th.title = idx + (setName(idx) ? " | " + setName(idx) : "");
             th.addEventListener("mouseenter", function () { previewSet(idx); });
             th.addEventListener("mouseleave", function () { previewEnd(); });
             th.addEventListener("click", function () {
@@ -128,7 +128,7 @@ function updateLabel() {
         item.title = t0; item.setAttribute("aria-label", t0);
         return;
     }
-    // Миниатюра набора + имя вместо «BG N · имя»: набор узнаётся по картинке.
+    // Миниатюра набора + имя вместо «BG N | имя»: набор узнаётся по картинке.
     a.textContent = "";
     var th = el("span", null); th.className = "mlbg-sb-thumb";
     th.style.cssText = "display:inline-block; position:relative; width:22px; height:13px; margin-right:6px; vertical-align:-2px; border-radius:3px; overflow:hidden; box-shadow:0 0 0 1px rgba(var(--mlbg-accent-rgb),0.6);";
@@ -153,7 +153,7 @@ function updateLabel() {
         else { dot.style.background = "var(--mlbg-accent)"; dot.style.border = "none"; }
     } else if (dot) { dot.remove(); }
 
-    var modeTxt = auto ? t(" · авто-набор по времени суток") : (slide ? t(" · слайдшоу вкл") : "");
+    var modeTxt = auto ? t(" | авто-набор по времени суток") : (slide ? t(" | слайдшоу вкл") : "");
     var title = t("Фон и дизайн — настройки") + (nm ? t(" (набор: ") + nm + ")" : "") + modeTxt +
         t("\nКлик — панель, колесо — листать наборы, правый клик — быстрые действия");
     item.title = title; item.setAttribute("aria-label", title);

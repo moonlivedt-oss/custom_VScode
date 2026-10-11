@@ -216,8 +216,8 @@ var EN = {
     "Код образа скопирован в буфер": "Look code copied to clipboard",
     "Не удалось сформировать код": "Could not build the code",
     "Всё в порядке": "All good",
-    "Всё в порядке · отчёт скопирован": "All good · report copied",
-    "Есть проблемы · отчёт скопирован для issue": "Problems found · report copied for an issue",
+    "Всё в порядке | отчёт скопирован": "All good | report copied",
+    "Есть проблемы | отчёт скопирован для issue": "Problems found | report copied for an issue",
 
     // -- Служебные фрагменты / метки --
     "Эффект: ": "Effect: ",
@@ -278,8 +278,8 @@ var EN = {
     "BG выкл": "BG off",
     "Фон и дизайн — настройки": "Background & design — settings",
     "Фон и дизайн — настройки (фон выключен, Ctrl+Alt+0 — включить)": "Background & design — settings (background off, Ctrl+Alt+0 to enable)",
-    " · авто-набор по времени суток": " · auto set by time of day",
-    " · слайдшоу вкл": " · slideshow on",
+    " | авто-набор по времени суток": " | auto set by time of day",
+    " | слайдшоу вкл": " | slideshow on",
     " (набор: ": " (set: ",
 
     // -- Пресеты (aria / title) --
@@ -288,8 +288,8 @@ var EN = {
     "Удалить пресет ": "Delete preset ",
 
     // -- Диагностика: составные ключи скрейпинга --
-    "Картинка · ": "Image · ",
-    "Чтение из DOM · ": "DOM read · ",
+    "Картинка | ": "Image | ",
+    "Чтение из DOM | ": "DOM read | ",
     "СБОЙ": "FAIL",
     "git-ветка": "git branch",
     "счётчик ошибок": "error count",
@@ -380,7 +380,7 @@ var EN = {
     // -- Чипы наборов / слайдеры --
     "Двойной клик — сброс к значению по умолчанию": "Double-click — reset to default",
     "Не грузится: ": "Not loading: ",
-    " (редактор · сайдбар · панель)": " (editor · sidebar · panel)",
+    " (редактор | сайдбар | панель)": " (editor | sidebar | panel)",
     "Случайный набор": "Random set",
 
     // -- Онбординг / профили --
@@ -512,7 +512,7 @@ var EN = {
     "Авто-бюджет FPS выключен — эффекты не приглушаются": "Auto FPS budget off — effects aren’t dimmed",
     "FPS не измеряется (нет тяжёлых эффектов)": "FPS not measured (no heavy effects)",
     "Производительность: ~": "Performance: ~",
-    " FPS · эконом-режим: ": " FPS · power-saving: ",
+    " FPS | эконом-режим: ": " FPS | power-saving: ",
     "вкл": "on",
     "выкл": "off",
     "Потянуть — ширина панели": "Drag — panel width",

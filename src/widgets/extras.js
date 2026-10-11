@@ -132,7 +132,7 @@ function ensureStats() {
 function paintStats() {
     var e0 = document.getElementById("mlbg-stats"); if (!e0) return; var a = e0.querySelector("a"); if (!a) return;
     var en = uiLang() === "en";
-    a.textContent = fmtDur(Date.now() - statsState.start) + " · " + statsState.fileCount + (en ? "f" : "ф") + " · " + statsState.keys + (en ? "k" : "к");
+    a.textContent = fmtDur(Date.now() - statsState.start) + " | " + statsState.fileCount + (en ? "f" : "ф") + " | " + statsState.keys + (en ? "k" : "к");
 }
 
 function syncWidgets() {

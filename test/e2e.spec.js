@@ -30,7 +30,7 @@ test.describe("MoonLight custom-bg — интеграция в живом DOM", 
         // 1. Кнопка BG появляется в статусбаре (heal() отработал на живом DOM).
         const btn = page.locator("#moonlight-bg-switcher");
         await expect(btn).toBeVisible({ timeout: 8000 });
-        // Кнопка — миниатюра набора + его имя (раньше «BG N · имя»).
+        // Кнопка — миниатюра набора + его имя (раньше «BG N | имя»).
         await expect(btn.locator(".mlbg-sb-thumb")).toHaveCount(1);
 
         // 2. Наш <style> инжектится в <head>, а переменная акцента выставлена на :root.

@@ -142,7 +142,7 @@ function cycleSet(dir) {
     cfg.mode = String(next); // из «случайно» — переходим на конкретный набор
     applyFade();
     if (document.getElementById(PANEL_ID)) refreshPanel();
-    try { toast(t("Набор ") + next + (setName(next) ? " · " + setName(next) : "")); } catch (e) {}
+    try { toast(t("Набор ") + next + (setName(next) ? " | " + setName(next) : "")); } catch (e) {}
 }
 function onHotkey(e) {
     try {

@@ -409,7 +409,7 @@ function makePerfStatus() {
         else {
             var fps = Math.round((typeof perf !== "undefined" && perf.fps) ? perf.fps : 60);
             var save = !!(typeof perf !== "undefined" && perf.save);
-            txt = t("Производительность: ~") + fps + t(" FPS · эконом-режим: ") + (save ? t("вкл") : t("выкл"));
+            txt = t("Производительность: ~") + fps + t(" FPS | эконом-режим: ") + (save ? t("вкл") : t("выкл"));
             line.style.color = save ? "#f9e2af" : "var(--mlp-faint,#6c7086)";
         }
         line.textContent = txt;

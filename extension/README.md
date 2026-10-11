@@ -7,8 +7,8 @@
 
 **Живой фон и панель оформления для VS Code — прямо внутри редактора.**
 
-Картинки по зонам · наборы со своей палитрой · фоны без единого ассета · слайд-шоу<br>
-Движок читаемости кода · шейдеры на GPU · настоящая прозрачность окна · 37 цветовых тем · RU / EN
+Картинки по зонам / наборы со своей палитрой / фоны без единого ассета / слайд-шоу<br>
+Движок читаемости кода / шейдеры на GPU / настоящая прозрачность окна / 37 цветовых тем / RU / EN
 
 <img src="https://raw.githubusercontent.com/moonlivedt-oss/custom_VScode/main/docs/screenshots/hero.webp" alt="MoonLight custom-bg в работе: код, дерево файлов и фон набора" width="880">
 
@@ -76,8 +76,8 @@ MoonLight custom-bg — это один самодостаточный скри�
 
 ## Ссылки
 
-[Исходники и подробная документация](https://github.com/moonlivedt-oss/custom_VScode) ·
-[Сообщить о проблеме](https://github.com/moonlivedt-oss/custom_VScode/issues) ·
+[Исходники и подробная документация](https://github.com/moonlivedt-oss/custom_VScode) /
+[Сообщить о проблеме](https://github.com/moonlivedt-oss/custom_VScode/issues) /
 [Обсуждения](https://github.com/moonlivedt-oss/custom_VScode/discussions)
 
 MIT.

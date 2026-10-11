@@ -30,7 +30,7 @@ function diagnostics() {
         : isProcSet(idx) ? " (проц.)"
         : isGradSet(idx) ? " (град.)"
         : (SETS[idx] && SETS[idx].master) ? " (мастер-кадр)" : " (фото)";
-    add("Активный набор", idx + " · " + (setName(idx) || "?") + kind);
+    add("Активный набор", idx + " | " + (setName(idx) || "?") + kind);
     var base = imgBase();
     add("Папка картинок", (base || "(путь не определён)") + (cfg.imgBase ? "  [задана вручную]" : "  [авто]"));
     add("Сетевые картинки", cfg.allowRemoteImages ? t("разрешены") : t("выключены"));
@@ -41,7 +41,7 @@ function diagnostics() {
     ["editor", "sidebar", "panel"].forEach(function (z, i) {
         var r = _zoneDiag(idx, z);
         if (r.bad) bad++;
-        lines.push(t("Картинка · ") + t(["редактор", "сайдбар", "панель"][i]) + ": " + r.s);
+        lines.push(t("Картинка | ") + t(["редактор", "сайдбар", "панель"][i]) + ": " + r.s);
     });
     add("Всего наборов", SETS.length + (SETS_DROPPED > 0 ? "  (отброшено битых: " + SETS_DROPPED + " — проверь правки SETS)" : ""));
     // «Здоровье» DOM-скрейпинга (git-ветка / счётчик ошибок / имя проекта): если селектор под
@@ -51,7 +51,7 @@ function diagnostics() {
         var health = scrapeHealth();
         health.forEach(function (h) {
             if (!h.ok) bad++;
-            lines.push(t("Чтение из DOM · ") + t(h.name) + ": " + (h.ok ? "" : t("СБОЙ") + " · ") + t(h.note));
+            lines.push(t("Чтение из DOM | ") + t(h.name) + ": " + (h.ok ? "" : t("СБОЙ") + " | ") + t(h.note));
         });
     }
     // Загрузчик: каким расширением внедрён скрипт. Компаньон кладёт это в
@@ -67,9 +67,9 @@ function diagnostics() {
         var lv = mlbgLive();
         if (lv) {
             lines.push(t("Живые данные") + ": " +
-                t("ветка") + " " + (lv.branch || "—") + " · " +
-                t("репозиторий") + " " + (lv.remote || "—") + " · " +
-                t("язык") + " " + (lv.languageId || "—") + " · " +
+                t("ветка") + " " + (lv.branch || "—") + " | " +
+                t("репозиторий") + " " + (lv.remote || "—") + " | " +
+                t("язык") + " " + (lv.languageId || "—") + " | " +
                 t("ошибок") + " " + (lv.errors === null ? "—" : lv.errors));
         }
     }
@@ -117,8 +117,8 @@ function makeDiagnosticsUI() {
         var d = diagnostics();
         out.textContent = d.text; out.hidden = false;
         var copied = copyText(d.text);
-        toast(d.ok ? (copied ? t("Всё в порядке · отчёт скопирован") : t("Всё в порядке"))
-                   : t("Есть проблемы · отчёт скопирован для issue"), d.ok);
+        toast(d.ok ? (copied ? t("Всё в порядке | отчёт скопирован") : t("Всё в порядке"))
+                   : t("Есть проблемы | отчёт скопирован для issue"), d.ok);
     });
     box.appendChild(runB); box.appendChild(out);
     return box;

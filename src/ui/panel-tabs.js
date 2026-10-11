@@ -71,7 +71,7 @@ function buildTabSets(tSet) {
     // Активный набор показываем всегда — чтобы было видно, что выбрано.
     var favN = 0; for (var fi = 0; fi < SETS.length; fi++) if (isFavSet(fi)) favN++;
     var onlyFav = !!cfg.ui.favOnly;
-    secSet.appendChild(makeSeg("", [["all", "Все"], ["fav", t("Любимые") + (favN ? " · " + favN : "")]],
+    secSet.appendChild(makeSeg("", [["all", "Все"], ["fav", t("Любимые") + (favN ? " | " + favN : "")]],
         function () { return onlyFav ? "fav" : "all"; },
         function (v) {
             cfg.ui.favOnly = v === "fav"; saveCfg(); refreshPanel();
@@ -110,7 +110,7 @@ function makeActiveRuleCard() {
     card.appendChild(pv);
     var txt = el("div", null); txt.className = "mlp-now-t";
     var nm = setName(r.idx);
-    txt.appendChild(el("b", null, t("Сейчас: набор ") + r.idx + (nm ? " · " + nm : "")));
+    txt.appendChild(el("b", null, t("Сейчас: набор ") + r.idx + (nm ? " | " + nm : "")));
     var WHY = {
         project: t("по файлу проекта") + (r.key ? " «" + r.key + "»" : ""),
         workspace: t("по проекту") + (r.key ? " «" + r.key + "»" : ""),

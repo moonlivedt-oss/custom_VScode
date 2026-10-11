@@ -95,7 +95,7 @@ function paintSaverClock() {
         : ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
     saver._clock.textContent = pad2(d.getHours()) + ":" + pad2(d.getMinutes());
     saver._date.textContent = days[d.getDay()] + ", " + pad2(d.getDate()) + "." + pad2(d.getMonth() + 1);
-    try { var i = activeIndex(), nm = setName(i); saver._setn.textContent = nm ? (t("Набор ") + i + " · " + nm) : ""; } catch (e) {}
+    try { var i = activeIndex(), nm = setName(i); saver._setn.textContent = nm ? (t("Набор ") + i + " | " + nm) : ""; } catch (e) {}
 }
 function screensaverTick() {
     if (!cfg.enabled || !cfg.screensaver || !cfg.screensaver.on || document.hidden) { if (saver.active) screensaverHide(); return; }

@@ -839,8 +839,8 @@ function dailyCopies(text) {
 // Строка для диагностики.
 function diskBackupInfo() {
     if (!_viaMoonCore) return "нет (нужен Moon Core)";
-    var from = cfgLoadedFrom === "disk" ? " · при старте восстановлен из резерва" :
-        cfgLoadedFrom === "install" ? " · применён вид из установщика" : "";
+    var from = cfgLoadedFrom === "disk" ? " | при старте восстановлен из резерва" :
+        cfgLoadedFrom === "install" ? " | применён вид из установщика" : "";
     if (_disk.lastErr) return "ошибка: " + _disk.lastErr + from;
     if (_disk.lastOk) {
         var d = new Date(_disk.lastOk);

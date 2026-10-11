@@ -11,7 +11,7 @@ function _pct(v) { return Math.round((typeof v === "number" ? v : 0) * 100) + "%
 function _modeLabel(c) {
     if (c.mode === "random") return t("случайно");
     var i = parseInt(c.mode, 10);
-    return isNaN(i) ? String(c.mode) : (t("Набор ") + i + (setNameIn(c, i) ? " · " + setNameIn(c, i) : ""));
+    return isNaN(i) ? String(c.mode) : (t("Набор ") + i + (setNameIn(c, i) ? " | " + setNameIn(c, i) : ""));
 }
 // Имя набора в конфиге c (его setName и его ген-наборы), а не в текущем.
 function setNameIn(c, i) {
